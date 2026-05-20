@@ -13,7 +13,7 @@ export function SiteHeader() {
   const { count } = useCart();
   return (
     <header className="sticky top-0 z-50 bg-background/80 backdrop-blur border-b border-border">
-      <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+      <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between px-4 md:px-6">
         <Link to="/" aria-label="NextWrist home"><Logo className="text-lg" /></Link>
         <nav className="hidden md:flex items-center gap-10 text-xs font-semibold tracking-widest text-muted-foreground">
           <Link to="/" className="hover:text-foreground transition" activeOptions={{ exact: true }} activeProps={{ className: "text-foreground" }}>HOME</Link>

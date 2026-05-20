@@ -52,10 +52,7 @@ function ProductPage() {
           <Link to="/" hash="watches" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5" /> Back to collection</Link>
         </div>
         <div className="max-w-7xl mx-auto px-6 pb-20 grid md:grid-cols-2 gap-12 items-center">
-          <div className="relative flex items-center justify-center min-h-[420px]">
-            <div aria-hidden className="absolute inset-0 rounded-full blur-3xl opacity-70" style={{ background: `radial-gradient(circle, ${c.glow}, transparent 60%)` }} />
-            <img src={c.img} alt={c.name} className="relative max-h-[520px] object-contain drop-shadow-2xl" />
-          </div>
+          
           <div>
             <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground">POCKET WATCH</p>
             <h1 className="mt-4 font-black tracking-tighter text-[clamp(2.5rem,6vw,4.5rem)] leading-[0.95]">{c.name}</h1>
@@ -89,6 +86,10 @@ function ProductPage() {
             <p className="mt-10 text-xs text-muted-foreground">
               By purchasing, you agree to our <Link to="/policies/terms" className="underline">Terms</Link>, <Link to="/policies/delivery" className="underline">Shipping</Link> and <Link to="/policies/refund" className="underline">Refund</Link> policies.
             </p>
+          </div>
+          <div className="relative flex items-center justify-center min-h-[420px]">
+            <div aria-hidden className="absolute inset-0 rounded-full blur-3xl opacity-70" style={{ background: `radial-gradient(circle, ${c.glow}, transparent 60%)` }} />
+            <img src={c.img} alt={c.name} className="relative max-h-[520px] object-contain drop-shadow-2xl" />
           </div>
         </div>
       </section>
