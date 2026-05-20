@@ -24,86 +24,193 @@ function Index() {
     <SiteLayout>
       {/* HERO */}
       <section id="home" className="relative overflow-hidden">
-        <div
-          aria-hidden
-          key={selected.name + "-bg"}
-          className="absolute inset-0 -z-10 transition-[background] duration-700"
-          style={{
-            background: `radial-gradient(60% 60% at 70% 50%, ${selected.glow} 0%, rgba(255,255,255,0) 60%), linear-gradient(180deg, #fff, #fafafa)`,
-          }}
-        />
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 md:py-28 grid md:grid-cols-2 gap-12 items-center">
-          <div>
-            <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground mb-6">
-              8 COLORWAYS · 11 STRAPS · FREE SHIPPING
-            </p>
-            <h1 className="font-black tracking-tighter leading-[0.95] text-[clamp(2.4rem,12vw,6.5rem)]">
-              TIME<br />REDEFINED.
-            </h1>
-            <p className="mt-8 text-lg text-muted-foreground max-w-md">
-              Premium pocket watches engineered for everyday wear.<br />
-              Eight signature colorways. Built to last.
-            </p>
-            <div className="mt-10 flex flex-wrap gap-3">
-              <Link to="/products/$slug" params={{ slug: selected.slug }} className="inline-flex items-center gap-2 bg-foreground text-background px-6 py-3.5 rounded-full text-sm font-semibold hover:opacity-90 transition">
-                Get this watch — {formatPrice(WATCH_PRICE)} <ArrowRight className="size-4" />
-              </Link>
-              <Link to="/" hash="straps" className="inline-flex items-center gap-2 border border-border bg-card px-6 py-3.5 rounded-full text-sm font-semibold hover:bg-muted transition">
-                View Straps
-              </Link>
-            </div>
-            <div className="mt-10">
-              <p className="text-xs font-semibold tracking-widest text-muted-foreground mb-3">
-                COLOR: <span className="text-foreground">{selected.name.toUpperCase()}</span>
-              </p>
-              <div className="flex gap-3 flex-wrap">
-                {colorways.map((c, i) => (
-                  <button
-                    key={c.slug}
-                    onClick={() => setSelectedIdx(i)}
-                    aria-label={c.name}
-                    aria-pressed={i === selectedIdx}
-                    className={`size-8 rounded-full border-2 transition ${i === selectedIdx ? "border-foreground scale-110 ring-2 ring-foreground/10 ring-offset-2" : "border-border hover:scale-110"}`}
-                    style={{ background: c.hex }}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
+  <div
+    aria-hidden
+    key={selected.name + "-bg"}
+    className="absolute inset-0 -z-10 transition-[background] duration-700"
+    style={{
+      background: `radial-gradient(60% 60% at 70% 50%, ${selected.glow} 0%, rgba(255,255,255,0) 60%), linear-gradient(180deg, #fff, #fafafa)`,
+    }}
+  />
 
-          <div className="order-first md:order-last relative flex items-center justify-center min-h-[420px] md:min-h-[560px]">
-            <div
-              aria-hidden
-              key={selected.name + "-glow"}
-              className="absolute inset-0 rounded-full blur-3xl opacity-70 transition-opacity duration-700"
-              style={{ background: `radial-gradient(circle, ${selected.glow}, transparent 60%)` }}
-            />
-            <img
-              key={selected.img}
-              src={selected.img}
-              alt={selected.name}
-              className="relative max-h-[340px] md:max-h-[520px] object-contain drop-shadow-2xl animate-in fade-in zoom-in-95 duration-500"
-            />
-            <div className="absolute top-6 left-2 md:left-12 bg-card border border-border rounded-2xl shadow-lg px-4 py-3 text-sm">
-              <p className="font-semibold flex items-center gap-1.5"><Factory className="size-3.5" /> Direct from factory</p>
-              <p className="text-xs text-muted-foreground">No middlemen</p>
-            </div>
-            <div className="absolute bottom-10 right-2 md:right-8 bg-card border border-border rounded-2xl shadow-lg px-4 py-3">
-              <p className="text-sm font-semibold flex items-center gap-1"><Star className="size-3.5 fill-foreground" /> 4.9 / 5.0</p>
-              <p className="text-xs text-muted-foreground">52 verified</p>
-            </div>
+  <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 md:py-28 grid md:grid-cols-2 gap-12 items-center">
+
+    {/* LEFT CONTENT */}
+    <div className="order-1">
+      <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground mb-6">
+        8 COLORWAYS · 11 STRAPS · FREE SHIPPING
+      </p>
+
+      <h1 className="font-black tracking-tighter leading-[0.95] text-[clamp(2.4rem,12vw,6.5rem)]">
+        TIME<br />REDEFINED.
+      </h1>
+
+      <p className="mt-8 text-lg text-muted-foreground max-w-md">
+        Premium pocket watches engineered for everyday wear.
+        <br />
+        Eight signature colorways. Built to last.
+      </p>
+
+      {/* DESKTOP CTA */}
+      <div className="hidden md:block">
+        <p className="mt-8 text-3xl font-black tracking-tight">
+          {formatPrice(WATCH_PRICE)}
+        </p>
+
+        <div className="mt-10">
+          <p className="text-xs font-semibold tracking-widest text-muted-foreground mb-3">
+            COLOR:{" "}
+            <span className="text-foreground">
+              {selected.name.toUpperCase()}
+            </span>
+          </p>
+
+          <div className="flex gap-3 flex-wrap">
+            {colorways.map((c, i) => (
+              <button
+                key={c.slug}
+                onClick={() => setSelectedIdx(i)}
+                aria-label={c.name}
+                aria-pressed={i === selectedIdx}
+                className={`size-8 rounded-full border-2 transition ${
+                  i === selectedIdx
+                    ? "border-foreground scale-110 ring-2 ring-foreground/10 ring-offset-2"
+                    : "border-border hover:scale-110"
+                }`}
+                style={{ background: c.hex }}
+              />
+            ))}
           </div>
         </div>
 
-        <div className="border-y border-border bg-card">
-          <div className="max-w-7xl mx-auto px-6 py-4 flex flex-wrap items-center justify-center gap-x-10 gap-y-2 text-xs text-muted-foreground">
-            <span className="flex items-center gap-2"><Star className="size-3.5 fill-foreground text-foreground" /> 4.8 — 19 verified reviews</span>
-            <span>Free worldwide shipping</span>
-            <span>30-day returns</span>
-            <span>12-month warranty</span>
-          </div>
+        <div className="mt-10 flex flex-wrap gap-3">
+          <Link
+            to="/products/$slug"
+            params={{ slug: selected.slug }}
+            className="inline-flex items-center gap-2 bg-foreground text-background px-6 py-3.5 rounded-full text-sm font-semibold hover:opacity-90 transition"
+          >
+            Get this watch — {formatPrice(WATCH_PRICE)}
+            <ArrowRight className="size-4" />
+          </Link>
+
+          <Link
+            to="/"
+            hash="straps"
+            className="inline-flex items-center gap-2 border border-border bg-card px-6 py-3.5 rounded-full text-sm font-semibold hover:bg-muted transition"
+          >
+            View Straps
+          </Link>
         </div>
-      </section>
+      </div>
+    </div>
+
+    {/* IMAGE */}
+    <div className="order-2 md:order-last relative flex items-center justify-center min-h-[420px] md:min-h-[560px]">
+      <div
+        aria-hidden
+        key={selected.name + "-glow"}
+        className="absolute inset-0 rounded-full blur-3xl opacity-70 transition-opacity duration-700"
+        style={{
+          background: `radial-gradient(circle, ${selected.glow}, transparent 60%)`,
+        }}
+      />
+
+      <img
+        key={selected.img}
+        src={selected.img}
+        alt={selected.name}
+        className="relative max-h-[340px] md:max-h-[520px] object-contain drop-shadow-2xl animate-in fade-in zoom-in-95 duration-500"
+      />
+
+      <div className="absolute top-6 left-2 md:left-12 bg-card border border-border rounded-2xl shadow-lg px-4 py-3 text-sm">
+        <p className="font-semibold flex items-center gap-1.5">
+          <Factory className="size-3.5" />
+          Direct from factory
+        </p>
+
+        <p className="text-xs text-muted-foreground">
+          No middlemen
+        </p>
+      </div>
+
+      <div className="absolute bottom-10 right-2 md:right-8 bg-card border border-border rounded-2xl shadow-lg px-4 py-3">
+        <p className="text-sm font-semibold flex items-center gap-1">
+          <Star className="size-3.5 fill-foreground" />
+          4.9 / 5.0
+        </p>
+
+        <p className="text-xs text-muted-foreground">
+          52 verified
+        </p>
+      </div>
+    </div>
+
+    {/* MOBILE CTA */}
+    <div className="order-3 md:hidden">
+      <p className="text-3xl font-black tracking-tight">
+        {formatPrice(WATCH_PRICE)}
+      </p>
+
+      <div className="mt-6">
+        <p className="text-xs font-semibold tracking-widest text-muted-foreground mb-3">
+          COLOR:{" "}
+          <span className="text-foreground">
+            {selected.name.toUpperCase()}
+          </span>
+        </p>
+
+        <div className="flex gap-3 flex-wrap">
+          {colorways.map((c, i) => (
+            <button
+              key={c.slug}
+              onClick={() => setSelectedIdx(i)}
+              aria-label={c.name}
+              aria-pressed={i === selectedIdx}
+              className={`size-8 rounded-full border-2 transition ${
+                i === selectedIdx
+                  ? "border-foreground scale-110 ring-2 ring-foreground/10 ring-offset-2"
+                  : "border-border hover:scale-110"
+              }`}
+              style={{ background: c.hex }}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-8 flex flex-wrap gap-3">
+        <Link
+          to="/products/$slug"
+          params={{ slug: selected.slug }}
+          className="inline-flex items-center gap-2 bg-foreground text-background px-6 py-3.5 rounded-full text-sm font-semibold hover:opacity-90 transition"
+        >
+          Get this watch — {formatPrice(WATCH_PRICE)}
+          <ArrowRight className="size-4" />
+        </Link>
+
+        <Link
+          to="/"
+          hash="straps"
+          className="inline-flex items-center gap-2 border border-border bg-card px-6 py-3.5 rounded-full text-sm font-semibold hover:bg-muted transition"
+        >
+          View Straps
+        </Link>
+      </div>
+    </div>
+  </div>
+
+  <div className="border-y border-border bg-card">
+    <div className="max-w-7xl mx-auto px-6 py-4 flex flex-wrap items-center justify-center gap-x-10 gap-y-2 text-xs text-muted-foreground">
+      <span className="flex items-center gap-2">
+        <Star className="size-3.5 fill-foreground text-foreground" />
+        4.8 — 19 verified reviews
+      </span>
+
+      <span>Free worldwide shipping</span>
+      <span>30-day returns</span>
+      <span>12-month warranty</span>
+    </div>
+  </div>
+</section>
 
       {/* FEATURES */}
       <section className="max-w-7xl mx-auto px-6 py-20 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
