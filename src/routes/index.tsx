@@ -32,12 +32,12 @@ function Index() {
             background: `radial-gradient(60% 60% at 70% 50%, ${selected.glow} 0%, rgba(255,255,255,0) 60%), linear-gradient(180deg, #fff, #fafafa)`,
           }}
         />
-        <div className="max-w-7xl mx-auto px-6 py-20 md:py-28 grid md:grid-cols-2 gap-12 items-center">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-12 md:py-28 grid md:grid-cols-2 gap-12 items-center">
           <div>
             <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground mb-6">
               8 COLORWAYS · 11 STRAPS · FREE SHIPPING
             </p>
-            <h1 className="font-black tracking-tighter leading-[0.95] text-[clamp(3rem,8vw,6.5rem)]">
+            <h1 className="font-black tracking-tighter leading-[0.95] text-[clamp(2.4rem,12vw,6.5rem)]">
               TIME<br />REDEFINED.
             </h1>
             <p className="mt-8 text-lg text-muted-foreground max-w-md">
@@ -82,7 +82,7 @@ function Index() {
               key={selected.img}
               src={selected.img}
               alt={selected.name}
-              className="relative max-h-[520px] object-contain drop-shadow-2xl animate-in fade-in zoom-in-95 duration-500"
+              className="relative max-h-[340px] md:max-h-[520px] object-contain drop-shadow-2xl animate-in fade-in zoom-in-95 duration-500"
             />
             <div className="absolute top-6 left-2 md:left-12 bg-card border border-border rounded-2xl shadow-lg px-4 py-3 text-sm">
               <p className="font-semibold flex items-center gap-1.5"><Factory className="size-3.5" /> Direct from factory</p>
@@ -106,7 +106,7 @@ function Index() {
       </section>
 
       {/* FEATURES */}
-      <section className="max-w-7xl mx-auto px-6 py-20 grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <section className="max-w-7xl mx-auto px-6 py-20 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {[
           { icon: Truck, title: "Free Shipping", sub: "Worldwide delivery" },
           { icon: Factory, title: "Manufacturer-Direct", sub: "Better quality, better price" },
@@ -174,7 +174,7 @@ function Index() {
           </p>
         </div>
 
-        <div className="mt-12 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+        <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
           {straps.map((s) => (
             <Link
               key={s.slug}
@@ -204,7 +204,7 @@ function Index() {
           Eight signature colorways. Each one {formatPrice(WATCH_PRICE)}. Free worldwide shipping.
         </p>
 
-        <div className="mt-14 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
+        <div className="mt-14 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
           {colorways.map((c) => (
             <Link
               key={c.slug}
