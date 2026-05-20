@@ -52,46 +52,137 @@ function ProductPage() {
           <Link to="/" hash="watches" className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5" /> Back to collection</Link>
         </div>
         <div className="max-w-7xl mx-auto px-6 pb-20 grid md:grid-cols-2 gap-12 items-center">
-          
-          <div>
-            <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground">POCKET WATCH</p>
-            <h1 className="mt-4 font-black tracking-tighter text-[clamp(2.5rem,6vw,4.5rem)] leading-[0.95]">{c.name}</h1>
-            <p className="mt-6 text-3xl font-black tracking-tight">{formatPrice(WATCH_PRICE)}</p>
-            <p className="mt-4 text-muted-foreground max-w-md">
-              The {c.name} pocket watch. Bioceramic case, precision quartz movement,
-              and a finish that's built to last.
-            </p>
 
-            <div className="mt-8 flex flex-wrap gap-3">
-              <a
-                href={getStripePaymentLinkUrl("watch")}
-                className="inline-flex items-center gap-2 bg-foreground text-background px-7 py-4 rounded-full text-sm font-semibold hover:opacity-90 transition"
-              >
-                Buy now — {formatPrice(WATCH_PRICE)} <ArrowRight className="size-4" />
-              </a>
-              <button
-                onClick={() => add({ type: "watch", slug: c.slug, name: c.name, price: WATCH_PRICE, img: c.img })}
-                className="inline-flex items-center gap-2 border border-border bg-card px-7 py-4 rounded-full text-sm font-semibold hover:bg-muted transition"
-              >
-                Add to cart
-              </button>
-            </div>
+  {/* TEXT */}
+  <div className="order-1">
+    <p className="text-xs font-semibold tracking-[0.2em] text-muted-foreground">
+      POCKET WATCH
+    </p>
 
-            <ul className="mt-10 space-y-3 text-sm">
-              <li className="flex items-start gap-3"><Truck className="size-4 mt-0.5" /> <span>Free worldwide shipping.</span></li>
-              <li className="flex items-start gap-3"><RotateCcw className="size-4 mt-0.5" /> <span>30-day hassle-free returns.</span></li>
-              <li className="flex items-start gap-3"><ShieldCheck className="size-4 mt-0.5" /> <span>12-month manufacturer warranty.</span></li>
-            </ul>
+    <h1 className="mt-4 font-black tracking-tighter text-[clamp(2.5rem,6vw,4.5rem)] leading-[0.95]">
+      {c.name}
+    </h1>
 
-            <p className="mt-10 text-xs text-muted-foreground">
-              By purchasing, you agree to our <Link to="/policies/terms" className="underline">Terms</Link>, <Link to="/policies/delivery" className="underline">Shipping</Link> and <Link to="/policies/refund" className="underline">Refund</Link> policies.
-            </p>
-          </div>
-          <div className="order-first md:order-last relative flex items-center justify-center min-h-[420px]">
-            <div aria-hidden className="absolute inset-0 rounded-full blur-3xl opacity-70" style={{ background: `radial-gradient(circle, ${c.glow}, transparent 60%)` }} />
-            <img src={c.img} alt={c.name} className="relative max-h-[520px] object-contain drop-shadow-2xl" />
-          </div>
-        </div>
+    <p className="mt-4 text-muted-foreground max-w-md">
+      The {c.name} pocket watch. Bioceramic case, precision quartz movement,
+      and a finish that's built to last.
+    </p>
+
+    {/* DESKTOP PRICE + BUTTONS */}
+    <div className="hidden md:block">
+      <p className="mt-6 text-3xl font-black tracking-tight">
+        {formatPrice(WATCH_PRICE)}
+      </p>
+
+      <div className="mt-8 flex flex-wrap gap-3">
+        <a
+          href={getStripePaymentLinkUrl("watch")}
+          className="inline-flex items-center gap-2 bg-foreground text-background px-7 py-4 rounded-full text-sm font-semibold hover:opacity-90 transition"
+        >
+          Buy now — {formatPrice(WATCH_PRICE)}
+          <ArrowRight className="size-4" />
+        </a>
+
+        <button
+          onClick={() =>
+            add({
+              type: "watch",
+              slug: c.slug,
+              name: c.name,
+              price: WATCH_PRICE,
+              img: c.img,
+            })
+          }
+          className="inline-flex items-center gap-2 border border-border bg-card px-7 py-4 rounded-full text-sm font-semibold hover:bg-muted transition"
+        >
+          Add to cart
+        </button>
+      </div>
+    </div>
+
+    <ul className="mt-10 space-y-3 text-sm">
+      <li className="flex items-start gap-3">
+        <Truck className="size-4 mt-0.5" />
+        <span>Free worldwide shipping.</span>
+      </li>
+
+      <li className="flex items-start gap-3">
+        <RotateCcw className="size-4 mt-0.5" />
+        <span>30-day hassle-free returns.</span>
+      </li>
+
+      <li className="flex items-start gap-3">
+        <ShieldCheck className="size-4 mt-0.5" />
+        <span>12-month manufacturer warranty.</span>
+      </li>
+    </ul>
+
+    <p className="mt-10 text-xs text-muted-foreground">
+      By purchasing, you agree to our{" "}
+      <Link to="/policies/terms" className="underline">
+        Terms
+      </Link>
+      ,{" "}
+      <Link to="/policies/delivery" className="underline">
+        Shipping
+      </Link>{" "}
+      and{" "}
+      <Link to="/policies/refund" className="underline">
+        Refund
+      </Link>{" "}
+      policies.
+    </p>
+  </div>
+
+  {/* IMAGE */}
+  <div className="order-2 md:order-last relative flex items-center justify-center min-h-[420px]">
+    <div
+      aria-hidden
+      className="absolute inset-0 rounded-full blur-3xl opacity-70"
+      style={{
+        background: `radial-gradient(circle, ${c.glow}, transparent 60%)`,
+      }}
+    />
+
+    <img
+      src={c.img}
+      alt={c.name}
+      className="relative max-h-[520px] object-contain drop-shadow-2xl"
+    />
+  </div>
+
+  {/* MOBILE PRICE + BUTTONS */}
+  <div className="order-3 md:hidden">
+    <p className="text-3xl font-black tracking-tight">
+      {formatPrice(WATCH_PRICE)}
+    </p>
+
+    <div className="mt-8 flex flex-wrap gap-3">
+      <a
+        href={getStripePaymentLinkUrl("watch")}
+        className="inline-flex items-center gap-2 bg-foreground text-background px-7 py-4 rounded-full text-sm font-semibold hover:opacity-90 transition"
+      >
+        Buy now — {formatPrice(WATCH_PRICE)}
+        <ArrowRight className="size-4" />
+      </a>
+
+      <button
+        onClick={() =>
+          add({
+            type: "watch",
+            slug: c.slug,
+            name: c.name,
+            price: WATCH_PRICE,
+            img: c.img,
+          })
+        }
+        className="inline-flex items-center gap-2 border border-border bg-card px-7 py-4 rounded-full text-sm font-semibold hover:bg-muted transition"
+      >
+        Add to cart
+      </button>
+    </div>
+  </div>
+</div>
       </section>
 
       <section className="max-w-7xl mx-auto px-6 py-20 border-t border-border">
