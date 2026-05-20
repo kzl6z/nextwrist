@@ -1,0 +1,5 @@
+# Copier vers .dev.vars pour le dev Cloudflare (wrangler dev)
+# cp .dev.vars.example .dev.vars
+
+STRIPE_SECRET_KEY=sk_test_VOTRE_CLE
+STRIPE_WEBHOOK_SECRET=whsec_VOTRE_SECRET

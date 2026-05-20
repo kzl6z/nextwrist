@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nextwrist",
+  "compatibility_date": "2025-09-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "src/server.ts",
+  // Secrets (wrangler secret put): STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
+  "vars": {
+    "SITE_URL": "https://nextwrist.online"
+  }
+  // Domaine : Cloudflare Dashboard → Workers → nextwrist → Domains → nextwrist.online
+}
