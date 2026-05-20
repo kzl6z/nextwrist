@@ -67,71 +67,6 @@ function ProductPage() {
       The {c.name} pocket watch. Bioceramic case, precision quartz movement,
       and a finish that's built to last.
     </p>
-
-    {/* DESKTOP PRICE + BUTTONS */}
-    <div className="hidden md:block">
-      <p className="mt-6 text-3xl font-black tracking-tight">
-        {formatPrice(WATCH_PRICE)}
-      </p>
-
-      <div className="mt-8 flex flex-wrap gap-3">
-        <a
-          href={getStripePaymentLinkUrl("watch")}
-          className="inline-flex items-center gap-2 bg-foreground text-background px-7 py-4 rounded-full text-sm font-semibold hover:opacity-90 transition"
-        >
-          Buy now — {formatPrice(WATCH_PRICE)}
-          <ArrowRight className="size-4" />
-        </a>
-
-        <button
-          onClick={() =>
-            add({
-              type: "watch",
-              slug: c.slug,
-              name: c.name,
-              price: WATCH_PRICE,
-              img: c.img,
-            })
-          }
-          className="inline-flex items-center gap-2 border border-border bg-card px-7 py-4 rounded-full text-sm font-semibold hover:bg-muted transition"
-        >
-          Add to cart
-        </button>
-      </div>
-    </div>
-
-    <ul className="mt-10 space-y-3 text-sm">
-      <li className="flex items-start gap-3">
-        <Truck className="size-4 mt-0.5" />
-        <span>Free worldwide shipping.</span>
-      </li>
-
-      <li className="flex items-start gap-3">
-        <RotateCcw className="size-4 mt-0.5" />
-        <span>30-day hassle-free returns.</span>
-      </li>
-
-      <li className="flex items-start gap-3">
-        <ShieldCheck className="size-4 mt-0.5" />
-        <span>12-month manufacturer warranty.</span>
-      </li>
-    </ul>
-
-    <p className="mt-10 text-xs text-muted-foreground">
-      By purchasing, you agree to our{" "}
-      <Link to="/policies/terms" className="underline">
-        Terms
-      </Link>
-      ,{" "}
-      <Link to="/policies/delivery" className="underline">
-        Shipping
-      </Link>{" "}
-      and{" "}
-      <Link to="/policies/refund" className="underline">
-        Refund
-      </Link>{" "}
-      policies.
-    </p>
   </div>
 
   {/* IMAGE */}
@@ -181,7 +116,107 @@ function ProductPage() {
         Add to cart
       </button>
     </div>
+
+    {/* MOBILE INFOS */}
+    <ul className="mt-10 space-y-3 text-sm">
+      <li className="flex items-start gap-3">
+        <Truck className="size-4 mt-0.5" />
+        <span>Free worldwide shipping.</span>
+      </li>
+
+      <li className="flex items-start gap-3">
+        <RotateCcw className="size-4 mt-0.5" />
+        <span>30-day hassle-free returns.</span>
+      </li>
+
+      <li className="flex items-start gap-3">
+        <ShieldCheck className="size-4 mt-0.5" />
+        <span>12-month manufacturer warranty.</span>
+      </li>
+    </ul>
+
+    <p className="mt-10 text-xs text-muted-foreground">
+      By purchasing, you agree to our{" "}
+      <Link to="/policies/terms" className="underline">
+        Terms
+      </Link>
+      ,{" "}
+      <Link to="/policies/delivery" className="underline">
+        Shipping
+      </Link>{" "}
+      and{" "}
+      <Link to="/policies/refund" className="underline">
+        Refund
+      </Link>{" "}
+      policies.
+    </p>
   </div>
+
+  {/* DESKTOP RIGHT SIDE */}
+  <div className="hidden md:block">
+    <p className="mt-6 text-3xl font-black tracking-tight">
+      {formatPrice(WATCH_PRICE)}
+    </p>
+
+    <div className="mt-8 flex flex-wrap gap-3">
+      <a
+        href={getStripePaymentLinkUrl("watch")}
+        className="inline-flex items-center gap-2 bg-foreground text-background px-7 py-4 rounded-full text-sm font-semibold hover:opacity-90 transition"
+      >
+        Buy now — {formatPrice(WATCH_PRICE)}
+        <ArrowRight className="size-4" />
+      </a>
+
+      <button
+        onClick={() =>
+          add({
+            type: "watch",
+            slug: c.slug,
+            name: c.name,
+            price: WATCH_PRICE,
+            img: c.img,
+          })
+        }
+        className="inline-flex items-center gap-2 border border-border bg-card px-7 py-4 rounded-full text-sm font-semibold hover:bg-muted transition"
+      >
+        Add to cart
+      </button>
+    </div>
+
+    <ul className="mt-10 space-y-3 text-sm">
+      <li className="flex items-start gap-3">
+        <Truck className="size-4 mt-0.5" />
+        <span>Free worldwide shipping.</span>
+      </li>
+
+      <li className="flex items-start gap-3">
+        <RotateCcw className="size-4 mt-0.5" />
+        <span>30-day hassle-free returns.</span>
+      </li>
+
+      <li className="flex items-start gap-3">
+        <ShieldCheck className="size-4 mt-0.5" />
+        <span>12-month manufacturer warranty.</span>
+      </li>
+    </ul>
+
+    <p className="mt-10 text-xs text-muted-foreground">
+      By purchasing, you agree to our{" "}
+      <Link to="/policies/terms" className="underline">
+        Terms
+      </Link>
+      ,{" "}
+      <Link to="/policies/delivery" className="underline">
+        Shipping
+      </Link>{" "}
+      and{" "}
+      <Link to="/policies/refund" className="underline">
+        Refund
+      </Link>{" "}
+      policies.
+    </p>
+  </div>
+
 </div>
       </section>
 
