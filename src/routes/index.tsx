@@ -71,7 +71,7 @@ function Index() {
             </div>
           </div>
 
-          <div className="relative flex items-center justify-center min-h-[420px] md:min-h-[560px]">
+          <div className="order-first md:order-last relative flex items-center justify-center min-h-[420px] md:min-h-[560px]">
             <div
               aria-hidden
               key={selected.name + "-glow"}
