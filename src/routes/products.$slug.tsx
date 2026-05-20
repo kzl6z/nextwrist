@@ -87,7 +87,7 @@ function ProductPage() {
               By purchasing, you agree to our <Link to="/policies/terms" className="underline">Terms</Link>, <Link to="/policies/delivery" className="underline">Shipping</Link> and <Link to="/policies/refund" className="underline">Refund</Link> policies.
             </p>
           </div>
-          <div className="relative flex items-center justify-center min-h-[420px]">
+          <div className="order-first md:order-last relative flex items-center justify-center min-h-[420px]">
             <div aria-hidden className="absolute inset-0 rounded-full blur-3xl opacity-70" style={{ background: `radial-gradient(circle, ${c.glow}, transparent 60%)` }} />
             <img src={c.img} alt={c.name} className="relative max-h-[520px] object-contain drop-shadow-2xl" />
           </div>
