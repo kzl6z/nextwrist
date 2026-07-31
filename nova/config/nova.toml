@@ -1,0 +1,19 @@
+# Reglages metier. Modifiables sans toucher au code.
+# Les valeurs techniques (URL, modeles) sont dans .env, pas ici.
+
+[recherche]
+# Nombre d'extraits injectes dans le contexte. 4-8 est la bonne zone :
+# en dessous Nova manque d'information, au dessus le signal se noie.
+extraits_max = 6
+# Nombre de candidats remontes par chaque moteur avant fusion.
+candidats_par_moteur = 20
+
+[decoupage]
+# ~1000 caracteres : assez pour garder un raisonnement entier,
+# assez petit pour que l'extrait reste precis.
+taille = 1000
+recouvrement = 150
+
+[memoire]
+# Au dela, on n'injecte plus tous les faits : il faudra les hierarchiser (V0.3).
+faits_max_dans_prompt = 80

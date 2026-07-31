@@ -1,0 +1,56 @@
+# Toute la pile Nova. Ollama tourne sur la MACHINE HOTE (pas ici) : c'est le seul
+# moyen simple d'utiliser le GPU, et ca evite de re-telecharger les modeles.
+services:
+  db:
+    # Image Postgres avec l'extension pgvector deja compilee. Version EPINGLEE.
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: nova
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?definis POSTGRES_PASSWORD dans .env}
+      POSTGRES_DB: nova
+    volumes:
+      # ./data/postgres = TES DONNEES. C'est ce qu'il faut sauvegarder.
+      - ./data/postgres:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"   # 127.0.0.1 : jamais expose au reseau
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nova"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  nova:
+    build: .
+    environment:
+      NOVA_DATABASE_URL: postgresql://nova:${POSTGRES_PASSWORD}@db:5432/nova
+      NOVA_OLLAMA_URL: ${NOVA_OLLAMA_URL:-http://host.docker.internal:11434/v1}
+      NOVA_CHAT_MODEL: ${NOVA_CHAT_MODEL:-qwen3:8b}
+      NOVA_EMBEDDING_MODEL: ${NOVA_EMBEDDING_MODEL:-bge-m3}
+    volumes:
+      - ./config:/app/config:ro
+      - ./data/documents:/app/data/documents
+    ports:
+      - "127.0.0.1:8100:8100"
+    depends_on:
+      db:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # permet de joindre Ollama sur l'hote
+    restart: unless-stopped
+
+  ui:
+    image: ghcr.io/open-webui/open-webui:v0.5.20
+    environment:
+      # L'interface ne connait QUE Nova. Elle ne parle jamais a Ollama directement :
+      # c'est ce qui garantit que la memoire est toujours appliquee.
+      OPENAI_API_BASE_URL: http://nova:8100/v1
+      OPENAI_API_KEY: nova-local
+      ENABLE_OLLAMA_API: "false"
+      WEBUI_AUTH: "true"
+    volumes:
+      - ./data/openwebui:/app/backend/data
+    ports:
+      - "127.0.0.1:3000:8080"
+    depends_on:
+      - nova
+    restart: unless-stopped

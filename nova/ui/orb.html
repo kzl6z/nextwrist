@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nova — sphère d'état</title>
+<style>
+  /* Direction artistique : docs/nova/10-direction-artistique.md
+     Règle fondatrice — l'interface est en niveaux de gris.
+     La couleur n'existe QUE là où Nova pense. */
+  :root {
+    --void:    #0A0C10;
+    --surface: #12151B;
+    --raised:  #1A1E26;
+    --line:    #262B34;
+    --text:    #E9ECF1;
+    --muted:   #9AA3B0;
+    --faint:   #5C6673;
+    --halo:    #7FE0DC;
+    --ease:    cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: radial-gradient(120% 90% at 50% 0%, #10141B 0%, var(--void) 60%);
+    color: var(--text);
+    font: 15px/1.65 "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 40px; padding: 48px 24px;
+  }
+  .stage { position: relative; width: 260px; height: 260px; }
+  canvas { width: 100%; height: 100%; display: block; }
+
+  .wordmark {
+    font-size: 12px; letter-spacing: 0.42em; text-indent: 0.42em;
+    color: var(--muted); text-align: center; font-weight: 500;
+  }
+  /* L'interlettrage large est réservé au logotype. Nulle part ailleurs. */
+
+  .caption { color: var(--faint); font-size: 13px; text-align: center; max-width: 46ch; }
+
+  .states { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  button {
+    font: inherit; font-size: 13px; color: var(--muted);
+    background: var(--surface); border: 1px solid var(--line);
+    padding: 8px 16px; border-radius: 999px; cursor: pointer;
+    transition: color 120ms var(--ease), background 120ms var(--ease),
+                border-color 120ms var(--ease);
+  }
+  button:hover  { color: var(--text); border-color: #333A45; }
+  /* État actif : aucune couleur — contraste et graisse seulement. */
+  button[aria-pressed="true"] { background: var(--raised); color: var(--text); border-color: #3A424E; }
+  button:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
+
+  .readout {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px; color: var(--faint); letter-spacing: 0.04em;
+  }
+</style>
+</head>
+<body>
+
+  <div class="stage"><canvas id="orb" aria-label="État de Nova" role="img"></canvas></div>
+
+  <div>
+    <div class="wordmark">NOVA</div>
+    <p class="readout" id="readout" style="text-align:center;margin:10px 0 0">état · veille</p>
+  </div>
+
+  <div class="states">
+    <button data-state="veille"    aria-pressed="true">Veille</button>
+    <button data-state="ecoute"    aria-pressed="false">Écoute</button>
+    <button data-state="reflexion" aria-pressed="false">Réflexion</button>
+    <button data-state="reponse"   aria-pressed="false">Réponse</button>
+  </div>
+
+  <p class="caption">
+    La sphère n'est pas un logo : c'est un indicateur d'état. Elle bouge parce
+    qu'il se passe quelque chose — jamais pour faire joli.
+  </p>
+
+<script>
+/* ---------------------------------------------------------------------------
+   NovaOrb — composant autonome, sans dépendance.
+   Se branchera plus tard sur n'importe quelle interface.
+
+   Trois règles de fabrication (doc 10) :
+     1. jamais fermée, jamais parfaite  -> la déformation continue fait la vie
+     2. ne tourne pas en continu au repos -> une rotation permanente = un spinner
+     3. petite par défaut -> le contenu prime toujours sur la décoration
+--------------------------------------------------------------------------- */
+
+const STATES = {
+  //            rotation  respiration  liaisons  éclat   ouverture de l'anneau
+  veille:    { spin: 0.05, breathe: 0.055, links: 0.00, glow: 0.42, gap: 0.55 },
+  ecoute:    { spin: 0.12, breathe: 0.110, links: 0.18, glow: 0.68, gap: 1.30 },
+  reflexion: { spin: 0.62, breathe: 0.045, links: 0.85, glow: 0.85, gap: 0.20 },
+  reponse:   { spin: 0.22, breathe: 0.260, links: 0.35, glow: 1.00, gap: 0.75 },
+};
+
+class NovaOrb {
+  constructor(canvas, { count = 420 } = {}) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext("2d");
+    this.points = this.#fibonacciSphere(count);
+    this.state = "veille";
+    this.current = { ...STATES.veille };   // valeurs interpolées : jamais de saut
+    this.t = 0;
+    this.reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    this.#resize();
+    addEventListener("resize", () => this.#resize());
+    requestAnimationFrame((ts) => this.#loop(ts));
+  }
+
+  setState(name) { if (STATES[name]) this.state = name; }
+
+  /* Répartition uniforme sur une sphère (spirale de Fibonacci).
+     Une grille lat/lon entasserait les points aux pôles — l'œil le voit. */
+  #fibonacciSphere(n) {
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    return Array.from({ length: n }, (_, i) => {
+      const y = 1 - (i / (n - 1)) * 2;
+      const r = Math.sqrt(Math.max(0, 1 - y * y));
+      const a = golden * i;
+      return {
+        x: Math.cos(a) * r, y, z: Math.sin(a) * r,
+        seed: Math.random() * Math.PI * 2,   // déphasage : aucun point ne bat en rythme
+      };
+    });
+  }
+
+  #resize() {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const rect = this.canvas.getBoundingClientRect();
+    this.canvas.width = rect.width * dpr;
+    this.canvas.height = rect.height * dpr;
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.w = rect.width; this.h = rect.height;
+  }
+
+  #loop(ts) {
+    const now = ts / 1000;
+    const dt = Math.min(now - (this.last ?? now), 0.05);
+    this.last = now;
+    this.t += dt;
+
+    // Interpolation douce vers l'état cible : un changement d'état ne doit
+    // jamais être un saut. C'est ce qui donne la sensation d'un être, pas
+    // d'une machine à états.
+    const target = STATES[this.state];
+    for (const k in target) this.current[k] += (target[k] - this.current[k]) * Math.min(1, dt * 3);
+
+    this.#draw();
+    requestAnimationFrame((t) => this.#loop(t));
+  }
+
+  #draw() {
+    const { ctx, w, h } = this;
+    const cx = w / 2, cy = h / 2;
+    const base = Math.min(w, h) * 0.30;
+    const s = this.current;
+
+    ctx.clearRect(0, 0, w, h);
+    if (this.reduced) { this.#core(cx, cy, base, s.glow); return; }
+
+    const angle = this.t * s.spin * Math.PI;
+    const breathe = 1 + Math.sin(this.t * 1.1) * s.breathe * 0.5;
+    const projected = [];
+
+    for (const p of this.points) {
+      // Déformation locale, faible amplitude : la sphère n'est jamais parfaite.
+      const wobble = 1 + Math.sin(this.t * 1.7 + p.seed) * 0.035;
+      const r = base * breathe * wobble;
+
+      const x = p.x * Math.cos(angle) - p.z * Math.sin(angle);
+      const z = p.x * Math.sin(angle) + p.z * Math.cos(angle);
+      const depth = (z + 1) / 2;                 // 0 = arrière, 1 = avant
+      const persp = 0.72 + depth * 0.28;         // perspective légère
+
+      projected.push({
+        sx: cx + x * r * persp,
+        sy: cy + p.y * r * persp,
+        depth,
+        // L'anneau s'ouvre : les points d'un secteur s'effacent.
+        // Une forme fermée paraît morte ; une forme ouverte paraît vivante.
+        fade: Math.max(0, 1 - Math.max(0, Math.cos(Math.atan2(p.y, x) - 2.2) - (1 - s.gap * 0.5)) * 6),
+      });
+    }
+
+    // Liaisons entre points proches — la "pensée" qui circule.
+    if (s.links > 0.02) {
+      ctx.lineWidth = 0.6;
+      const max = base * 0.30;
+      for (let i = 0; i < projected.length; i += 3) {
+        for (let j = i + 1; j < Math.min(i + 14, projected.length); j++) {
+          const a = projected[i], b = projected[j];
+          const d = Math.hypot(a.sx - b.sx, a.sy - b.sy);
+          if (d > max) continue;
+          ctx.strokeStyle = `rgba(127,224,220,${(1 - d / max) * 0.28 * s.links * a.depth})`;
+          ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
+        }
+      }
+    }
+
+    for (const p of projected) {
+      const alpha = (0.12 + p.depth * 0.75) * p.fade * (0.55 + s.glow * 0.45);
+      if (alpha <= 0.01) continue;
+      ctx.fillStyle = `rgba(200,248,245,${alpha})`;
+      ctx.beginPath();
+      ctx.arc(p.sx, p.sy, 0.5 + p.depth * 1.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    this.#core(cx, cy, base, s.glow);
+  }
+
+  /* Le cœur : une seule source lumineuse. Blanc au centre, halo teal.
+     Une seule teinte, des variations d'intensité — jamais un dégradé multicolore. */
+  #core(cx, cy, base, glow) {
+    const { ctx } = this;
+    const pulse = 1 + Math.sin(this.t * 2.4) * 0.06 * glow;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, base * 1.5 * pulse);
+    g.addColorStop(0.00, `rgba(255,255,255,${0.85 * glow})`);
+    g.addColorStop(0.10, `rgba(190,245,242,${0.42 * glow})`);
+    g.addColorStop(0.38, `rgba(127,224,220,${0.13 * glow})`);
+    g.addColorStop(1.00, "rgba(127,224,220,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, base * 1.5 * pulse, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+/* --- démonstration ------------------------------------------------------ */
+const orb = new NovaOrb(document.getElementById("orb"));
+const readout = document.getElementById("readout");
+
+document.querySelectorAll(".states button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".states button")
+      .forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+    orb.setState(btn.dataset.state);
+    readout.textContent = "état · " + btn.dataset.state;
+  });
+});
+</script>
+</body>
+</html>
