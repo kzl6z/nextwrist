@@ -65,6 +65,9 @@ de route est construite exactement comme ça.
 | [`07-moteur-de-liens.md`](07-moteur-de-liens.md) | Le « deuxième cerveau » : graphe, sérendipité, filtrage |
 | [`08-risques.md`](08-risques.md) | Registre des risques classé par probabilité réelle |
 | [`09-faisabilite-honnete.md`](09-faisabilite-honnete.md) | Tes 14 capacités notées une par une, et ce qui n'est pas faisable |
+| [`10-direction-artistique.md`](10-direction-artistique.md) | Lecture des références, identité visuelle, règles de design |
+| [`11-architecture-v1.md`](11-architecture-v1.md) | Arborescence, rôle de chaque fichier, dépendances, bonnes pratiques |
+| [`12-profil-mac-m1-8go.md`](12-profil-mac-m1-8go.md) | ⚙️ La machine réelle : modèles retenus, pas de Docker, attentes |
 
 **Ordre de lecture conseillé :** 06 (la critique) → 01 (l'architecture) → 09 (la
 faisabilité) → 03 (la trajectoire) → 05 (aujourd'hui). Le document 06 est le plus
