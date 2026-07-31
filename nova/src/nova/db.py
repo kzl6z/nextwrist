@@ -11,6 +11,7 @@ Toujours des parametres `%s` — c'est la protection contre l'injection SQL.
 
 from __future__ import annotations
 
+import atexit
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -53,6 +54,32 @@ def get_pool() -> ConnectionPool:
             open=True,
         )
     return _pool
+
+
+def _close_pool() -> None:
+    """Ferme le pool proprement AVANT la finalisation de l'interpreteur.
+
+    Sans ceci, sur Python 3.13+, chaque commande se termine par :
+        PythonFinalizationError: cannot join thread at interpreter shutdown
+
+    Explication : le pool possede des threads de fond. Quand Python s'arrete,
+    il appelle le ramasse-miettes sur le pool, qui essaie de joindre ses
+    threads — mais Python interdit desormais de joindre un thread pendant la
+    finalisation. `atexit` s'execute AVANT cette phase : on ferme donc a temps.
+
+    L'erreur etait bruyante mais inoffensive. On la supprime quand meme : des
+    traces d'erreur sans consequence apprennent a ignorer les traces d'erreur.
+    """
+    global _pool
+    if _pool is not None:
+        try:
+            _pool.close()
+        except Exception:  # noqa: BLE001
+            pass
+        _pool = None
+
+
+atexit.register(_close_pool)
 
 
 @contextmanager

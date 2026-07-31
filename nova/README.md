@@ -18,7 +18,9 @@ Interface : http://localhost:3000 — le modele `nova` apparait dans la liste.
 ## Commandes utiles
 
 ```bash
-uv run nova db migrate           # applique les migrations
+uv run nova db migrate           # TOUJOURS en premier : cree le schema
+uv run nova health               # base + moteur d'inference
+uv run pytest -q                 # apres migrate, sinon les tests d'integration sautent
 uv run nova facts add "..."      # ajoute un fait
 uv run nova ingest ./data/documents
 uv run nova search "ma question"

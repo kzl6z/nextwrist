@@ -249,7 +249,11 @@ principal levier de personnalisation de Nova — bien avant le choix du modèle.
 **Méthode**
 11. Une chose à la fois. Commit après chaque chose qui marche.
 12. On écrit un test dès qu'un bug est corrigé — c'est le meilleur moment.
-13. **Exécuter, pas relire.** La V1 a été validée bout en bout contre une vraie
+13. **L'ordre des commandes fait partie du produit.** `nova db migrate` passe
+    avant `pytest` : lancer les tests sur une base sans schéma produit quatre
+    échecs incompréhensibles au lieu d'un saut propre. Un outil qui échoue mal
+    est un outil qu'on apprend à ignorer.
+14. **Exécuter, pas relire.** La V1 a été validée bout en bout contre une vraie
     base Postgres et un faux moteur (`scripts/fake_ollama.py`). Deux défauts
     que la relecture n'avait pas vus sont apparus en trente secondes d'exécution :
     les citations effacées par le balisage de `rich`, et la réponse perdue quand

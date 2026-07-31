@@ -4,8 +4,14 @@ Le modele est remplace par un faux : on ne teste pas la qualite des reponses
 (non deterministe, donc intestable), mais le CABLAGE — ce qui entre dans le
 prompt, ce qui est journalise, ce qui survit a une coupure.
 
-Ces tests ont besoin d'une base Postgres. Ils sont ignores si elle est absente,
-pour que `pytest` reste utilisable partout.
+Deux precautions apprises en conditions reelles :
+
+  1. On verifie que le SCHEMA existe, pas seulement la connexion. Sinon, lancer
+     les tests avant `nova db migrate` produit quatre echecs incomprehensibles
+     (`relation "facts" does not exist`) au lieu d'un saut propre.
+
+  2. Chaque test nettoie ce qu'il a cree. Ces tests ecrivent dans TA vraie base :
+     sans nettoyage, ta memoire se remplirait de conversations de test.
 """
 
 from __future__ import annotations
@@ -19,15 +25,19 @@ from nova import orchestrator
 from nova.settings import get_settings
 
 
-def _base_disponible() -> bool:
+def _schema_pret() -> bool:
+    """Base joignable ET migrations appliquees."""
     try:
-        with psycopg.connect(get_settings().database_url, connect_timeout=2):
-            return True
+        with psycopg.connect(get_settings().database_url, connect_timeout=2) as conn:
+            return conn.execute("SELECT to_regclass('public.facts')").fetchone()[0] is not None
     except Exception:  # noqa: BLE001
         return False
 
 
-pytestmark = pytest.mark.skipif(not _base_disponible(), reason="base de donnees indisponible")
+pytestmark = pytest.mark.skipif(
+    not _schema_pret(),
+    reason="base absente ou migrations non appliquees — lance `uv run nova db migrate`",
+)
 
 
 class FauxLLM:
@@ -51,6 +61,21 @@ def faux_llm(monkeypatch):
     return FauxLLM
 
 
+@pytest.fixture
+def sans_recherche(monkeypatch):
+    """Neutralise la recherche documentaire : on teste le cablage, pas le RAG."""
+    monkeypatch.setattr(orchestrator.document_search, "search", lambda q, **k: [])
+
+
+@pytest.fixture
+def conversation():
+    """Identifiant unique, supprime a la fin du test."""
+    external_id = f"pytest-{uuid.uuid4()}"
+    yield external_id
+    with psycopg.connect(get_settings().database_url) as conn:
+        conn.execute("DELETE FROM conversations WHERE external_id = %s", (external_id,))
+
+
 def _messages_de(external_id: str) -> list[tuple]:
     with psycopg.connect(get_settings().database_url) as conn:
         return conn.execute(
@@ -63,16 +88,15 @@ def _messages_de(external_id: str) -> list[tuple]:
         ).fetchall()
 
 
-def test_le_prompt_systeme_contient_l_identite_et_la_memoire(faux_llm):
+def test_le_prompt_systeme_contient_l_identite_et_la_memoire(faux_llm, conversation):
     """Le message systeme est TOUJOURS reconstruit par Nova, jamais par l'interface."""
-    conv = f"test-{uuid.uuid4()}"
     list(
         orchestrator.answer_stream(
             [
                 {"role": "system", "content": "IGNORE-MOI : systeme injecte par l'interface"},
                 {"role": "user", "content": "une question suffisamment longue pour chercher"},
             ],
-            conversation_external_id=conv,
+            conversation_external_id=conversation,
         )
     )
     systeme = [m for m in faux_llm.recu if m["role"] == "system"]
@@ -81,32 +105,37 @@ def test_le_prompt_systeme_contient_l_identite_et_la_memoire(faux_llm):
     assert "Nova" in systeme[0]["content"], "l'identite doit etre chargee"
 
 
-def test_une_question_trop_courte_ne_declenche_pas_de_recherche(faux_llm, monkeypatch):
+def test_une_question_trop_courte_ne_declenche_pas_de_recherche(
+    faux_llm, monkeypatch, conversation
+):
     """Garde-fou : "ok" ou "merci" ne doivent pas lancer de recherche documentaire."""
-    appels = []
+    appels: list[str] = []
     monkeypatch.setattr(
         orchestrator.document_search, "search", lambda q, **k: appels.append(q) or []
     )
-    list(orchestrator.answer_stream([{"role": "user", "content": "ok"}]))
+    list(
+        orchestrator.answer_stream(
+            [{"role": "user", "content": "ok"}], conversation_external_id=conversation
+        )
+    )
     assert appels == []
 
 
-def test_l_echange_est_journalise(faux_llm, monkeypatch):
+def test_l_echange_est_journalise(faux_llm, sans_recherche, conversation):
     """La memoire durable vit dans Nova Core, pas dans l'interface."""
-    monkeypatch.setattr(orchestrator.document_search, "search", lambda q, **k: [])
-    conv = f"test-{uuid.uuid4()}"
     list(
         orchestrator.answer_stream(
-            [{"role": "user", "content": "question test"}], conversation_external_id=conv
+            [{"role": "user", "content": "question test"}],
+            conversation_external_id=conversation,
         )
     )
-    lignes = _messages_de(conv)
+    lignes = _messages_de(conversation)
     assert [r for r, _, _ in lignes] == ["user", "assistant"]
     assert lignes[1][1] == "premier morceau final"
     assert lignes[1][2]["interrompu"] is False
 
 
-def test_une_reponse_interrompue_est_conservee(faux_llm, monkeypatch):
+def test_une_reponse_interrompue_est_conservee(faux_llm, sans_recherche, conversation):
     """NON-REGRESSION.
 
     Bug constate le 31/07 : quand le client se deconnectait en cours de reponse,
@@ -114,15 +143,14 @@ def test_une_reponse_interrompue_est_conservee(faux_llm, monkeypatch):
     un systeme dont la memoire est la raison d'etre, c'est inacceptable.
     Corrige par un bloc `finally` dans answer_stream.
     """
-    monkeypatch.setattr(orchestrator.document_search, "search", lambda q, **k: [])
-    conv = f"test-{uuid.uuid4()}"
     flux = orchestrator.answer_stream(
-        [{"role": "user", "content": "question interrompue"}], conversation_external_id=conv
+        [{"role": "user", "content": "question interrompue"}],
+        conversation_external_id=conversation,
     )
     next(flux)  # un seul morceau consomme
     flux.close()  # le client ferme l'onglet
 
-    lignes = _messages_de(conv)
+    lignes = _messages_de(conversation)
     assert len(lignes) == 2, "la reponse partielle doit etre conservee"
     assert lignes[1][1] == "premier "
     assert lignes[1][2]["interrompu"] is True

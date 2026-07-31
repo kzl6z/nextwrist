@@ -18,8 +18,8 @@ down:             ## Arrete tout (les donnees sont conservees)
 logs:
 	docker compose logs -f
 
-test:
-	uv run pytest -q
+test:              ## Lance les tests (migrate d'abord, sinon l'integration saute)
+	uv run nova db migrate && uv run pytest -q
 
 lint:
 	uv run ruff check src tests && uv run ruff format --check src tests
