@@ -5,10 +5,49 @@ alternatives écartées. Quand une licence n'est pas OSI, c'est signalé.
 
 ---
 
-## 1. Interface — LibreChat ✅ (ton choix, confirmé)
+## 1. Interface — LibreChat ou Open WebUI
 
 **Rôle :** interface de conversation principale.
-**Licence :** MIT.
+
+> **Avant tout :** c'est la décision **la moins importante** du projet. Elle est
+> réversible en une journée, parce que la valeur vit dans Nova Core (Postgres +
+> serveurs MCP), pas dans l'interface. Ne passe pas deux semaines à hésiter.
+
+### Comparaison
+
+| Critère | LibreChat | Open WebUI |
+|---|---|---|
+| Licence | **MIT**, propre | BSD-3 **modifiée** (clause de marque depuis 2025) — pas strictement OSI |
+| Poids | Lourd (Mongo + Meilisearch + rag_api) | Léger, mono-conteneur possible |
+| Prise en main | Dense (`librechat.yaml`) | Plus simple, tout par l'interface |
+| Ollama | Via endpoint OpenAI-compatible | **Intégration native**, excellente |
+| Outils | **MCP natif** | Outils/Fonctions **en Python** dans l'interface ; MCP via un pont |
+| Agents | Framework d'agents intégré | Plus limité |
+| RAG | Service `rag_api` séparé | Intégré, très simple |
+| Recherche web | À brancher | Intégrée |
+| Voix | STT/TTS configurables sur services locaux | Idem |
+
+### Verdict : **LibreChat**, pour trois raisons
+
+1. **MCP natif.** C'est ta frontière de portabilité (doc 01). Tes outils écrits une
+   fois fonctionneront ailleurs. Open WebUI y accède, mais par un pont supplémentaire.
+2. **Licence MIT franche.** Ton critère « open source dès que possible » est explicite ;
+   la clause de marque d'Open WebUI n'est pas bloquante pour un usage personnel, mais
+   elle est une entorse.
+3. **Le framework d'agents** te porte jusqu'à la V0.8 sans écrire d'orchestrateur.
+
+### L'argument honnête en faveur d'Open WebUI
+
+Il est réel : **ses outils s'écrivent en Python directement dans l'interface**, sans
+serveur séparé ni protocole. Pour un débutant qui a choisi Python, c'est une boucle
+d'apprentissage beaucoup plus courte — on écrit une fonction, elle est utilisable
+immédiatement. Il est aussi nettement plus léger, ce qui compte sur une machine
+modeste.
+
+Si après une semaine `librechat.yaml` te décourage, **bascule sans état d'âme**. Tu
+ne perdras rien : ta mémoire, tes documents et tes outils MCP sont en dehors.
+
+### Détail de LibreChat
 
 **Avantages**
 - Multi-modèles : Ollama et n'importe quel service OpenAI-compatible cohabitent.
@@ -28,11 +67,12 @@ alternatives écartées. Quand une licence n'est pas OSI, c'est signalé.
 - Fonctionnalités inégales selon les versions (la mémoire native notamment). Vérifie
   le CHANGELOG de la version que tu installes plutôt que de te fier à un tutoriel.
 
-**Alternatives écartées**
-- *Open WebUI* : plus léger et plus simple, très bon pour Ollama. Écarté parce que
-  son modèle d'extension est moins standard que MCP et que la licence a évolué vers
-  des restrictions de marque. Reste le meilleur plan B si LibreChat te pèse.
+**Autres alternatives**
 - *AnythingLLM* : RAG excellent clé en main, mais moins ouvert comme socle d'agent.
+- *Une interface écrite par toi* : tentant, et c'est un piège. Tu passerais six mois
+  sur du CSS au lieu de construire la mémoire. À reconsidérer seulement en V2.0, et
+  seulement pour une vue que rien d'existant ne couvre (la navigation du graphe, par
+  exemple).
 
 > **Rappel :** LibreChat reste remplaçable par construction. Si tu la remplaces un
 > jour, tu ne perds ni ta mémoire, ni tes projets, ni tes documents.
@@ -115,6 +155,15 @@ grille de décision complète ; trouve ta ligne.
   vision uniquement**, où il excelle.
 - *GPT-OSS 20B/120B* : Apache 2.0, très fort en raisonnement et en outils, plus
   faible en français.
+- *Kimi K2 (Moonshot)* : tu le cites, et il le mérite — c'est l'un des meilleurs
+  modèles ouverts pour l'appel d'outils et les tâches agentiques. **Mais il est hors
+  de portée en local** : architecture MoE de très grande taille, plusieurs centaines
+  de Go même quantifiée. Il n'existe pas de machine personnelle capable de le faire
+  tourner. Le seul accès est une API — ce qui contredit ta contrainte principale. À
+  garder en tête uniquement si tu retiens la doctrine « pragmatique » (voir
+  [`06-critique-de-la-vision.md`](06-critique-de-la-vision.md#les-trois-questions-que-je-te-renvoie-avant-de-valider)).
+  Moonshot publie aussi des modèles nettement plus petits, dont des modèles de
+  vision : vérifie ce qui est disponible dans Ollama au moment où tu installes.
 
 **Verdict :** Qwen 3 comme cerveau, Gemma 3 comme œil. Deux familles, deux rôles.
 Et surtout : **teste 3 modèles sur tes vraies questions** avant de figer. Les
@@ -273,7 +322,39 @@ aujourd'hui pour rendre des capacités portables entre interfaces.
 
 ---
 
-## 11. Socle — Docker Compose, Caddy, Tailscale, restic
+## 11. Langage — Python ✅ (ton choix, confirmé)
+
+**Avantages**
+- Écosystème IA sans équivalent : SDK MCP, clients Ollama, Docling, traitement de
+  texte — tout est en Python d'abord.
+- Lisible : tu pourras relire ton code de 2026 en 2029, ce qui compte plus que tu ne
+  le crois sur un projet de plusieurs années.
+- Compétence transférable bien au-delà de Nova.
+
+**Inconvénients**
+- Lent à l'exécution — sans importance ici : ton code ne fait qu'orchestrer, tout le
+  calcul lourd est dans Ollama et Postgres.
+- La gestion des environnements et des dépendances est le cauchemar classique du
+  débutant. **Parade : `uv`** (gestionnaire moderne, rapide, un seul outil) et un
+  conteneur par service. Ne fais jamais de `pip install` global.
+
+**Bibliothèques du projet, et rien de plus au départ**
+
+| Besoin | Choix | Pourquoi pas autre chose |
+|---|---|---|
+| Serveurs MCP | SDK MCP officiel | Un décorateur par outil, ~80 lignes/serveur |
+| API HTTP | FastAPI | Standard, documentation automatique |
+| Postgres | psycopg | Direct, du vrai SQL — tu apprends SQL, pas un ORM |
+| Appels HTTP | httpx | — |
+| Tâches planifiées | `cron` système | Pas de Celery : tu n'as pas ce problème |
+
+**Ce qu'on n'utilise pas, et c'est délibéré :** ni ORM (SQLAlchemy) — écris du SQL,
+c'est plus simple et c'est une compétence durable ; ni LangChain/LlamaIndex — voir
+la section « déconseillé ».
+
+---
+
+## 12. Socle — Docker Compose, Caddy, Tailscale, restic
 
 | Brique | Avantages | Inconvénients |
 |---|---|---|
@@ -289,7 +370,7 @@ aujourd'hui pour rendre des capacités portables entre interfaces.
 
 ---
 
-## 12. Ce que je te déconseille explicitement pour l'instant
+## 13. Ce que je te déconseille explicitement pour l'instant
 
 | Techno | Pourquoi pas maintenant |
 |---|---|

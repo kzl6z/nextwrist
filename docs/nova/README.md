@@ -58,6 +58,15 @@ de route est construite exactement comme ça.
 |---|---|
 | [`01-architecture.md`](01-architecture.md) | Les 6 couches, le schéma global, la conception de la mémoire |
 | [`02-technologies-choix.md`](02-technologies-choix.md) | Chaque techno : rôle, avantages, inconvénients, alternatives, verdict |
-| [`03-feuille-de-route.md`](03-feuille-de-route.md) | V0.1 → V1.0, avec critères de sortie de chaque étape |
+| [`03-feuille-de-route.md`](03-feuille-de-route.md) | V0.1 → V1.0 → V2.0, sur trois ans, avec critères de sortie |
 | [`04-v01-30-jours.md`](04-v01-30-jours.md) | Le plan semaine par semaine des 30 premiers jours |
 | [`05-demarrage-aujourdhui.md`](05-demarrage-aujourdhui.md) | Les étapes exactes, aujourd'hui, dans l'ordre |
+| [`06-critique-de-la-vision.md`](06-critique-de-la-vision.md) | ⚡ Les 7 endroits où je pense que tu te trompes + les 3 questions à trancher |
+| [`07-moteur-de-liens.md`](07-moteur-de-liens.md) | Le « deuxième cerveau » : graphe, sérendipité, filtrage |
+| [`08-risques.md`](08-risques.md) | Registre des risques classé par probabilité réelle |
+| [`09-faisabilite-honnete.md`](09-faisabilite-honnete.md) | Tes 14 capacités notées une par une, et ce qui n'est pas faisable |
+
+**Ordre de lecture conseillé :** 06 (la critique) → 01 (l'architecture) → 09 (la
+faisabilité) → 03 (la trajectoire) → 05 (aujourd'hui). Le document 06 est le plus
+important : il est le seul qui puisse te faire changer d'avis avant de dépenser des
+mois.

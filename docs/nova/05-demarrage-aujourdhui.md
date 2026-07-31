@@ -17,7 +17,7 @@ Tout le reste dépend de cette réponse. Note ces 4 chiffres quelque part :
 | Système d'exploitation | Windows / macOS / Linux + version |
 
 Puis va chercher **ta ligne** dans le tableau matériel de
-[`02-technologies-choix.md`](02-technologies-choix.md#3--le-modèle--la-décision-la-plus-dépendante-de-ton-matériel).
+[`02-technologies-choix.md`](02-technologies-choix.md#3-le-modèle--la-décision-la-plus-dépendante-de-ton-matériel).
 Tu tiens ton modèle. Ne prends pas au-dessus « pour voir » : le mode d'échec le plus
 courant est un modèle trop lourd qui rend l'usage quotidien pénible.
 

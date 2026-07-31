@@ -1,170 +1,175 @@
-# 03 — Feuille de route V0.1 → V1.0
+# 03 — Feuille de route pluriannuelle
+
+## Les trois paliers
+
+| Palier | Ce que Nova devient | Horizon |
+|---|---|---|
+| **V0.1** | Nova existe. Le socle est là, remplaçable. | 30 jours |
+| **V1.0** | Nova est un **second cerveau utile**. Elle te connaît, lit, cherche, se souvient, parle. | 12-14 mois |
+| **V2.0** | Nova est un **partenaire de recherche**. Elle relie, veille, t'apprend, tient le carnet. | 24-36 mois |
 
 ## Principe de progression
 
-Chaque version ajoute **une seule capacité**, et n'est déclarée terminée que si son
-critère de sortie est vérifié. Pas de version suivante tant que la précédente n'est
-pas stable et *réellement utilisée au quotidien*.
+Chaque version ajoute **une seule capacité** et n'est close que si son critère de
+sortie est vérifié. Pas de version suivante tant que la précédente n'est pas stable
+**et réellement utilisée au quotidien**.
 
-Le critère d'usage réel est le plus important : une capacité que tu n'utilises pas
-est une capacité à supprimer, pas à améliorer. C'est aussi ce qui te protège du
-syndrome du chantier permanent.
-
----
-
-## V0.1 — « Nova parle » · 30 jours
-
-**Capacité :** conversation locale, documents ingérés, souvenirs manuels.
-
-| Brique | Détail |
-|---|---|
-| LibreChat | interface, version épinglée |
-| Ollama | Qwen 3 (taille selon ta machine) |
-| Postgres + pgvector | base unique |
-| RAG LibreChat | ingestion de documents |
-| Prompt système Nova | identité, ton, règles, versionné dans git |
-| `facts.md` | mémoire manuelle, injectée dans le prompt |
-
-**Critère de sortie :** pendant 5 jours d'affilée, tu as utilisé Nova *par
-préférence* et pas par discipline, et elle a répondu correctement à au moins une
-question portant sur un de tes documents.
-
-Détail complet dans [`04-v01-30-jours.md`](04-v01-30-jours.md).
+Ce critère d'usage est le plus important du document. Une capacité que tu n'utilises
+pas est à supprimer, pas à améliorer. C'est aussi la seule protection contre le
+risque n°1 du projet (voir [`08-risques.md`](08-risques.md#r1--labandon-au-mois-3--le-risque-n1-et-de-loin)).
 
 ---
 
-## V0.2 — « Nova lit » · +2 semaines
+# ANNÉE 1 — Construire le second cerveau
 
-**Capacité :** ingestion documentaire sérieuse et automatique.
+## V0.1 — « Nova existe » · 30 jours
 
-- Docling pour les PDF complexes (tableaux, scans, mise en page)
-- Dossier surveillé : tout fichier déposé est ingéré automatiquement
-- Premier serveur MCP : `nova-files` (`search_docs`, `read_doc`)
-- Découpage intelligent (par section, pas par nombre de caractères)
-- **Citations obligatoires** : Nova cite toujours le document et la page
+LibreChat + Ollama + Postgres/pgvector + RAG documentaire + prompt d'identité +
+mémoire manuelle (`facts.md`) + sauvegardes testées.
 
-**Critère de sortie :** tu déposes un PDF de 100 pages, et 5 minutes plus tard Nova
-répond dessus **en citant la page**. Une réponse sans source est un échec.
+**Sortie :** 5 jours d'usage d'affilée par préférence, et une réponse juste sur un de
+tes documents. Détail : [`04-v01-30-jours.md`](04-v01-30-jours.md).
 
----
+## V0.2 — « Nova capture et lit » · +3 semaines
 
-## V0.3 — « Nova se souvient » · +3 semaines · ⚡ étape décisive
+⚡ *Priorité relevée par rapport à un plan naïf — voir critique n°3.*
 
-**Capacité :** mémoire persistante et automatique. **C'est ici que Nova cesse d'être
-un chatbot.** Si tu ne dois faire qu'une seule version après la V0.1, c'est
-celle-ci.
+- **Capture à friction quasi nulle** : dossier surveillé, note rapide depuis le
+  téléphone, partage depuis le navigateur
+- Docling pour les PDF complexes (tableaux, scans)
+- Premier serveur MCP : `nova-files`
+- Citations obligatoires : document + page
+
+**Sortie :** tu ajoutes 10 éléments dans la semaine **sans y penser**, et Nova répond
+dessus en citant la page.
+
+## V0.3 — « Nova se souvient » · +4 semaines · ⚡ étape décisive
+
+**C'est ici que Nova cesse d'être un chatbot.** Si tu ne devais faire qu'une version
+après la V0.1, c'est celle-ci.
 
 - Schéma Postgres : `facts`, `episodes`, `projects`, `decisions`
-- MCP `nova-memory` : `remember`, `recall`, `forget`
-- MCP `nova-projects` : suivi des projets et objectifs
-- **Consolidation nocturne** : résumé du jour, extraction des faits et décisions
-- **Validation matinale** : « J'ai retenu ceci hier, tu confirmes ? »
+- MCP `nova-memory` et `nova-projects`
+- Consolidation nocturne + validation matinale
+- **Démarrage de l'extraction d'entités** — le graphe commence à se remplir alors
+  qu'il ne sert encore à rien. C'est un investissement à retardement : tu ne pourras
+  pas réextraire six mois de conversations après coup.
 
-**Critère de sortie :** après 2 semaines sans intervention manuelle, tu demandes
-« qu'est-ce que je t'ai dit sur X il y a 10 jours ? » et la réponse est juste.
+**Sortie :** après 2 semaines sans intervention manuelle, « qu'est-ce que je t'ai dit
+sur X il y a 10 jours ? » reçoit une réponse juste.
 
----
+## V0.4 — « Nova cherche » · +3 semaines
 
-## V0.4 — « Nova cherche » · +2 semaines
+SearXNG + MCP `nova-search` + extraction de pages + mise en cache. Règle d'arbitrage
+explicite : mémoire → documents → web, et toujours dire d'où vient l'information.
+Première visualisation du graphe.
 
-**Capacité :** recherche web et synthèse.
+**Sortie :** réponse correcte sur une question d'actualité, sources citées, **et refus
+d'inventer** quand elle ne trouve rien. Le refus est un succès.
 
-- SearXNG auto-hébergé
-- MCP `nova-search` : `web_search`, `fetch_page` (extraction de contenu propre)
-- Règle d'arbitrage explicite dans le prompt : mémoire → documents → web, dans cet
-  ordre, et toujours dire d'où vient l'information
-- Mise en cache des pages consultées dans la base documentaire
+## V0.5 — « Nova critique » · +3 semaines
 
-**Critère de sortie :** Nova répond correctement à une question d'actualité en citant
-ses sources, **et refuse d'inventer** quand elle ne trouve rien. Le refus est un
-succès, pas un échec.
+⚡ *Version ajoutée : c'est une capacité à part entière, pas un effet de bord du modèle.*
 
----
+- Modes de travail séparés (critique · exploration · synthèse · apprentissage), avec
+  leur propre prompt système
+- Mode critique : consigne adversariale, idée présentée en tierce personne, modèle
+  raisonneur
+- MCP `nova-learn` : questions générées depuis tes documents, répétition espacée
 
-## V0.5 — « Nova écoute et parle » · +3 semaines
+**Sortie :** Nova te fait changer d'avis sur quelque chose, au moins une fois.
 
-**Capacité :** conversation vocale.
+## V0.6 — « Nova écoute et parle » · +3 semaines
 
-- Speaches (STT) + Kokoro (TTS), branchés dans `librechat.yaml`
-- Mode mains libres dans LibreChat
-- Prompt adapté : réponses courtes à l'oral, on ne lit pas un tableau à voix haute
+Speaches (STT) + Kokoro (TTS) branchés en configuration. Prompt adapté à l'oral
+(réponses courtes, pas de tableaux).
 
-**Critère de sortie :** une conversation vocale de 5 minutes sans toucher au clavier,
-avec moins de 3 secondes de latence entre ta question et le début de la réponse.
+**Sortie :** 5 minutes de conversation vocale sans clavier, moins de 3 s de latence.
 
----
+## V0.7 — « Nova voit » · +2 semaines
 
-## V0.6 — « Nova voit » · +3 semaines
+Modèle de vision, images envoyées, captures d'écran, photos de documents.
+MCP `nova-vision`. Caméra : **capture à la demande uniquement**, jamais de flux — et
+seulement si le manque s'est fait sentir (voir critique n°4).
 
-**Capacité :** compréhension d'images.
+## V0.8 — « Nova anticipe » · +4 semaines
 
-- Modèle de vision (Gemma 3 ou Qwen3-VL) dans Ollama
-- Analyse d'images envoyées, captures d'écran, photos de documents
-- MCP `nova-vision` : `describe_image`
-- Caméra : capture d'une image à la demande, **jamais de flux continu**
+Tâches planifiées, briefing du matin, détection de projets stagnants, notifications.
+Première stratégie du moteur de liens : les **questions réactivées** — la plus simple
+et la plus rentable.
 
-> ⚠️ **Point d'attention important.** La caméra est la seule brique du projet qui
-> change la nature du système : elle enregistre un espace physique, potentiellement
-> d'autres personnes que toi. Décide *avant* de l'installer : qui peut être filmé,
-> qui est informé, combien de temps les images sont conservées, y a-t-il un
-> indicateur lumineux d'activité. Analyse à la demande plutôt que surveillance
-> continue — c'est plus simple, plus sobre, et ça évite de construire un système de
-> surveillance domestique par accident. Vérifie aussi les règles applicables si des
-> tiers sont concernés.
+**Sortie :** Nova t'apprend une chose utile **que tu n'as pas demandée**, une fois par
+semaine.
 
-**Critère de sortie :** Nova décrit correctement une photo et lit le texte d'une
-capture d'écran.
+## V1.0 — « Second cerveau » · ~12-14 mois
 
----
+- `nova-orchestrator` en Python remplace l'agent LibreChat — écrit **après** en avoir
+  vécu les limites, pas avant
+- Moteur de liens : ponts structurels + notation LLM + boucle de vote
+- Mémoire mature : révision trimestrielle, arbitrage des contradictions, historique
+  des changements d'avis
+- Export Markdown complet de la mémoire
 
-## V0.7 — « Nova anticipe » · +4 semaines
-
-**Capacité :** proactivité. Le vrai saut vers Jarvis.
-
-- Tâches planifiées (`cron` → serveur MCP `nova-system`)
-- Briefing du matin : ce que tu as prévu, ce qui est en retard, ce que Nova a retenu
-- Détection de projets stagnants
-- Notifications (ntfy, auto-hébergé)
-
-**Critère de sortie :** Nova t'apprend quelque chose d'utile **que tu ne lui as pas
-demandé**, au moins une fois par semaine.
+**Sortie de V1.0 :** tu ne peux plus travailler sans. Concrètement : une semaine sans
+Nova te coûte visiblement du temps.
 
 ---
 
-## V0.8 — « Nova agit » · +4 semaines
+# ANNÉES 2-3 — Du second cerveau au partenaire
 
-**Capacité :** actions sur ton environnement numérique.
+## V1.x — Consolidation · mois 14-20
 
-- Connecteurs : calendrier (CalDAV), notes (Obsidian/Markdown), tâches, e-mail (lecture)
-- **Toute action modifiante passe par une confirmation explicite.** Non négociable.
-- Journal d'audit : toute action est tracée, réversible autant que possible
+Ce palier n'ajoute presque aucune fonctionnalité, et c'est volontaire. C'est le
+moment où l'on répare ce que l'accumulation a révélé :
+
+- **Déduplication d'entités** (« SLM » et « modulateur spatial de lumière » sont la
+  même chose) — chantier réel, sous-estimé, indispensable au moteur de liens
+- Analogies distantes (stratégie 2) et calibration du filtre sur tes votes
+- Recherche hybride (vectorielle + mots-clés + filtres) : nettement supérieure au
+  vectoriel seul, souvent négligée
+- Multi-appareils : accès depuis le téléphone via Tailscale, synchronisation
+- Migration éventuelle vers vLLM/llama.cpp **si et seulement si** la vitesse gêne
+
+## V2.0 — « Partenaire de recherche » · mois 24-36
+
+- **Veille autonome** : Nova surveille des sujets, lit, et ne remonte que ce qui est
+  nouveau *pour toi* (compte tenu de ce que tu sais déjà — c'est la partie difficile
+  et c'est ce qui la distingue d'un flux RSS)
+- **Carnet de laboratoire** : elle tient l'historique de tes raisonnements et sait
+  dire « tu avais écarté cette approche en mars pour telle raison — qu'est-ce qui a
+  changé ? »
+- **Graphe mature** : ontologie personnelle, navigation visuelle, requêtes
+  temporelles
+- **Agents de recherche encadrés** : tâches longues avec points de contrôle humains
+  (pas d'autonomie totale — voir [`09-faisabilite-honnete.md`](09-faisabilite-honnete.md))
+- **Conception assistée de projets** : Nova connaît tes contraintes, ton matériel,
+  tes échecs passés, et en tient compte
+
+## Au-delà — ce qui dépend de l'état de l'art
+
+À réévaluer, pas à planifier : conversation vocale à interruption naturelle,
+personnalisation par adaptation légère du modèle (LoRA), agents véritablement
+autonomes. Ces trois sujets bougent vite. **L'architecture est construite pour les
+accueillir sans réécriture** — c'est tout ce qu'on peut garantir aujourd'hui.
 
 ---
 
-## V1.0 — « Nova pense avec toi » · +8 semaines
-
-**Capacité :** partenaire de réflexion.
-
-- `nova-orchestrator` remplace l'agent LibreChat (écrit *après* avoir vécu ses limites)
-- Modes de travail : critique, exploration, synthèse, décision
-- Nova challenge tes idées au lieu de les valider, connaît l'historique de tes
-  raisonnements et sait dire « tu avais écarté cette approche en mars, pour telle
-  raison — qu'est-ce qui a changé ? »
-- Graphe de connaissances reliant projets, décisions, personnes et documents
-
----
-
-## Calendrier réaliste
+## Calendrier et rythme
 
 | Version | Cumul | Repère |
 |---|---|---|
 | V0.1 | 1 mois | Nova existe |
 | V0.3 | 3 mois | ⚡ Nova te connaît |
-| V0.5 | 5 mois | Nova te parle |
-| V0.7 | 8 mois | Nova anticipe |
-| V1.0 | 12-14 mois | Nova réfléchit avec toi |
+| V0.5 | 5 mois | Nova te contredit |
+| V0.8 | 9 mois | Nova anticipe |
+| **V1.0** | **12-14 mois** | **Second cerveau** |
+| V1.x | 20 mois | Consolidation |
+| **V2.0** | **24-36 mois** | **Partenaire de recherche** |
 
-Ce rythme suppose ~5-8 h/semaine. Il **doublera** si tu changes de matériel en cours
-de route ou si tu essaies de tout mener en parallèle. À l'inverse, il est
-parfaitement acceptable de rester 6 mois en V0.3 : c'est déjà, et de loin, plus utile
-que 95 % des assistants existants.
+Rythme calculé pour ~5-8 h/semaine. Il **doublera** si tu changes de matériel en
+cours de route ou si tu mènes plusieurs versions en parallèle.
+
+Et une permission explicite, parce qu'elle compte : **il est parfaitement acceptable
+de rester un an en V0.3.** Une Nova qui se souvient et lit tes documents est déjà
+plus utile que 95 % de ce qui existe. La feuille de route est une direction, pas une
+obligation de résultat.
