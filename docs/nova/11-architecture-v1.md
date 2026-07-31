@@ -121,7 +121,10 @@ nova/
 │   │
 │   └── cli.py               commandes : migrate, ingest, ask, facts, search
 │
-├── tests/                   pytest — sur les fonctions pures d'abord
+├── scripts/
+│   └── fake_ollama.py       faux moteur compatible OpenAI — teste toute la
+│                            chaîne sans GPU ni modèle téléchargé
+├── tests/                   pytest — fonctions pures + intégration
 └── ui/
     └── orb.html             la sphère, composant autonome sans dépendance
 ```
@@ -246,3 +249,8 @@ principal levier de personnalisation de Nova — bien avant le choix du modèle.
 **Méthode**
 11. Une chose à la fois. Commit après chaque chose qui marche.
 12. On écrit un test dès qu'un bug est corrigé — c'est le meilleur moment.
+13. **Exécuter, pas relire.** La V1 a été validée bout en bout contre une vraie
+    base Postgres et un faux moteur (`scripts/fake_ollama.py`). Deux défauts
+    que la relecture n'avait pas vus sont apparus en trente secondes d'exécution :
+    les citations effacées par le balisage de `rich`, et la réponse perdue quand
+    le client se déconnecte en cours de flux. Aucun des deux ne levait d'erreur.

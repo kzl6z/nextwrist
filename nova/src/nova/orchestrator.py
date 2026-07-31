@@ -111,17 +111,31 @@ def answer_stream(
 
     client = LLMClient()
     collected: list[str] = []
-    for piece in client.stream(full):
-        collected.append(piece)
-        yield piece
-
-    conversations.log_message(
-        conversation_id,
-        "assistant",
-        "".join(collected),
-        model=get_settings().chat_model,
-        meta={"sources": [h.document_path for h in hits], "mode": mode},
-    )
+    completed = False
+    try:
+        for piece in client.stream(full):
+            collected.append(piece)
+            yield piece
+        completed = True
+    finally:
+        # `finally` est indispensable ici, et la raison n'est pas theorique :
+        # si l'utilisateur ferme l'onglet en cours de reponse, Python ferme le
+        # generateur (GeneratorExit) et tout code place APRES la boucle ne
+        # s'executerait jamais. La reponse serait perdue — inacceptable pour un
+        # systeme dont la memoire est justement la raison d'etre.
+        # Bug constate en coupant reellement un flux, pas en relisant le code.
+        if collected:
+            conversations.log_message(
+                conversation_id,
+                "assistant",
+                "".join(collected),
+                model=get_settings().chat_model,
+                meta={
+                    "sources": [h.document_path for h in hits],
+                    "mode": mode,
+                    "interrompu": not completed,
+                },
+            )
 
 
 def answer(question: str, *, mode: str = "normal") -> str:

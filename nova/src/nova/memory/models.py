@@ -18,8 +18,8 @@ class Fact:
     id: int
     category: str
     content: str
-    status: str      # proposed | confirmed | archived
-    origin: str      # user | inferred
+    status: str  # proposed | confirmed | archived
+    origin: str  # user | inferred
     confidence: float
     source: str | None
     created_at: datetime

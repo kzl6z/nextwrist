@@ -35,9 +35,7 @@ ROOT = _find_root()
 class Settings(BaseSettings):
     """Reglages machine, lus depuis l'environnement ou `.env`, prefixes NOVA_."""
 
-    model_config = SettingsConfigDict(
-        env_file=ROOT / ".env", env_prefix="NOVA_", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=ROOT / ".env", env_prefix="NOVA_", extra="ignore")
 
     database_url: str = "postgresql://nova:nova@localhost:5432/nova"
 

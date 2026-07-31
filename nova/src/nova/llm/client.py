@@ -54,9 +54,7 @@ class LLMClient:
             raise LLMError(f"Le moteur d'inference n'a pas repondu : {exc}") from exc
 
     # -- appel en flux ------------------------------------------------------
-    def stream(
-        self, messages: list[Message], *, temperature: float | None = None
-    ) -> Iterator[str]:
+    def stream(self, messages: list[Message], *, temperature: float | None = None) -> Iterator[str]:
         """Reponse morceau par morceau, pour l'interface.
 
         Le flux n'est pas cosmetique : sur un modele local, la premiere phrase

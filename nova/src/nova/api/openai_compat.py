@@ -58,8 +58,7 @@ def list_models() -> dict:
     return {
         "object": "list",
         "data": [
-            {"id": name, "object": "model", "created": now, "owned_by": "nova"}
-            for name in MODELS
+            {"id": name, "object": "model", "created": now, "owned_by": "nova"} for name in MODELS
         ],
     }
 

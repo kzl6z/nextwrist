@@ -94,8 +94,13 @@ def search(query: str, limit: int = 6) -> None:
         console.print("[dim]Aucun resultat.[/]")
         return
     for hit in hits:
-        console.print(f"\n[bold]{hit.citation()}[/] [dim]score {hit.score:.4f}[/]")
-        console.print(hit.content[:400].strip())
+        # `markup=False` est indispensable : rich interprete les crochets comme
+        # des balises et ferait DISPARAITRE la citation `[document, "section"]`.
+        # Bug trouve en executant reellement la commande — pas en la relisant.
+        console.print()
+        console.print(hit.citation(), style="bold", markup=False)
+        console.print(f"score {hit.score:.4f}", style="dim")
+        console.print(hit.content[:400].strip(), markup=False)
 
 
 @app.command()
@@ -109,7 +114,9 @@ def ask(
         [{"role": "user", "content": question}],
         mode="critique" if critique else "normal",
     ):
-        console.print(piece, end="")
+        # markup=False / highlight=False : Nova cite ses sources entre crochets,
+        # et rich les effacerait. Meme piege que dans `search`.
+        console.print(piece, end="", markup=False, highlight=False)
     console.print("\n")
 
 
