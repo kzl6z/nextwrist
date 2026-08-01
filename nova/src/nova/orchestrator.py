@@ -21,6 +21,7 @@ C'est deterministe, debogable et previsible. L'appel d'outils par le modele
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import datetime
 
 from nova import prompts
 from nova.documents import search as document_search
@@ -35,6 +36,35 @@ log = get_logger(__name__)
 # En dessous, la question ne porte pas assez d'information pour qu'une recherche
 # documentaire soit utile ("ok", "merci", "et ensuite ?").
 MIN_QUERY_LENGTH = 12
+
+# Noms francais ecrits en dur plutot que via la locale du systeme : `strftime`
+# renvoie « Saturday » sur une machine configuree en anglais, et Nova annoncerait
+# la date en anglais sans que personne ne comprenne pourquoi.
+JOURS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
+MOIS = (
+    "janvier",
+    "fevrier",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "aout",
+    "septembre",
+    "octobre",
+    "novembre",
+    "decembre",
+)
+
+
+def instant_present(maintenant: datetime | None = None) -> str:
+    """Date et heure, en francais, pour le prompt systeme."""
+    maintenant = maintenant or datetime.now().astimezone()
+    return (
+        f"{JOURS[maintenant.weekday()]} {maintenant.day} "
+        f"{MOIS[maintenant.month - 1]} {maintenant.year}, il est "
+        f"{maintenant.strftime('%H:%M')}"
+    )
 
 
 def _format_sources(hits: list[SearchHit]) -> str:
@@ -69,6 +99,16 @@ def build_system_prompt(
     # format precis ; ecraser sa consigne casse l'application sans un mot.
     # On distingue donc les deux cas, et dans les deux la memoire est injectee.
     parts = [contrat] if contrat else [prompts.load("identity")]
+
+    # Un modele n'a AUCUNE notion du temps : sans cette ligne, « quelle heure
+    # est-il » recoit une heure inventee, avec aplomb. C'est la premiere
+    # question que tout le monde pose a un assistant vocal, et le premier
+    # endroit ou il perd la confiance de son utilisateur.
+    parts.append(
+        f"## Instant present\nNous sommes {instant_present()}.\n"
+        "Utilise cette information telle quelle pour toute question de date ou "
+        "d'heure. Ne la recalcule pas, ne l'estime pas."
+    )
 
     if mode == "critique" and not contrat:
         parts.append(prompts.load("mode_critique"))

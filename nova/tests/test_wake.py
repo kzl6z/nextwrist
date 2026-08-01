@@ -42,3 +42,19 @@ def test_extrait_la_commande_qui_suit():
 
 def test_normalisation_des_accents():
     assert normaliser("Éàç !") == "eac  "
+
+
+# --- instant present ---------------------------------------------------------
+
+from datetime import datetime  # noqa: E402
+
+from nova.orchestrator import instant_present  # noqa: E402
+
+
+def test_la_date_est_en_francais_quelle_que_soit_la_machine():
+    # 1er aout 2026 tombe un samedi.
+    assert instant_present(datetime(2026, 8, 1, 14, 30)) == "samedi 1 aout 2026, il est 14:30"
+
+
+def test_minuit_est_correctement_formate():
+    assert "00:05" in instant_present(datetime(2026, 1, 5, 0, 5))
