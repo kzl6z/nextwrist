@@ -111,15 +111,56 @@ C'est le seul choix du projet qu'on ne peut pas revoir sans tout re-vectoriser.
 français — et une recherche dégradée ne lève jamais d'erreur : Nova « ne trouve
 pas », sans dire pourquoi. On paie 1,2 Go pour ne pas s'enfermer.
 
-### Le réglage qui change tout
+### Le réglage qui change tout — et le piège qui va avec ⚡
 
-```bash
-export OLLAMA_KEEP_ALIVE=30m
+Sans entretien, Ollama décharge un modèle après 5 minutes d'inactivité, et
+plus tôt encore quand la machine manque de mémoire. Le rechargement se paie
+alors **avant chaque réponse**.
+
+Mesure sur cette machine, qui a coûté trois jours à identifier :
+
+```
+prompt 6573 caractères  →  21,4 s avant le premier mot
+prompt  880 caractères  →  21,1 s avant le premier mot
 ```
 
-Sans lui, Ollama décharge un modèle après 5 minutes. Chaque recherche
-documentaire déclencherait alors un rechargement de plusieurs secondes. Avec
-2,5 + 1,2 = 3,7 Go, les deux modèles tiennent ensemble en mémoire.
+Sept fois moins de contexte, **le même temps**. Un coût qui ne varie pas avec
+l'entrée n'est pas du travail proportionnel à l'entrée : c'est un chargement.
+Deux tours ont été perdus à raccourcir le prompt.
+
+**Le piège :** `keep_alive` est une option de l'API **native** d'Ollama. Nova
+parle à son point d'entrée **compatible OpenAI**, qui ignore en silence les
+champs qu'il ne connaît pas. Le réglage était envoyé et n'avait aucun effet.
+
+Deux remèdes, et le second est celui qu'on garde :
+
+```bash
+launchctl setenv OLLAMA_KEEP_ALIVE -1    # côté serveur : marche, mais s'oublie
+```
+
+Nova Core entretient elle-même le modèle : un fil de fond envoie une requête
+d'**un seul jeton toutes les quatre minutes**. Aucune manipulation à retenir,
+aucune réinstallation à refaire. **Une correction qui dépend de la mémoire de
+quelqu'un n'est pas une correction.**
+
+### Choisir un modèle par la mesure, pas par sa fiche
+
+```bash
+uv run python scripts/bench_models.py
+```
+
+Le banc décharge chaque modèle, mesure à froid, puis à chaud. La différence
+**est** le temps de chargement. Il sépare les trois coûts qu'on confond
+constamment :
+
+| Colonne | Ce qu'elle dit | Ce qu'il faut faire si elle est haute |
+|---|---|---|
+| **Chargement** | le modèle est relu du disque | libérer de la mémoire, ou prendre plus petit |
+| **Lecture** | comprendre la question | raccourcir le prompt |
+| **Écriture** | produire la réponse | modèle trop gros pour la machine |
+
+Un chargement de 21 s pour 2 Go, alors qu'un SSD lit à plusieurs Go/s, ne dit
+pas « le modèle est gros ». Il dit **« la machine manque de mémoire »**.
 
 ---
 
