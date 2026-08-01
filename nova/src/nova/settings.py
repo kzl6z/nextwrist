@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     # 30 a 90 secondes de silence total — l'utilisateur croit que rien ne marche.
     # On la desactive par defaut ; mets NOVA_THINKING=true pour l'analyse lourde.
     thinking: bool = False
+
+    # Plafond de longueur de reponse. C'est LE levier sur la latence percue :
+    # un modele local genere ~15-25 mots/seconde, donc une reponse de 600 mots
+    # prend 30 secondes quoi qu'on fasse. Limiter la longueur est plus efficace
+    # que n'importe quelle optimisation technique.
+    max_tokens: int = 500
     request_timeout: float = 300.0
     log_level: str = "INFO"
 

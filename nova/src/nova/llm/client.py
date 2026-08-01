@@ -35,6 +35,7 @@ class LLMClient:
         self.model = model or settings.chat_model
         self.timeout = settings.request_timeout
         self.default_temperature = settings.temperature
+        self.max_tokens = settings.max_tokens
 
     # -- appel simple -------------------------------------------------------
     def chat(self, messages: list[Message], *, temperature: float | None = None) -> str:
@@ -43,6 +44,7 @@ class LLMClient:
             "model": self.model,
             "messages": messages,
             "temperature": self.default_temperature if temperature is None else temperature,
+            "max_tokens": self.max_tokens,
             "stream": False,
         }
         try:
@@ -68,6 +70,11 @@ class LLMClient:
             "model": self.model,
             "messages": messages,
             "temperature": self.default_temperature if temperature is None else temperature,
+            "max_tokens": self.max_tokens,
+            # keep_alive : champ propre a Ollama, ignore par les autres moteurs.
+            # Garde le modele en memoire entre deux questions — sans lui, chaque
+            # appel recharge 2,5 Go depuis le disque.
+            "keep_alive": "30m",
             "stream": True,
         }
         try:
