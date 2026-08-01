@@ -84,6 +84,11 @@ def build_system_prompt(user_message: str, *, mode: str = "normal") -> tuple[str
             + _format_sources(hits)
         )
 
+    if not get_settings().thinking:
+        # Interrupteur documente de Qwen 3. Inoffensif pour les modeles qui ne
+        # le connaissent pas : ce n'est qu'une ligne de texte de plus.
+        parts.append("/no_think")
+
     return "\n\n".join(parts), hits
 
 

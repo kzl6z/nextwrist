@@ -109,15 +109,36 @@ def ask(
     critique: bool = typer.Option(False, "--critique", help="Mode adversarial"),
 ) -> None:
     """Pose une question a Nova depuis le terminal."""
-    console.print()
-    for piece in orchestrator.answer_stream(
+    import time
+
+    debut = time.monotonic()
+    flux = orchestrator.answer_stream(
         [{"role": "user", "content": question}],
         mode="critique" if critique else "normal",
-    ):
+    )
+
+    # Un indicateur d'attente n'est pas cosmetique : le premier appel charge le
+    # modele en memoire (plusieurs dizaines de secondes sur une petite machine).
+    # Sans retour visuel, l'utilisateur conclut que Nova est plantee — et il a
+    # raison de le conclure, puisque rien ne lui dit le contraire.
+    with console.status("Nova reflechit…", spinner="dots"):
+        premier = next(flux, None)
+    latence = time.monotonic() - debut
+
+    if premier is None:
+        console.print("[dim]Aucune reponse.[/]")
+        return
+
+    console.print()
+    console.print(premier, end="", markup=False, highlight=False)
+    for piece in flux:
         # markup=False / highlight=False : Nova cite ses sources entre crochets,
         # et rich les effacerait. Meme piege que dans `search`.
         console.print(piece, end="", markup=False, highlight=False)
-    console.print("\n")
+
+    total = time.monotonic() - debut
+    console.print()
+    console.print(f"\n[dim]premier mot en {latence:.1f}s · total {total:.1f}s[/]")
 
 
 @app.command()

@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
 
     temperature: float = 0.4
+
+    # Qwen 3 est un modele "hybride" : par defaut il produit une longue phase de
+    # reflexion AVANT de repondre. Sur un petit modele local, cela se traduit par
+    # 30 a 90 secondes de silence total — l'utilisateur croit que rien ne marche.
+    # On la desactive par defaut ; mets NOVA_THINKING=true pour l'analyse lourde.
+    thinking: bool = False
     request_timeout: float = 300.0
     log_level: str = "INFO"
 

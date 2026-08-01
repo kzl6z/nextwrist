@@ -64,6 +64,13 @@ def search(query: str, limit: int | None = None) -> list[SearchHit]:
     candidates = tuning.candidats_par_moteur
 
     with connection() as conn:
+        # Corpus vide : inutile d'appeler le modele d'embeddings. Sans ce
+        # garde-fou, la toute premiere question chargeait bge-m3 (1,2 Go) en
+        # memoire pour chercher dans zero document — plusieurs dizaines de
+        # secondes d'attente, en concurrence avec le modele de conversation.
+        if conn.execute("SELECT 1 FROM chunks LIMIT 1").fetchone() is None:
+            return []
+
         rankings = [
             _vector_ranking(conn, query, candidates),
             _fulltext_ranking(conn, query, candidates),
