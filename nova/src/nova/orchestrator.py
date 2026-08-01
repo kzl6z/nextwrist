@@ -20,6 +20,7 @@ C'est deterministe, debogable et previsible. L'appel d'outils par le modele
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from datetime import datetime
 
@@ -170,12 +171,48 @@ def answer_stream(
     client = LLMClient()
     collected: list[str] = []
     completed = False
+
+    # ── Ou passent les secondes ? ────────────────────────────────────────
+    #
+    # « C'est lent » n'est pas un diagnostic : un modele local peut etre lent
+    # a lire la question (prefill) ou lent a ecrire la reponse (generation), et
+    # les deux se corrigent a l'oppose l'un de l'autre. Raccourcir le prompt
+    # d'un cote, reduire le plafond de jetons de l'autre.
+    #
+    # On separe donc les deux, en clair, a chaque appel. Sans cette ligne on
+    # optimise a l'aveugle — ce qui a deja coute deux tours ici.
+    taille_prompt = sum(len(m.get("content", "")) for m in full)
+    depart = time.perf_counter()
+    premier_morceau: float | None = None
+
     try:
         for piece in client.stream(full, json_mode=json_mode, max_tokens=max_tokens):
+            if premier_morceau is None:
+                premier_morceau = time.perf_counter() - depart
             collected.append(piece)
             yield piece
         completed = True
     finally:
+        total = time.perf_counter() - depart
+        sortie = "".join(collected)
+        if premier_morceau is not None:
+            # ~4 caracteres par jeton en francais : approximation grossiere,
+            # mais suffisante pour distinguer 3 jetons/s de 15.
+            jetons = max(1, len(sortie) / 4)
+            generation = max(total - premier_morceau, 1e-6)
+            log.info(
+                "Modele %s : prompt %d car. → premier mot %.1f s, total %.1f s "
+                "(%d car. produits, ~%.1f jetons/s)",
+                get_settings().chat_model,
+                taille_prompt,
+                premier_morceau,
+                total,
+                len(sortie),
+                jetons / generation,
+            )
+        else:
+            log.warning("Modele %s : aucun mot produit en %.1f s.", get_settings().chat_model, total)
+
         # `finally` est indispensable ici, et la raison n'est pas theorique :
         # si l'utilisateur ferme l'onglet en cours de reponse, Python ferme le
         # generateur (GeneratorExit) et tout code place APRES la boucle ne

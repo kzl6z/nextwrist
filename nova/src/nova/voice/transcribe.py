@@ -82,14 +82,23 @@ def est_hallucination(texte: str) -> bool:
     return any(motif in reduit for motif in _HALLUCINATIONS)
 
 
-@lru_cache(maxsize=2)
 def _modele(nom: str | None = None):
     """Charge le modele une seule fois, puis le garde en memoire.
 
     Le premier appel telecharge le modele (~500 Mo pour `small`) et prend
     plusieurs dizaines de secondes. Les suivants sont immediats. D'ou le cache :
     recharger a chaque phrase rendrait la dictee inutilisable.
+
+    Le nom est resolu AVANT le cache. Sans ca, `_modele(None)` et
+    `_modele("small")` sont deux cles differentes pour le meme modele, et la
+    machine en garde deux copies en memoire — sur 8 Go partages avec le modele
+    de langue, c'est exactement ce qu'il ne faut pas faire.
     """
+    return _charger(nom or get_settings().whisper_model)
+
+
+@lru_cache(maxsize=2)
+def _charger(nom: str):
     try:
         from faster_whisper import WhisperModel
     except ImportError as exc:  # noqa: BLE001
@@ -98,7 +107,6 @@ def _modele(nom: str | None = None):
         ) from exc
 
     settings = get_settings()
-    nom = nom or settings.whisper_model
     log.info("Chargement du modele de transcription %s…", nom)
     # int8 : quantification. Sur un Mac 8 Go c'est le seul reglage raisonnable —
     # trois fois plus leger que float16, pour une perte de precision inaudible

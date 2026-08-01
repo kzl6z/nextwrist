@@ -97,7 +97,11 @@ class Settings(BaseSettings):
     # Modele dedie au mot de reveil. `tiny` (~75 Mo) suffit largement :
     # reconnaitre un seul mot ne demande aucune finesse, et il tourne en
     # ~150 ms — indispensable puisqu'il est appele en continu.
-    whisper_wake_model: str = "base"
+    # Meme modele que la dictee, volontairement. Deux modeles differents, ce
+    # sont deux jeux de poids residents : sur 8 Go partages avec le modele de
+    # langue, la memoire economisee vaut plus que les quelques centaines de
+    # millisecondes gagnees sur un extrait de deux secondes.
+    whisper_wake_model: str = "small"
     # Amorce donnee au modele : elle oriente le vocabulaire attendu.
     # Sans elle, « Nova » — qui n'est pas un mot francais courant — est
     # transcrit « Nouveau », « Au revoir », « No va »… Constate en conditions
