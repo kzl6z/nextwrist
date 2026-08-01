@@ -5,7 +5,12 @@ endroit du projet ou une erreur se traduit par « Nova ne repond pas » sans
 aucun message — d'ou les tests.
 """
 
-from nova.voice.wake import commande_apres_reveil, contient_reveil, normaliser
+from nova.voice.wake import (
+    commande_apres_reveil,
+    contient_reveil,
+    normaliser,
+    reveil_franc,
+)
 
 
 def test_detecte_le_mot_seul():
@@ -81,3 +86,46 @@ def test_refuse_ces_memes_mots_ailleurs_dans_la_phrase():
 def test_extrait_la_commande_malgre_la_confusion():
     assert commande_apres_reveil("Nouveau, quelle heure est-il ?") == "quelle heure est-il"
     assert commande_apres_reveil("Au revoir, quelle heure est-il ?") == "quelle heure est-il"
+
+
+# ── Attaque rognee ────────────────────────────────────────────────────────
+# L'enregistrement demarre sur un seuil sonore : la premiere consonne est
+# deja passee. Les deux cas ci-dessous sont des transcriptions REELLES,
+# relevees dans les logs de la machine, pour « Nova, quelle heure est-il ? ».
+
+
+def test_tolere_une_attaque_rognee_en_debut_denonce():
+    assert contient_reveil("Nous va qu'elle a rechelle.")
+    assert contient_reveil("C'est au va qu'elle aurait-il ?")
+
+
+def test_lattaque_rognee_ne_vaut_quen_debut_denonce():
+    # « va » au milieu d'une phrase ne doit jamais reveiller Nova.
+    assert not contient_reveil("On va au cinema ce soir")
+    assert not contient_reveil("Il faut que je valide le devis")
+    assert not contient_reveil("Ca va bien merci")
+    assert not contient_reveil("Je commence un nouveau projet demain")
+
+
+def test_une_question_seule_ne_reveille_pas():
+    # Whisper perd parfois le mot entierement : mieux vaut ne pas repondre
+    # que de repondre a une phrase qui ne s'adressait pas a Nova.
+    assert not contient_reveil("Quelle heure est-il ?")
+    assert not contient_reveil("Qu'est-ce que tu as fait ?")
+    assert not contient_reveil("... ... ...")
+
+
+def test_lattaque_rognee_retire_les_bons_mots():
+    # « c'est » est UN mot pour l'utilisateur, deux apres normalisation :
+    # le decoupage doit se faire sur le texte original.
+    assert commande_apres_reveil("C'est au va ouvre le projet") == "ouvre le projet"
+
+
+# ── Franchise de la detection ─────────────────────────────────────────────
+
+
+def test_reveil_franc_distingue_la_tolerance():
+    assert reveil_franc("Nova, quelle heure est-il ?")
+    # Reconnu, mais devine : la question qui suit n'est pas fiable.
+    assert contient_reveil("Nous va qu'elle a rechelle.")
+    assert not reveil_franc("Nous va qu'elle a rechelle.")

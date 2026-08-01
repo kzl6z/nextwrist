@@ -70,10 +70,20 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
         return {"wake": False, "text": "", "commande": ""}
 
     detecte = wake.contient_reveil(texte)
+
+    # La question n'est enchainee que si le mot de reveil a ete reconnu
+    # franchement. S'il a fallu le deviner, la transcription est mauvaise et
+    # la question qui suit ne vaut pas mieux : on laisse l'application
+    # reenregistrer proprement plutot que d'envoyer du charabia au modele.
+    franc = detecte and wake.reveil_franc(texte)
     if detecte:
-        log.info("Mot de reveil detecte : « %s »", texte)
+        log.info(
+            "Mot de reveil detecte (%s) : « %s »",
+            "net" if franc else "approche, question non enchainee",
+            texte,
+        )
     return {
         "wake": detecte,
         "text": texte,
-        "commande": wake.commande_apres_reveil(texte) if detecte else "",
+        "commande": wake.commande_apres_reveil(texte) if franc else "",
     }
