@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     # prend 30 secondes quoi qu'on fasse. Limiter la longueur est plus efficace
     # que n'importe quelle optimisation technique.
     max_tokens: int = 500
+
+    # Transcription locale (optionnelle). `small` : bon compromis en francais
+    # pour ~500 Mo. `base` est deux fois plus rapide et nettement moins precis
+    # sur les noms propres ; `medium` demande trop de memoire sur 8 Go.
+    whisper_model: str = "small"
+    whisper_compute: str = "int8"
     request_timeout: float = 300.0
     log_level: str = "INFO"
 

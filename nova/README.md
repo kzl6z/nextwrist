@@ -27,6 +27,16 @@ uv run nova search "ma question"
 uv run nova ask "ma question"    # sans interface
 ```
 
+## Parler a Nova (optionnel)
+
+```bash
+uv pip install -e ".[voice]"
+```
+
+Ajoute la transcription locale (Whisper) sur `/v1/audio/transcriptions`.
+Sans clé, sans quota, sans réseau : la voix ne quitte pas la machine.
+Le premier appel télécharge le modèle (~500 Mo).
+
 ## Architecture en une phrase
 
 L'interface croit parler a un modele nomme `nova` ; en realite elle parle a Nova
