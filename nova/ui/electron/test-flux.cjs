@@ -11,7 +11,18 @@
 // mesurer quand on regarde « Analyse IA en … ms ».
 const http = require('http');
 const path = require('path');
-const os = require('os');
+
+// brain.js lit la memoire de l'application. Le banc d'essai n'en a pas besoin,
+// et `memory.js` appartient a l'application, pas a Nova : on ne le versionne
+// donc pas ici. On intercepte le chargement et on rend un double.
+const Module = require('module');
+const chargerOrigine = Module._load;
+Module._load = function (demande, parent, principal) {
+  if (demande === './memory') {
+    return { contexte: () => 'Mémoire vide : aucune information enregistrée.' };
+  }
+  return chargerOrigine.apply(this, arguments);
+};
 
 const REPONSE = "Un trou noir est une région de l'espace où la gravité est si intense "
   + "que rien ne s'en échappe. Même la lumière y reste piégée pour toujours.";
@@ -73,8 +84,6 @@ async function mesurer(objet, port) {
 }
 
 (async () => {
-  require('./memory').init(path.join(os.tmpdir(), 'nova-essai-' + Date.now()));
-
   const avant = await mesurer(AVEC_MEMOIRE, 8198);
   const apres = await mesurer(SANS_MEMOIRE, 8199);
 

@@ -1,4 +1,30 @@
-# Réveil vocal — module pour l'application de bureau
+# Modules NOVA embarqués dans l'application de bureau
+
+Ces fichiers s'exécutent dans l'application Electron mais appartiennent à
+Nova : c'est du code métier, pas de l'habillage. Ils sont versionnés ici pour
+qu'un `git pull` suffise à les récupérer, et pour qu'ils aient des bancs
+d'essai — ce qui serait impossible s'ils ne vivaient que dans l'application.
+
+| Fichier | Où le déposer | Banc d'essai |
+|---|---|---|
+| `brain.js` | `nova-project/electron/` | `test-flux.cjs`, `test-recuperation.cjs` |
+| `reveil-vocal.js` | fin de `nova-project/script.js` | `test-reveil.cjs` |
+| `parole-en-flux.js` | fin de `nova-project/script.js` | `test-flux.cjs` |
+
+```bash
+node test-reveil.cjs
+node test-flux.cjs
+node test-recuperation.cjs
+```
+
+Aucun n'a besoin de micro, d'Electron, d'Ollama ni de Nova Core.
+
+`memory.js` n'est pas ici : il appartient à l'application. Les bancs d'essai
+en interceptent le chargement et rendent un double.
+
+---
+
+# Réveil vocal
 
 `reveil-vocal.js` est la brique d'écoute permanente. Elle est versionnée ici
 parce qu'elle appartient à Nova, même si elle s'exécute dans l'application
@@ -116,3 +142,43 @@ elle commence à parler 2027 ms avant la fin — 59 % de silence en moins
 
 Le test vérifie aussi que le texte est reconstitué **exactement** et que la
 mémoire structurée traverse le flux sans perte.
+
+---
+
+# Récupération de la réponse
+
+Un petit modèle invente des formes. Cas **réel**, relevé dans les logs : le
+contrat disait
+
+```json
+{"response":"tes deux phrases"}
+```
+
+et `llama3.2:3b` a pris le texte d'exemple pour le **nom du champ** :
+
+```json
+{ "tes deux phrases": { "Un trou noir est une région…": "C'est une…" } }
+```
+
+La réponse était là, complète et juste, rangée là où personne ne la cherchait.
+Nova a dit « Entendu. » — le garde-fou `res.response || 'Entendu.'`, sans que
+rien ne le signale.
+
+Deux corrections, et il fallait les deux :
+
+1. **La consigne** nomme la clé explicitement et donne deux exemples complets
+   avec de vraies questions. Un texte d'exemple à l'intérieur du JSON est pris
+   au pied de la lettre.
+2. **Le filet** parcourt tout l'objet et récupère les phrases où qu'elles
+   soient — dans les valeurs comme dans les clés, puisque le modèle avait mis
+   la moitié de sa réponse dans une clé.
+
+Le seuil de 30 caractères sépare une phrase d'un nom de champ. Sans lui, Nova
+prononcerait « query goal Research ».
+
+```bash
+node test-recuperation.cjs
+```
+
+Le cas réel est dans le test, avec les formes plausibles autour (clé anglaise,
+clé française, tableau, imbrication) et ce qu'il ne faut surtout pas récupérer.

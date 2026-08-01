@@ -1,0 +1,7 @@
+{
+  "name": "nova-ui-electron",
+  "private": true,
+  "description": "Copies de reference des modules NOVA embarques dans l'application Electron, et leurs bancs d'essai.",
+  "comment": "type=commonjs : la racine du depot declare type=module, or ces fichiers utilisent require() puisqu'ils tournent dans Electron. Sans cette ligne, Node les lit comme des modules ES et echoue.",
+  "type": "commonjs"
+}
