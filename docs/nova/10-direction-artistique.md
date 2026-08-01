@@ -67,6 +67,27 @@ C'est exactement pour ça que les surcouches d'Apple (Spotlight, Dynamic Island)
 Tesla sont **des panneaux**, jamais du texte flottant. La transparence y est un effet
 de matière sur une surface, pas une absence de surface.
 
+#### Le corollaire, appris à nos dépens ⚡
+
+Le substrat est nécessaire, mais il a une **taille**. La fenêtre de Nova couvre
+l'écran entier — elle doit pouvoir afficher la sphère n'importe où. Le flou natif
+de macOS (`setVibrancy`), lui, s'applique à **toute la fenêtre** : c'est un
+interrupteur, pas une zone. Branché sur « Nova est active », il transformait tout
+le bureau en voile laiteux dès qu'elle écoutait — pour une sphère de 60 px
+répondant « il est 14 h 12 ».
+
+> **Le voile est un état, pas un mode.** Il ne s'allume que dans les états où Nova
+> occupe réellement l'écran (intro, présentation de contenu). Écouter, réfléchir et
+> parler depuis un coin ne voilent rien : l'écran appartient à l'utilisateur.
+
+Deux règles d'implémentation en découlent :
+
+- **Capter les clics et voiler l'écran sont deux choses distinctes.** Les confondre
+  dans un même signal est la cause exacte du défaut ci-dessus.
+- **L'apparence sombre est forcée** (`nativeTheme.themeSource = 'dark'`). Le flou
+  natif prend la teinte du thème système ; en thème clair il donne du blanc, ce qui
+  contredit toute la direction artistique.
+
 ---
 
 ## 2. Ce que je retiens — cinq principes
@@ -215,6 +236,7 @@ passe alors à une variation d'opacité seule.
 - ❌ grille hexagonale, réticules, faux radar
 - ❌ dégradés multicolores, néon saturé
 - ❌ texte flottant sans substrat *(la leçon de la référence C)*
+- ❌ voile ou flou sur tout l'écran pour une réponse courte *(son corollaire)*
 - ❌ sphère géante permanente au centre
 - ❌ police « techno » à empattements anguleux
 - ❌ son au démarrage
