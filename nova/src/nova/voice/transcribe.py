@@ -70,6 +70,7 @@ def transcrire(audio: bytes, *, langue: str = "fr") -> str:
     if len(audio) < 2000:
         return ""  # enregistrement trop court : silence ou declenchement rate
 
+    settings = get_settings()
     modele = _modele()
     with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as fichier:
         fichier.write(audio)
@@ -79,14 +80,35 @@ def transcrire(audio: bytes, *, langue: str = "fr") -> str:
         segments, info = modele.transcribe(
             str(chemin),
             language=langue,
-            # Detection d'activite vocale : coupe les silences avant transcription.
-            # Sans elle, Whisper invente du texte sur du blanc — comportement
-            # connu et particulierement genant pour un assistant vocal.
-            vad_filter=True,
+            vad_filter=settings.whisper_vad,
             beam_size=1,  # 1 = le plus rapide ; suffisant pour de la dictee
         )
-        texte = " ".join(segment.text.strip() for segment in segments).strip()
-        log.info("Transcrit (%s, %.1fs) : « %s »", info.language, info.duration, texte)
+        morceaux = [segment.text.strip() for segment in segments]
+        texte = " ".join(morceaux).strip()
+
+        # Journalisation detaillee : sans elle, une transcription vide est
+        # indiscernable d'un echec de decodage. Les deux se corrigent
+        # differemment, il faut donc pouvoir les distinguer.
+        log.info(
+            "Transcription : %d octets, %.2f s d'audio, %d segment(s) → « %s »",
+            len(audio),
+            info.duration,
+            len(morceaux),
+            texte,
+        )
+        if not texte:
+            if info.duration < 0.3:
+                log.warning(
+                    "Audio decode a %.2f s : le fichier est probablement illisible "
+                    "(format ou en-tete incomplet), pas silencieux.",
+                    info.duration,
+                )
+            else:
+                log.warning(
+                    "%.2f s d'audio mais aucune parole reconnue. "
+                    "Micro trop loin, ou filtre VAD trop strict (NOVA_WHISPER_VAD).",
+                    info.duration,
+                )
         return texte
     finally:
         chemin.unlink(missing_ok=True)

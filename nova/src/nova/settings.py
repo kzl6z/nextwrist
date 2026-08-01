@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     # sur les noms propres ; `medium` demande trop de memoire sur 8 Go.
     whisper_model: str = "small"
     whisper_compute: str = "int8"
+    # Filtre de detection de parole. Desactive par defaut : sur des
+    # enregistrements courts declenches au clavier, il rejette parfois la
+    # totalite de l'audio et Nova recoit une transcription vide. Le risque
+    # qu'il evite (Whisper qui invente du texte sur du silence) concerne
+    # surtout l'ecoute continue, qu'on ne fait pas encore.
+    whisper_vad: bool = False
     request_timeout: float = 300.0
     log_level: str = "INFO"
 
