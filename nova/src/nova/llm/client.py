@@ -79,6 +79,31 @@ class LLMError(RuntimeError):
     """Erreur remontee par le moteur d'inference, presentable a l'utilisateur."""
 
 
+def _explique(exc: httpx.HTTPError, modele: str) -> str:
+    """Traduit une erreur HTTP en message actionnable.
+
+    Un message d'erreur doit dire QUOI FAIRE, pas seulement ce qui a echoue.
+    `Client error '404 Not Found'` est exact et inutile : il n'indique ni la
+    cause (le modele n'est pas installe) ni le remede (`ollama pull`).
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        if exc.response.status_code == 404:
+            return (
+                f"le modele « {modele} » n'existe pas dans Ollama.\n"
+                f"Installe-le :  ollama pull {modele}\n"
+                f"Ou change NOVA_CHAT_MODEL dans .env — modeles disponibles : ollama list"
+            )
+        return f"le moteur a repondu {exc.response.status_code}."
+    if isinstance(exc, httpx.ConnectError):
+        return (
+            "impossible de joindre Ollama.\n"
+            "Verifie que l'application est lancee (icone dans la barre de menus)."
+        )
+    if isinstance(exc, httpx.ReadTimeout):
+        return "le moteur n'a pas repondu a temps (modele trop lourd pour la machine ?)."
+    return str(exc)
+
+
 class LLMClient:
     def __init__(self, base_url: str | None = None, model: str | None = None) -> None:
         settings = get_settings()
@@ -104,7 +129,7 @@ class LLMClient:
                 resp.raise_for_status()
                 return resp.json()["choices"][0]["message"]["content"]
         except httpx.HTTPError as exc:
-            raise LLMError(f"Le moteur d'inference n'a pas repondu : {exc}") from exc
+            raise LLMError(_explique(exc, self.model)) from exc
 
     # -- appel en flux ------------------------------------------------------
     def stream(self, messages: list[Message], *, temperature: float | None = None) -> Iterator[str]:
@@ -151,7 +176,7 @@ class LLMClient:
                     if reste := filtre.flush():
                         yield reste
         except httpx.HTTPError as exc:
-            raise LLMError(f"Le moteur d'inference n'a pas repondu : {exc}") from exc
+            raise LLMError(_explique(exc, self.model)) from exc
 
     def health(self) -> bool:
         """Le moteur repond-il ? Utilise par /health."""

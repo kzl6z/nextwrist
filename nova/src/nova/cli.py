@@ -19,7 +19,7 @@ from nova import orchestrator
 from nova.db import run_migrations
 from nova.documents import ingest as ingest_module
 from nova.documents import search as search_module
-from nova.llm.client import LLMClient
+from nova.llm.client import LLMClient, LLMError
 from nova.memory import facts as facts_module
 
 console = Console()
@@ -121,8 +121,14 @@ def ask(
     # modele en memoire (plusieurs dizaines de secondes sur une petite machine).
     # Sans retour visuel, l'utilisateur conclut que Nova est plantee — et il a
     # raison de le conclure, puisque rien ne lui dit le contraire.
-    with console.status("Nova reflechit…", spinner="dots"):
-        premier = next(flux, None)
+    try:
+        with console.status("Nova reflechit…", spinner="dots"):
+            premier = next(flux, None)
+    except LLMError as exc:
+        # Une trace Python de soixante lignes pour une cause banale, c'est un
+        # defaut d'ergonomie : l'utilisateur doit lire le remede, pas la pile.
+        console.print(f"\n[red]Nova ne peut pas repondre :[/] {exc}")
+        raise typer.Exit(1) from None
     latence = time.monotonic() - debut
 
     if premier is None:
