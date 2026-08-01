@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     # qu'il evite (Whisper qui invente du texte sur du silence) concerne
     # surtout l'ecoute continue, qu'on ne fait pas encore.
     whisper_vad: bool = False
+    # Modele dedie au mot de reveil. `tiny` (~75 Mo) suffit largement :
+    # reconnaitre un seul mot ne demande aucune finesse, et il tourne en
+    # ~150 ms — indispensable puisqu'il est appele en continu.
+    whisper_wake_model: str = "tiny"
     request_timeout: float = 300.0
     log_level: str = "INFO"
 

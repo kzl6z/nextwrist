@@ -33,8 +33,8 @@ class TranscriptionIndisponible(RuntimeError):
     """La dependance vocale n'est pas installee."""
 
 
-@lru_cache(maxsize=1)
-def _modele():
+@lru_cache(maxsize=2)
+def _modele(nom: str | None = None):
     """Charge le modele une seule fois, puis le garde en memoire.
 
     Le premier appel telecharge le modele (~500 Mo pour `small`) et prend
@@ -49,18 +49,15 @@ def _modele():
         ) from exc
 
     settings = get_settings()
-    log.info("Chargement du modele de transcription %s…", settings.whisper_model)
+    nom = nom or settings.whisper_model
+    log.info("Chargement du modele de transcription %s…", nom)
     # int8 : quantification. Sur un Mac 8 Go c'est le seul reglage raisonnable —
     # trois fois plus leger que float16, pour une perte de precision inaudible
     # sur de la dictee courte.
-    return WhisperModel(
-        settings.whisper_model,
-        device="cpu",
-        compute_type=settings.whisper_compute,
-    )
+    return WhisperModel(nom, device="cpu", compute_type=settings.whisper_compute)
 
 
-def transcrire(audio: bytes, *, langue: str = "fr") -> str:
+def transcrire(audio: bytes, *, langue: str = "fr", modele: str | None = None) -> str:
     """Transcrit un enregistrement audio en texte.
 
     `audio` est le contenu brut du fichier (webm, wav, mp4, ogg…). On l'ecrit
@@ -71,13 +68,13 @@ def transcrire(audio: bytes, *, langue: str = "fr") -> str:
         return ""  # enregistrement trop court : silence ou declenchement rate
 
     settings = get_settings()
-    modele = _modele()
+    moteur = _modele(modele)
     with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as fichier:
         fichier.write(audio)
         chemin = Path(fichier.name)
 
     try:
-        segments, info = modele.transcribe(
+        segments, info = moteur.transcribe(
             str(chemin),
             language=langue,
             vad_filter=settings.whisper_vad,

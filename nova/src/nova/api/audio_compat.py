@@ -14,7 +14,8 @@ from __future__ import annotations
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from nova.logging_setup import get_logger
-from nova.voice import transcribe
+from nova.settings import get_settings
+from nova.voice import transcribe, wake
 
 log = get_logger(__name__)
 router = APIRouter(prefix="/v1", tags=["audio"])
@@ -46,3 +47,33 @@ def transcriptions(
         raise HTTPException(500, f"transcription impossible : {exc}") from exc
 
     return {"text": texte}
+
+
+@router.post("/audio/wake")
+def detection_reveil(file: UploadFile = File(...)) -> dict:
+    """Ce court extrait audio contient-il le mot de reveil ?
+
+    Appele en boucle par l'application de bureau des que le micro depasse un
+    seuil sonore. Doit donc etre RAPIDE : on utilise le petit modele dedie,
+    pas celui de la dictee.
+
+    Retourne aussi `commande` : si l'utilisateur a dit « Nova, quelle heure
+    est-il », on evite de lui faire repeter sa question.
+    """
+    audio = file.file.read()
+    try:
+        texte = transcribe.transcrire(audio, langue="fr", modele=get_settings().whisper_wake_model)
+    except transcribe.TranscriptionIndisponible as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Detection de reveil impossible : %s", exc)
+        return {"wake": False, "text": "", "commande": ""}
+
+    detecte = wake.contient_reveil(texte)
+    if detecte:
+        log.info("Mot de reveil detecte : « %s »", texte)
+    return {
+        "wake": detecte,
+        "text": texte,
+        "commande": wake.commande_apres_reveil(texte) if detecte else "",
+    }
