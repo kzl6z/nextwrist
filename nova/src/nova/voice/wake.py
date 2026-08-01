@@ -35,6 +35,13 @@ VARIANTES = ("nova", "no va", "nowa", "novak", "nauva", "novas")
 # Variantes tenant en UN mot — utilisees pour decouper la phrase.
 VARIANTES_MOT = tuple(v for v in VARIANTES if " " not in v)
 
+# Confusions observees en conditions reelles : Whisper, ne connaissant pas
+# « Nova », le remplace par le mot francais le plus proche. Ces formes sont des
+# mots courants — les accepter partout declencherait des reveils intempestifs.
+# On ne les accepte donc QU'EN DEBUT de phrase, ou elles ne peuvent guere etre
+# autre chose que le mot de reveil mal entendu.
+VARIANTES_DEBUT = ("nouveau", "au revoir", "nova s", "no vas")
+
 
 def normaliser(texte: str) -> str:
     """Minuscules, sans accents, ponctuation reduite a des espaces."""
@@ -48,8 +55,13 @@ def contient_reveil(texte: str) -> bool:
     """Le mot de reveil est-il present dans cette transcription ?"""
     if not texte:
         return False
-    normalise = " " + " ".join(normaliser(texte).split()) + " "
-    return any(f" {v} " in normalise for v in VARIANTES)
+    mots = normaliser(texte).split()
+    normalise = " " + " ".join(mots) + " "
+    if any(f" {v} " in normalise for v in VARIANTES):
+        return True
+    # Tolerance en debut de phrase uniquement.
+    debut = " ".join(mots[:2])
+    return any(debut.startswith(v) for v in VARIANTES_DEBUT)
 
 
 def commande_apres_reveil(texte: str) -> str:
@@ -66,4 +78,10 @@ def commande_apres_reveil(texte: str) -> str:
     for i, mot in enumerate(mots):
         if normaliser(mot).strip() in VARIANTES_MOT:
             return " ".join(mots[i + 1 :]).strip(" ,.!?;:")
+
+    # Cas des confusions de debut de phrase : la commande est ce qui suit.
+    normalises = [normaliser(m).strip() for m in mots]
+    for taille in (2, 1):
+        if " ".join(normalises[:taille]) in VARIANTES_DEBUT:
+            return " ".join(mots[taille:]).strip(" ,.!?;:")
     return ""

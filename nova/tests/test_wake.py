@@ -58,3 +58,26 @@ def test_la_date_est_en_francais_quelle_que_soit_la_machine():
 
 def test_minuit_est_correctement_formate():
     assert "00:05" in instant_present(datetime(2026, 1, 5, 0, 5))
+
+
+# --- confusions reelles de Whisper -------------------------------------------
+#
+# Transcriptions relevees en conditions reelles, quand l'utilisateur disait
+# « Nova, quelle heure est-il ». Le modele ne connaissant pas ce prenom, il le
+# remplace par le mot francais le plus proche.
+
+
+def test_accepte_les_confusions_en_debut_de_phrase():
+    assert contient_reveil("Nouveau, quelle heure est-il ?")
+    assert contient_reveil("Au revoir, quelle heure est-il ?")
+
+
+def test_refuse_ces_memes_mots_ailleurs_dans_la_phrase():
+    # Sinon toute phrase contenant « nouveau » reveillerait Nova.
+    assert not contient_reveil("je commence un nouveau projet")
+    assert not contient_reveil("bon je te dis au revoir")
+
+
+def test_extrait_la_commande_malgre_la_confusion():
+    assert commande_apres_reveil("Nouveau, quelle heure est-il ?") == "quelle heure est-il"
+    assert commande_apres_reveil("Au revoir, quelle heure est-il ?") == "quelle heure est-il"

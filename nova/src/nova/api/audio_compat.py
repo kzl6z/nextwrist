@@ -37,7 +37,7 @@ def transcriptions(
     langue = (language or language_code or "fr")[:2].lower()
 
     try:
-        texte = transcribe.transcrire(audio, langue=langue)
+        texte = transcribe.transcrire(audio, langue=langue, amorce=get_settings().whisper_amorce)
     except transcribe.TranscriptionIndisponible as exc:
         # 503 et non 500 : le service est absent, pas casse. La distinction
         # compte pour le client, qui peut alors se replier proprement.

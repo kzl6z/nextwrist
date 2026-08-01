@@ -57,7 +57,9 @@ def _modele(nom: str | None = None):
     return WhisperModel(nom, device="cpu", compute_type=settings.whisper_compute)
 
 
-def transcrire(audio: bytes, *, langue: str = "fr", modele: str | None = None) -> str:
+def transcrire(
+    audio: bytes, *, langue: str = "fr", modele: str | None = None, amorce: str | None = None
+) -> str:
     """Transcrit un enregistrement audio en texte.
 
     `audio` est le contenu brut du fichier (webm, wav, mp4, ogg…). On l'ecrit
@@ -79,6 +81,12 @@ def transcrire(audio: bytes, *, langue: str = "fr", modele: str | None = None) -
             language=langue,
             vad_filter=settings.whisper_vad,
             beam_size=1,  # 1 = le plus rapide ; suffisant pour de la dictee
+            # L'amorce oriente le vocabulaire : c'est ce qui fait la difference
+            # entre entendre « Nova » et entendre « Nouveau ».
+            initial_prompt=amorce,
+            # Chaque extrait est independant : sans ce reglage, le modele se
+            # laisse influencer par ce qu'il a transcrit juste avant et derive.
+            condition_on_previous_text=False,
         )
         morceaux = [segment.text.strip() for segment in segments]
         texte = " ".join(morceaux).strip()

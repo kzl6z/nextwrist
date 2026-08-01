@@ -65,7 +65,10 @@ class Settings(BaseSettings):
     # Transcription locale (optionnelle). `small` : bon compromis en francais
     # pour ~500 Mo. `base` est deux fois plus rapide et nettement moins precis
     # sur les noms propres ; `medium` demande trop de memoire sur 8 Go.
-    whisper_model: str = "small"
+    # `base` plutot que `small` : deux fois plus rapide pour une precision
+    # tres proche sur de la dictee courte. Mesure sur M1 8 Go : `small`
+    # mettait 3 s pour transcrire une phrase, ce qui rend le vocal penible.
+    whisper_model: str = "base"
     whisper_compute: str = "int8"
     # Filtre de detection de parole. Desactive par defaut : sur des
     # enregistrements courts declenches au clavier, il rejette parfois la
@@ -76,7 +79,12 @@ class Settings(BaseSettings):
     # Modele dedie au mot de reveil. `tiny` (~75 Mo) suffit largement :
     # reconnaitre un seul mot ne demande aucune finesse, et il tourne en
     # ~150 ms — indispensable puisqu'il est appele en continu.
-    whisper_wake_model: str = "tiny"
+    whisper_wake_model: str = "base"
+    # Amorce donnee au modele : elle oriente le vocabulaire attendu.
+    # Sans elle, « Nova » — qui n'est pas un mot francais courant — est
+    # transcrit « Nouveau », « Au revoir », « No va »… Constate en conditions
+    # reelles. Avec elle, le modele sait que ce mot existe et le reconnait.
+    whisper_amorce: str = "Nova. Nova, quelle heure est-il ? Nova, ouvre un projet."
     request_timeout: float = 300.0
     log_level: str = "INFO"
 
