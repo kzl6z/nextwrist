@@ -23,6 +23,57 @@ log = get_logger(__name__)
 
 Message = dict[str, str]  # {"role": "user", "content": "..."}
 
+OPEN, CLOSE = "<think>", "</think>"
+
+
+class ThinkFilter:
+    """Retire les blocs <think>...</think> d'un flux de texte.
+
+    Pourquoi c'est necessaire : certains modeles "raisonneurs" ecrivent leur
+    reflexion directement dans la reponse. Constate en conditions reelles avec
+    qwen3:4b — 2600 caracteres de raisonnement pour repondre "Bonjour !".
+
+    Ce filtre ne rend pas le modele plus rapide : le temps est deja depense.
+    Il evite simplement d'infliger le monologue a l'utilisateur. Le vrai
+    remede est de choisir un modele sans phase de reflexion (scripts/bench_models.py).
+
+    La difficulte : en flux, une balise peut etre coupee entre deux fragments.
+    On conserve donc une petite queue tampon plutot que de tester chaque fragment.
+    """
+
+    def __init__(self) -> None:
+        self._buffer = ""
+        self._inside = False
+
+    def feed(self, piece: str) -> str:
+        self._buffer += piece
+        out: list[str] = []
+        while True:
+            if not self._inside:
+                index = self._buffer.find(OPEN)
+                if index == -1:
+                    # On garde de quoi reconstituer une balise coupee en deux.
+                    keep = max(0, len(self._buffer) - len(OPEN) + 1)
+                    out.append(self._buffer[:keep])
+                    self._buffer = self._buffer[keep:]
+                    break
+                out.append(self._buffer[:index])
+                self._buffer = self._buffer[index + len(OPEN) :]
+                self._inside = True
+            else:
+                index = self._buffer.find(CLOSE)
+                if index == -1:
+                    keep = max(0, len(self._buffer) - len(CLOSE) + 1)
+                    self._buffer = self._buffer[keep:]  # le raisonnement est jete
+                    break
+                self._buffer = self._buffer[index + len(CLOSE) :]
+                self._inside = False
+        return "".join(out)
+
+    def flush(self) -> str:
+        """Ce qui reste en tampon a la fin du flux."""
+        return "" if self._inside else self._buffer
+
 
 class LLMError(RuntimeError):
     """Erreur remontee par le moteur d'inference, presentable a l'utilisateur."""
@@ -83,6 +134,7 @@ class LLMClient:
                     "POST", f"{self.base_url}/chat/completions", json=payload
                 ) as resp:
                     resp.raise_for_status()
+                    filtre = ThinkFilter()
                     for line in resp.iter_lines():
                         if not line or not line.startswith("data: "):
                             continue
@@ -94,7 +146,10 @@ class LLMClient:
                         except (json.JSONDecodeError, KeyError, IndexError):
                             continue  # fragment malforme : on ignore, on ne casse pas
                         if content := delta.get("content"):
-                            yield content
+                            if visible := filtre.feed(content):
+                                yield visible
+                    if reste := filtre.flush():
+                        yield reste
         except httpx.HTTPError as exc:
             raise LLMError(f"Le moteur d'inference n'a pas repondu : {exc}") from exc
 

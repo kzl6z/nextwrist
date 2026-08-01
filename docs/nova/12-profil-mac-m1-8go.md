@@ -68,8 +68,33 @@ avance.
 
 | Rôle | Modèle | Taille | Justification |
 |---|---|---|---|
-| Cerveau | **`qwen3:4b`** | ~2,5 Go | Laisse ~3 Go de budget GPU libre. Attendu : 15-25 tokens/s |
+| Cerveau | **à choisir par la mesure** | — | `uv run python scripts/bench_models.py` |
 | Embeddings | **`bge-m3`** | ~1,2 Go | **Ne pas économiser ici** |
+
+### ⚠️ `qwen3:4b` a été écarté — mesuré, pas supposé
+
+Recommandé initialement sur ses caractéristiques générales (excellent français,
+excellent appel d'outils), il s'est révélé **inutilisable ici**. Mesures réelles
+sur cette machine, pour la question « Dis bonjour en une phrase » :
+
+| | Résultat |
+|---|---|
+| `ollama run` direct | **51,8 s** |
+| Via l'API, tel quel | 34,5 s — dont **2619 caractères** de raisonnement invisible |
+| Via l'API, `think: false` | 56,4 s — le raisonnement passe simplement dans la réponse |
+
+La cause n'est pas la puissance de la machine : le modèle était résident,
+`100% GPU`, et la génération de la réponse elle-même prenait 3 secondes. Tout le
+temps partait dans une phase de raisonnement d'environ mille tokens **avant** le
+premier mot visible.
+
+**La leçon, et elle vaut pour tout le projet :** aucune fiche technique ne
+mentionne ce comportement. Les classements publics ne le mesurent pas. Seule
+l'exécution sur la machine réelle le révèle — d'où `scripts/bench_models.py`,
+qui mesure ce qui compte vraiment : le **temps avant le premier mot**.
+
+Un modèle « raisonneur » reste utile pour l'analyse lourde. Il est disqualifié
+pour l'assistant du quotidien, où la latence perçue prime sur la finesse.
 
 ### Pourquoi pas `qwen3:8b`
 

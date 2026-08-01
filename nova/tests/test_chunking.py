@@ -57,3 +57,30 @@ def test_recouvrement_superieur_a_la_taille_est_refuse():
 
     with pytest.raises(ValueError):
         chunk_text("abc", size=100, overlap=100)
+
+
+# --- filtre de raisonnement ---------------------------------------------------
+
+from nova.llm.client import ThinkFilter  # noqa: E402
+
+
+def _filtrer(fragments):
+    f = ThinkFilter()
+    return "".join(f.feed(p) for p in fragments) + f.flush()
+
+
+def test_filtre_laisse_passer_un_texte_normal():
+    assert _filtrer(["Bonjour ", "le ", "monde"]) == "Bonjour le monde"
+
+
+def test_filtre_retire_un_bloc_de_raisonnement():
+    assert _filtrer(["<think>bla bla</think>", "Bonjour !"]) == "Bonjour !"
+
+
+def test_filtre_gere_une_balise_coupee_entre_deux_fragments():
+    # Cas reel du flux : la balise arrive en morceaux.
+    assert _filtrer(["<thi", "nk>reflexion</thi", "nk>", "Reponse"]) == "Reponse"
+
+
+def test_filtre_ne_rend_rien_si_le_bloc_reste_ouvert():
+    assert _filtrer(["<think>raisonnement interrompu"]) == ""
