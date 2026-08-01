@@ -26,6 +26,61 @@ Message = dict[str, str]  # {"role": "user", "content": "..."}
 OPEN, CLOSE = "<think>", "</think>"
 
 
+class FinDeJson:
+    """Detecte la fermeture du premier objet JSON de premier niveau.
+
+    POURQUOI CETTE CLASSE EXISTE
+
+    Le decodage contraint garantit que la sortie EST du JSON valide. Il ne
+    garantit pas que le moteur s'arrete une fois l'objet ecrit : Ollama
+    continue d'emettre du remplissage jusqu'au plafond de jetons. Mesure sur
+    la machine reelle, pour une reponse dont le texte utile faisait six
+    caracteres (« samedi ») :
+
+        max_tokens 300  ->  24 431 ms
+
+    Presque tout ce temps partait apres l'accolade fermante. On coupe donc le
+    flux nous-memes : fermer la connexion interrompt la generation cote
+    moteur, et la reponse arrive des qu'elle est complete plutot qu'a
+    l'epuisement du quota.
+
+    L'analyse suit les regles du JSON — une accolade dans une chaine de
+    caracteres ne compte pas, et un guillemet echappe ne ferme pas la chaine.
+    """
+
+    def __init__(self) -> None:
+        self.profondeur = 0
+        self.dans_chaine = False
+        self.echappe = False
+        self.commence = False
+        self.termine = False
+
+    def feed(self, morceau: str) -> str:
+        """Renvoie la portion a conserver ; positionne `termine` a la fermeture."""
+        if self.termine:
+            return ""
+        for i, caractere in enumerate(morceau):
+            if self.dans_chaine:
+                if self.echappe:
+                    self.echappe = False
+                elif caractere == "\\":
+                    self.echappe = True
+                elif caractere == '"':
+                    self.dans_chaine = False
+                continue
+            if caractere == '"':
+                self.dans_chaine = True
+            elif caractere in "{[":
+                self.profondeur += 1
+                self.commence = True
+            elif caractere in "}]":
+                self.profondeur -= 1
+                if self.commence and self.profondeur <= 0:
+                    self.termine = True
+                    return morceau[: i + 1]
+        return morceau
+
+
 class ThinkFilter:
     """Retire les blocs <think>...</think> d'un flux de texte.
 
@@ -177,6 +232,9 @@ class LLMClient:
                 ) as resp:
                     resp.raise_for_status()
                     filtre = ThinkFilter()
+                    # En mode contraint, on coupe des que l'objet est ferme :
+                    # tout ce qui suit est du remplissage jusqu'au plafond.
+                    fin = FinDeJson() if json_mode else None
                     for line in resp.iter_lines():
                         if not line or not line.startswith("data: "):
                             continue
@@ -188,7 +246,15 @@ class LLMClient:
                         except (json.JSONDecodeError, KeyError, IndexError):
                             continue  # fragment malforme : on ignore, on ne casse pas
                         if content := delta.get("content"):
-                            if visible := filtre.feed(content):
+                            visible = filtre.feed(content)
+                            if fin is not None:
+                                visible = fin.feed(visible)
+                                if visible:
+                                    yield visible
+                                if fin.termine:
+                                    log.info("Objet JSON complet : flux interrompu.")
+                                    return
+                            elif visible:
                                 yield visible
                     if reste := filtre.flush():
                         yield reste

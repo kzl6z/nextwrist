@@ -61,7 +61,7 @@ def test_recouvrement_superieur_a_la_taille_est_refuse():
 
 # --- filtre de raisonnement ---------------------------------------------------
 
-from nova.llm.client import ThinkFilter  # noqa: E402
+from nova.llm.client import FinDeJson, ThinkFilter  # noqa: E402
 
 
 def _filtrer(fragments):
@@ -84,3 +84,59 @@ def test_filtre_gere_une_balise_coupee_entre_deux_fragments():
 
 def test_filtre_ne_rend_rien_si_le_bloc_reste_ouvert():
     assert _filtrer(["<think>raisonnement interrompu"]) == ""
+
+
+# ── Fin d'objet JSON ──────────────────────────────────────────────────────
+# Le decodage contraint garantit un JSON valide, pas un arret a la fermeture :
+# Ollama remplit ensuite jusqu'au plafond de jetons. On coupe donc nous-memes.
+
+
+def _passer(fragments):
+    """Fait passer des fragments dans le detecteur et rend (texte, termine)."""
+    fin = FinDeJson()
+    sortie = []
+    for fragment in fragments:
+        sortie.append(fin.feed(fragment))
+        if fin.termine:
+            break
+    return "".join(sortie), fin.termine
+
+
+def test_coupe_a_la_fermeture_de_lobjet():
+    texte, termine = _passer(['{"response":"samedi"}', "\n\n\n\n\n     \n\n"])
+    assert termine
+    assert texte == '{"response":"samedi"}'
+
+
+def test_laisse_passer_un_objet_imbrique_entier():
+    objet = '{"response":"ok","memory":{"shouldRemember":true,"title":"Nova"}}'
+    texte, termine = _passer([objet, "du remplissage"])
+    assert termine
+    assert texte == objet
+
+
+def test_une_accolade_dans_une_chaine_ne_ferme_rien():
+    objet = '{"response":"il a dit } puis {"}'
+    texte, termine = _passer([objet, "apres"])
+    assert termine
+    assert texte == objet
+
+
+def test_un_guillemet_echappe_ne_ferme_pas_la_chaine():
+    objet = '{"response":"il a dit \\"bonjour\\" } encore"}'
+    texte, termine = _passer([objet, "apres"])
+    assert termine
+    assert texte == objet
+
+
+def test_fonctionne_a_cheval_sur_les_fragments():
+    # Cas reel : le flux arrive jeton par jeton, pas objet par objet.
+    texte, termine = _passer(['{"resp', 'onse":"sam', 'edi"', "}", "   \n\n"])
+    assert termine
+    assert texte == '{"response":"samedi"}'
+
+
+def test_ne_coupe_pas_un_objet_incomplet():
+    texte, termine = _passer(['{"response":"sam'])
+    assert not termine
+    assert texte == '{"response":"sam'

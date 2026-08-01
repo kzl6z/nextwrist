@@ -19,7 +19,9 @@ capacite est facultative, et son absence n'empeche jamais le reste.
 
 from __future__ import annotations
 
+import re
 import tempfile
+import unicodedata
 from functools import lru_cache
 from pathlib import Path
 
@@ -31,6 +33,53 @@ log = get_logger(__name__)
 
 class TranscriptionIndisponible(RuntimeError):
     """La dependance vocale n'est pas installee."""
+
+
+# ── Hallucinations de Whisper sur le quasi-silence ────────────────────────
+#
+# Whisper a ete entraine sur des millions de sous-titres de videos. Quand il
+# recoit un extrait sans parole claire, il ne rend pas une chaine vide : il
+# produit ce qui terminait le plus souvent ces fichiers. En francais, c'est
+# presque toujours la meme poignee de phrases.
+#
+# Observe sur cette machine, envoye tel quel au modele de langue, qui a mis
+# 22 secondes a repondre a une phrase que personne n'avait prononcee :
+#
+#     « les sous-titres realises par la communaute d'Amara.org »
+#
+# Ces phrases ne sont jamais des demandes. On les traite comme du silence.
+_HALLUCINATIONS = (
+    "sous titres realises par la communaute d amara org",
+    "sous titrage societe radio canada",
+    "sous titrage m6 video",
+    "merci d avoir regarde cette video",
+    "merci a tous et a bientot",
+    "abonnez vous a la chaine",
+    "n hesitez pas a vous abonner",
+    "amara org",
+)
+
+
+def _reduire(texte: str) -> str:
+    """Minuscules, sans accents ni ponctuation : forme de comparaison."""
+    sans_accents = "".join(
+        c for c in unicodedata.normalize("NFD", texte) if unicodedata.category(c) != "Mn"
+    )
+    return " ".join(re.sub(r"[^a-z0-9 ]+", " ", sans_accents.lower()).split())
+
+
+def est_hallucination(texte: str) -> bool:
+    """Cet extrait est-il une formule de sous-titrage plutot qu'une parole ?
+
+    On n'examine que les extraits courts : au-dela, il y a une vraie phrase
+    autour, et supprimer le tout ferait perdre une demande legitime.
+    """
+    reduit = _reduire(texte)
+    if not reduit:
+        return False
+    if len(reduit) > 90:
+        return False
+    return any(motif in reduit for motif in _HALLUCINATIONS)
 
 
 @lru_cache(maxsize=2)
@@ -105,6 +154,10 @@ def transcrire(
         )
         morceaux = [segment.text.strip() for segment in segments]
         texte = " ".join(morceaux).strip()
+
+        if est_hallucination(texte):
+            log.info("Formule de sous-titrage ignoree (aucune parole) : « %s »", texte)
+            return ""
 
         # Journalisation detaillee : sans elle, une transcription vide est
         # indiscernable d'un echec de decodage. Les deux se corrigent
