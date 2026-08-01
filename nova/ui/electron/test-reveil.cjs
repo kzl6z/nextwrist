@@ -9,6 +9,7 @@ const fin = src.lastIndexOf('})();');
 const corps = src.slice(debut, fin);
 
 globalThis.uiMode = 'veille';
+globalThis.appState = 'IDLE';
 globalThis.wakeOn = false;
 globalThis.wakeChipEl = null;
 globalThis.wakeToConversation = () => {};
@@ -77,5 +78,24 @@ envois.length = 0;
 envoyer(0.002, 8000);
 console.log('silence 8 s -> extraits :', envois.length, envois.length === 0 ? '(rien, correct)' : '(ECHEC)');
 if (envois.length !== 0) process.exit(1);
+
+// Nova occupee (elle reflechit ou elle parle) : l'ecoute doit se taire.
+// Sans ce garde-fou, Whisper tourne pendant la generation, sur le meme
+// processeur — et une reponse de 94 caracteres prend 30 secondes.
+envois.length = 0;
+globalThis.appState = 'THINKING';
+envoyer(0.002, 500); envoyer(0.20, 1500); envoyer(0.002, 1200);
+console.log('pendant THINKING -> extraits :', envois.length, envois.length === 0 ? '(silence, correct)' : '(ECHEC)');
+if (envois.length !== 0) process.exit(1);
+
+globalThis.appState = 'SPEAKING';
+envoyer(0.002, 500); envoyer(0.20, 1500); envoyer(0.002, 1200);
+console.log('pendant SPEAKING -> extraits :', envois.length, envois.length === 0 ? '(silence, correct)' : '(ECHEC)');
+if (envois.length !== 0) process.exit(1);
+
+globalThis.appState = 'IDLE';
+envoyer(0.002, 500); envoyer(0.20, 1500); envoyer(0.002, 1200);
+console.log('retour en IDLE  -> extraits :', envois.length, envois.length === 1 ? '(reprise, correct)' : '(ECHEC)');
+if (envois.length !== 1) process.exit(1);
 
 console.log('\nTOUT PASSE');

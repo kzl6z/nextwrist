@@ -112,10 +112,28 @@
   }
 
   // ── Le cœur : appelé pour chaque trame de ~128 ms ──
+
+  // Nova est-elle réellement disponible pour écouter ?
+  //
+  // On testait `uiMode === 'veille'`, ce qui paraissait juste et ne l'était
+  // pas : THINKING et SPEAKING sont dans le coin, donc `uiMode` y vaut
+  // « veille » lui aussi. L'écoute tournait donc PENDANT qu'elle réfléchissait
+  // et PENDANT qu'elle parlait. Deux conséquences, l'une visible dans les
+  // logs, l'autre pas :
+  //
+  //   — deux transcriptions Whisper se lançaient au milieu de la génération,
+  //     sur le même processeur. Sur un M1 8 Go, le modèle tombait à ~3 jetons
+  //     par seconde et une réponse de 94 caractères prenait 30 secondes ;
+  //   — elle s'entendait parler, et pouvait se réveiller sur sa propre voix.
+  //
+  // `appState` distingue ce que `uiMode` confond. On s'appuie dessus.
+  function disponible() {
+    if (typeof appState !== 'undefined') return appState === 'IDLE';
+    return typeof uiMode !== 'undefined' && uiMode === 'veille';
+  }
+
   function surTrame(evenement) {
-    // On n'écoute QUE en veille. Sans ce garde-fou, Nova s'entendrait
-    // elle-même parler et se réveillerait sur sa propre voix.
-    if (!actif || typeof uiMode === 'undefined' || uiMode !== 'veille') {
+    if (!actif || !disponible()) {
       tramesPhrase = null;
       tramesPreRoll.length = 0;
       return;
@@ -187,7 +205,7 @@
       }
       const res = await rep.json();
       if (res.text) console.info('[NOVA/réveil] ' + ms + ' ms → « ' + res.text + ' »');
-      if (res.wake && uiMode === 'veille') {
+      if (res.wake && disponible()) {
         commande = (res.commande || '').trim() || null;
         console.info('[NOVA/réveil] déclenché'
           + (commande ? ' — enchaîne sur : « ' + commande + ' »' : ''));
