@@ -14,8 +14,11 @@ souvent celui qui ne ressemble pas a la question.
 from __future__ import annotations
 
 from nova.db import connection
+from nova.logging_setup import get_logger
 from nova.memory.models import Fact
 from nova.settings import get_tuning
+
+log = get_logger(__name__)
 
 CATEGORIES = ("profil", "projet", "preference", "contrainte", "objectif")
 
@@ -103,19 +106,64 @@ def archive(fact_id: int) -> None:
         )
 
 
+def tenir_dans_le_budget(contenus: list[str], budget: int) -> list[str]:
+    """Garde autant de faits que le budget de caracteres l'autorise.
+
+    POURQUOI UN BUDGET, ET PAS SEULEMENT UN NOMBRE
+
+    Sur un modele local, le temps avant le premier mot est proportionnel a la
+    TAILLE du prompt. Mesure sur l'iMac M1 : 6573 caracteres → 21,4 s, soit
+    ~3,3 ms par caractere. Un plafond exprime en nombre de faits ne borne donc
+    rien : quatre-vingts faits courts et quatre-vingts faits longs coutent des
+    temps sans commune mesure.
+
+    Sans cette borne, Nova ralentit a mesure qu'elle apprend — le pire defaut
+    possible pour un systeme dont l'accumulation est la raison d'etre, et
+    d'autant plus vicieux qu'il arrive lentement.
+
+    Les plus recents d'abord : `list_facts` les rend deja dans cet ordre, et a
+    budget egal un fait recent vaut mieux qu'un fait ancien.
+    """
+    gardes: list[str] = []
+    total = 0
+    for contenu in contenus:
+        cout = len(contenu) + 3  # « - » et le retour a la ligne
+        if total + cout > budget:
+            # On passe au suivant plutot que de s'arreter : un fait
+            # anormalement long ne doit pas faire taire les vingt suivants,
+            # qui tiendraient tres bien dans ce qui reste.
+            continue
+        gardes.append(contenu)
+        total += cout
+    return gardes
+
+
 def render_for_prompt() -> str:
     """Rend les faits confirmes sous forme de bloc injectable dans le prompt.
 
     Groupes par categorie : un modele suit nettement mieux une liste structuree
     qu'un paragraphe continu.
     """
-    facts = list_facts(status="confirmed")[: get_tuning().faits_max]
+    reglages = get_tuning()
+    facts = list_facts(status="confirmed")[: reglages.faits_max]
     if not facts:
         return ""
 
+    retenus = tenir_dans_le_budget([f.content for f in facts], reglages.faits_budget)
+    if len(retenus) < len(facts):
+        log.info(
+            "Memoire : %d faits sur %d injectes (budget de %d caracteres). "
+            "Au-dela, chaque fait ajoute ~3 ms d'attente a CHAQUE question.",
+            len(retenus),
+            len(facts),
+            reglages.faits_budget,
+        )
+    gardes = set(retenus)
+
     by_category: dict[str, list[str]] = {}
     for fact in facts:
-        by_category.setdefault(fact.category, []).append(fact.content)
+        if fact.content in gardes:
+            by_category.setdefault(fact.category, []).append(fact.content)
 
     lines = ["## Ce que tu sais de ton interlocuteur", ""]
     for category in CATEGORIES:

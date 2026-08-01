@@ -147,6 +147,9 @@ class Tuning:
         self.chunk_size: int = data["decoupage"]["taille"]
         self.chunk_overlap: int = data["decoupage"]["recouvrement"]
         self.faits_max: int = data["memoire"]["faits_max_dans_prompt"]
+        # Valeur par defaut si le fichier vient d'une version anterieure : une
+        # config plus ancienne ne doit jamais empecher Nova de demarrer.
+        self.faits_budget: int = data["memoire"].get("budget_caracteres_prompt", 1200)
 
 
 @lru_cache

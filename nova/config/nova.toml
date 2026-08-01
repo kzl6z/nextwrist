@@ -17,3 +17,23 @@ recouvrement = 150
 [memoire]
 # Au dela, on n'injecte plus tous les faits : il faudra les hierarchiser (V0.3).
 faits_max_dans_prompt = 80
+# ── Budget en CARACTERES du bloc de memoire ──────────────────────────────
+#
+# Le compte de faits ne suffit pas. Sur un modele local, le temps de reponse
+# est proportionnel a la TAILLE du prompt, pas au nombre de lignes. Mesure sur
+# l'iMac M1 :
+#
+#     prompt 6573 car.  ->  21,4 s avant le premier mot
+#
+# Soit environ 3,3 ms par caractere. Les 80 faits autorises pesaient a eux
+# seuls ~5 500 caracteres : dix-huit secondes d'attente, sur chaque question,
+# uniquement pour relire la memoire.
+#
+# La consequence, si on ne borne pas : NOVA RALENTIT A MESURE QU'ELLE APPREND.
+# C'est le pire defaut possible pour un systeme dont l'accumulation est la
+# raison d'etre — il punit exactement l'usage qu'on veut encourager, et il
+# arrive assez lentement pour qu'on l'attribue a autre chose.
+#
+# 1200 caracteres ~ 4 s de lecture. Au-dela, il faudra choisir les faits
+# pertinents plutot que tous les envoyer (V0.3).
+budget_caracteres_prompt = 1200

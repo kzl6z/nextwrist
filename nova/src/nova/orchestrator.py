@@ -99,23 +99,52 @@ def build_system_prompt(
     # l'identite de Nova ne se delegue pas. Mais un client STRUCTURE attend un
     # format precis ; ecraser sa consigne casse l'application sans un mot.
     # On distingue donc les deux cas, et dans les deux la memoire est injectee.
-    parts = [contrat] if contrat else [prompts.load("identity")]
+    # ── ORDRE DES MORCEAUX : DU PLUS STABLE AU PLUS VOLATIL ───────────────
+    #
+    # Ce n'est pas une question de lisibilite, c'est une question de temps.
+    # Le moteur d'inference garde en cache le travail deja fait sur un debut
+    # de prompt identique. Ce cache vaut jusqu'au PREMIER caractere qui
+    # change : tout ce qui suit est relu de zero.
+    #
+    # L'instant present contient les minutes. Place en deuxieme position,
+    # comme il l'etait, il invalidait donc la memoire et les documents a
+    # chaque nouvelle minute — c'est-a-dire presque toujours. Relegue a la
+    # fin, il ne coute plus que lui-meme.
+    #
+    # Mesure qui motive tout ce bloc, sur l'iMac M1 :
+    #     prompt 6573 car.  ->  21,4 s avant le premier mot
+    # Le modele n'etait pas lent : il relisait tout, a chaque question.
+    parts: list[tuple[str, str]] = []
 
+    def ajouter(nom: str, contenu: str) -> None:
+        if contenu:
+            parts.append((nom, contenu))
+
+    # 1. Stable — ne change jamais d'une question a l'autre.
+    ajouter("contrat" if contrat else "identite",
+            contrat or prompts.load("identity"))
+    if mode == "critique" and not contrat:
+        ajouter("mode critique", prompts.load("mode_critique"))
+    if not get_settings().thinking and not contrat:
+        # Interrupteur documente de Qwen 3. Inoffensif pour les modeles qui ne
+        # le connaissent pas : ce n'est qu'une ligne de texte de plus.
+        ajouter("no_think", "/no_think")
+
+    # 2. Lent — ne bouge que quand la memoire evolue.
+    ajouter("memoire", facts.render_for_prompt())
+
+    # 3. Volatil — change a chaque minute, puis a chaque question.
+    #
     # Un modele n'a AUCUNE notion du temps : sans cette ligne, « quelle heure
     # est-il » recoit une heure inventee, avec aplomb. C'est la premiere
     # question que tout le monde pose a un assistant vocal, et le premier
     # endroit ou il perd la confiance de son utilisateur.
-    parts.append(
+    ajouter(
+        "instant present",
         f"## Instant present\nNous sommes {instant_present()}.\n"
         "Utilise cette information telle quelle pour toute question de date ou "
-        "d'heure. Ne la recalcule pas, ne l'estime pas."
+        "d'heure. Ne la recalcule pas, ne l'estime pas.",
     )
-
-    if mode == "critique" and not contrat:
-        parts.append(prompts.load("mode_critique"))
-
-    if memory_block := facts.render_for_prompt():
-        parts.append(memory_block)
 
     hits: list[SearchHit] = []
     if len(user_message.strip()) >= MIN_QUERY_LENGTH:
@@ -128,19 +157,21 @@ def build_system_prompt(
             log.warning("Recherche documentaire indisponible : %s", exc)
 
     if hits:
-        parts.append(
+        ajouter(
+            "documents",
             "## Extraits de tes documents\n\n"
             "Appuie-toi dessus en priorite et cite la source entre crochets. "
             "S'ils ne repondent pas a la question, dis-le explicitement.\n\n"
-            + _format_sources(hits)
+            + _format_sources(hits),
         )
 
-    if not get_settings().thinking and not contrat:
-        # Interrupteur documente de Qwen 3. Inoffensif pour les modeles qui ne
-        # le connaissent pas : ce n'est qu'une ligne de texte de plus.
-        parts.append("/no_think")
-
-    return "\n\n".join(parts), hits
+    # De quoi voir, en un coup d'oeil, quel morceau coute cher. Sans ce
+    # detail, « le prompt fait 6573 caracteres » ne dit pas quoi couper.
+    log.info(
+        "Prompt systeme : %s",
+        " + ".join(f"{nom} {len(contenu)}" for nom, contenu in parts),
+    )
+    return "\n\n".join(contenu for _, contenu in parts), hits
 
 
 def answer_stream(
