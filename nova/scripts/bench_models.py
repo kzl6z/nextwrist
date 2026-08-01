@@ -65,6 +65,11 @@ CANDIDATS = [
 # quotidien. C'est ce seuil qui decide, pas le classement du modele.
 CONFORT_S = 5.0
 
+# En dessous, une reponse de deux phrases (~50 jetons) met plus de 3 secondes
+# a s'ecrire. Au-dessus, la vitesse supplementaire ne s'entend plus : elle est
+# masquee par la parole en flux, qui commence des la premiere phrase.
+VITESSE_MIN = 15.0
+
 
 def _racine_native(base_url: str) -> str:
     """L'API native d'Ollama, a cote du point d'entree OpenAI-compatible.
@@ -212,14 +217,36 @@ def main() -> None:
         "  [bold]Raisonne = oui[/]   -> disqualifie pour le vocal, quel que soit le reste.\n"
     )
 
-    utilisables = [r for r in resultats if not r["raisonne"] and r["lecture"] < CONFORT_S]
+    # ── Le critere : le PLUS GROS qui soit assez rapide ─────────────────
+    #
+    # Recommander le plus rapide serait une erreur, et elle a failli etre
+    # commise ici : qwen2.5:1.5b ecrit a 55 j/s contre 28,8 pour llama3.2:3b,
+    # mais les deux repondent bien en dessous du seuil de confort. A ce
+    # moment-la, la vitesse supplementaire ne s'entend plus — alors que le
+    # milliard de parametres en moins, lui, s'entend a chaque reponse.
+    #
+    # « Je prefere une IA extraordinairement intelligente avec une interface
+    # simple qu'une interface spectaculaire avec une IA mediocre. » On ne
+    # troque donc de la capacite contre de la vitesse que sous le seuil.
+    utilisables = [
+        r for r in resultats
+        if not r["raisonne"] and r["lecture"] < CONFORT_S and r["jetons_s"] >= VITESSE_MIN
+    ]
     if utilisables:
-        meilleur = max(utilisables, key=lambda r: r["jetons_s"])
+        meilleur = max(utilisables, key=lambda r: (poids.get(r["modele"], 0), r["jetons_s"]))
+        rapides = sorted(utilisables, key=lambda r: -r["jetons_s"])
         console.print(
-            f"[green]Recommande : [bold]{meilleur['modele']}[/bold][/] — le plus rapide "
-            f"a ecrire parmi ceux qui repondent en moins de {CONFORT_S:.0f} s.\n"
+            f"[green]Recommande : [bold]{meilleur['modele']}[/bold][/] — le plus CAPABLE "
+            f"parmi ceux qui tiennent le rythme.\n"
             f"[dim]NOVA_CHAT_MODEL={meilleur['modele']} dans .env, puis relance make serve.[/]"
         )
+        if rapides[0]["modele"] != meilleur["modele"]:
+            console.print(
+                f"[dim]({rapides[0]['modele']} ecrit plus vite "
+                f"({rapides[0]['jetons_s']:.0f} contre {meilleur['jetons_s']:.0f} j/s), mais les "
+                f"deux sont deja sous le seuil : la vitesse en plus ne s'entend pas, "
+                f"les parametres en moins si.)[/]"
+            )
     elif resultats:
         console.print(
             f"[yellow]Aucun modele ne repond sous {CONFORT_S:.0f} s.[/] "

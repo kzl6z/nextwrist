@@ -64,27 +64,39 @@ class Settings(BaseSettings):
 
     # ── Transcription locale (optionnelle) ────────────────────────────────
     #
-    # `base` avait ete choisi contre `small` pour la vitesse : 1,2 s au lieu
-    # de ~3 s. Ce raisonnement etait juste isolement et faux dans l'ensemble.
-    # Mesure reelle du cycle complet sur M1 8 Go :
+    # RETOUR A `base` — et l'aller-retour vaut d'etre raconte.
     #
-    #     transcription   1,2 s
-    #     modele          8,9 s a 27,6 s      ← le vrai cout
+    # `small` avec 5 hypotheses avait ete choisi pour corriger la
+    # comprehension, en jugeant ses 2,5 secondes de plus negligeables devant
+    # un modele qui mettait 25 secondes. Le raisonnement etait juste, mais il
+    # reposait sur un chiffre faux : ces 25 secondes n'etaient pas le cout du
+    # modele, c'etait le cout de la CONCURRENCE que Whisper lui faisait.
     #
-    # Gagner 1,8 s sur la transcription ne se remarque pas ; se tromper sur
-    # les mots gache tout ce qui suit, car le modele repond alors a une
-    # question que personne n'a posee. On paie donc la precision.
+    # Mesure au banc, application fermee :
     #
-    # `medium` reste exclu : trop de memoire sur 8 Go, et il faudrait le
-    # garder resident a cote du modele de langue.
-    whisper_model: str = "small"
+    #     llama3.2:3b   lecture 0,2 s   ecriture 28,8 jetons/s
+    #
+    # Les memes appels, avec l'application ouverte et `small` resident :
+    #
+    #     llama3.2:3b   lecture  21 s   ecriture  9,6 jetons/s
+    #
+    # Whisper ne coutait donc pas 2,5 secondes : il coutait 2,5 secondes DE
+    # PLUS, et il divisait par trois la vitesse du modele. Sur 8 Go partages,
+    # un modele resident se paie deux fois — en memoire, puis en lenteur de
+    # tout le reste.
+    #
+    # Ce qui a reellement repare la comprehension, ce n'est pas la taille du
+    # modele : c'est le decoupage par la parole (phrase entiere au lieu d'un
+    # extrait au chronometre) et les 400 ms de pre-roll. Ca reste acquis.
+    #
+    # Pour revenir a `small` :  NOVA_WHISPER_MODEL=small  dans .env
+    whisper_model: str = "base"
     whisper_compute: str = "int8"
-    # Largeur de recherche. 1 = glouton : le modele garde le premier mot venu
-    # et ne revient jamais dessus, ce qui produit exactement les erreurs
-    # observees (« Quelheur est-il ? »). 5 explore plusieurs hypotheses et
-    # retient la plus vraisemblable une fois la phrase entiere connue — c'est
-    # le reglage qui corrige le plus d'erreurs pour le moins de temps.
-    whisper_beam: int = 5
+    # Largeur de recherche. 5 explore plusieurs hypotheses et corrige des
+    # erreurs comme « Quelheur est-il ? » — mais chaque hypothese est du calcul
+    # pris au modele de langue qui tourne a cote. Sur cette machine, le
+    # glouton redevient le bon compromis.
+    whisper_beam: int = 1
     # Le mot de reveil, lui, doit rester glouton : il tourne en continu et ne
     # cherche qu'un seul mot. La finesse n'y apporte rien, le cout si.
     whisper_beam_reveil: int = 1
@@ -94,14 +106,11 @@ class Settings(BaseSettings):
     # qu'il evite (Whisper qui invente du texte sur du silence) concerne
     # surtout l'ecoute continue, qu'on ne fait pas encore.
     whisper_vad: bool = False
-    # Modele dedie au mot de reveil. `tiny` (~75 Mo) suffit largement :
-    # reconnaitre un seul mot ne demande aucune finesse, et il tourne en
-    # ~150 ms — indispensable puisqu'il est appele en continu.
     # Meme modele que la dictee, volontairement. Deux modeles differents, ce
-    # sont deux jeux de poids residents : sur 8 Go partages avec le modele de
-    # langue, la memoire economisee vaut plus que les quelques centaines de
-    # millisecondes gagnees sur un extrait de deux secondes.
-    whisper_wake_model: str = "small"
+    # sont deux jeux de poids residents ; sur 8 Go partages avec le modele de
+    # langue, chaque megaoctet resident se paie deux fois — en memoire, puis
+    # en lenteur de tout ce qui tourne a cote.
+    whisper_wake_model: str = "base"
     # Amorce donnee au modele : elle oriente le vocabulaire attendu.
     # Sans elle, « Nova » — qui n'est pas un mot francais courant — est
     # transcrit « Nouveau », « Au revoir », « No va »… Constate en conditions
