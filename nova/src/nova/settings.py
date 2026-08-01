@@ -62,14 +62,32 @@ class Settings(BaseSettings):
     # que n'importe quelle optimisation technique.
     max_tokens: int = 500
 
-    # Transcription locale (optionnelle). `small` : bon compromis en francais
-    # pour ~500 Mo. `base` est deux fois plus rapide et nettement moins precis
-    # sur les noms propres ; `medium` demande trop de memoire sur 8 Go.
-    # `base` plutot que `small` : deux fois plus rapide pour une precision
-    # tres proche sur de la dictee courte. Mesure sur M1 8 Go : `small`
-    # mettait 3 s pour transcrire une phrase, ce qui rend le vocal penible.
-    whisper_model: str = "base"
+    # ── Transcription locale (optionnelle) ────────────────────────────────
+    #
+    # `base` avait ete choisi contre `small` pour la vitesse : 1,2 s au lieu
+    # de ~3 s. Ce raisonnement etait juste isolement et faux dans l'ensemble.
+    # Mesure reelle du cycle complet sur M1 8 Go :
+    #
+    #     transcription   1,2 s
+    #     modele          8,9 s a 27,6 s      ← le vrai cout
+    #
+    # Gagner 1,8 s sur la transcription ne se remarque pas ; se tromper sur
+    # les mots gache tout ce qui suit, car le modele repond alors a une
+    # question que personne n'a posee. On paie donc la precision.
+    #
+    # `medium` reste exclu : trop de memoire sur 8 Go, et il faudrait le
+    # garder resident a cote du modele de langue.
+    whisper_model: str = "small"
     whisper_compute: str = "int8"
+    # Largeur de recherche. 1 = glouton : le modele garde le premier mot venu
+    # et ne revient jamais dessus, ce qui produit exactement les erreurs
+    # observees (« Quelheur est-il ? »). 5 explore plusieurs hypotheses et
+    # retient la plus vraisemblable une fois la phrase entiere connue — c'est
+    # le reglage qui corrige le plus d'erreurs pour le moins de temps.
+    whisper_beam: int = 5
+    # Le mot de reveil, lui, doit rester glouton : il tourne en continu et ne
+    # cherche qu'un seul mot. La finesse n'y apporte rien, le cout si.
+    whisper_beam_reveil: int = 1
     # Filtre de detection de parole. Desactive par defaut : sur des
     # enregistrements courts declenches au clavier, il rejette parfois la
     # totalite de l'audio et Nova recoit une transcription vide. Le risque
@@ -85,6 +103,17 @@ class Settings(BaseSettings):
     # transcrit « Nouveau », « Au revoir », « No va »… Constate en conditions
     # reelles. Avec elle, le modele sait que ce mot existe et le reconnait.
     whisper_amorce: str = "Nova. Nova, quelle heure est-il ? Nova, ouvre un projet."
+    # Amorce de la DICTEE. Elle ne joue pas le meme role que celle du reveil :
+    # ici on ne cherche pas un mot, on transcrit une phrase entiere. L'amorce
+    # sert alors a fixer le registre — francais soutenu, ponctuation complete,
+    # questions bien formees — parce que Whisper imite ce qu'on lui montre.
+    # Sans elle il produit du texte sans accents ni ponctuation, que le modele
+    # de langue comprend nettement moins bien.
+    whisper_amorce_dictee: str = (
+        "Nova, quelle heure est-il ? Nova, que sais-tu de moi ? "
+        "Nova, ouvre un nouveau projet. Nova, resume-moi ce document. "
+        "Quel jour sommes-nous aujourd'hui ?"
+    )
     request_timeout: float = 300.0
     log_level: str = "INFO"
 

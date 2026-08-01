@@ -37,7 +37,13 @@ def transcriptions(
     langue = (language or language_code or "fr")[:2].lower()
 
     try:
-        texte = transcribe.transcrire(audio, langue=langue, amorce=get_settings().whisper_amorce)
+        reglages = get_settings()
+        texte = transcribe.transcrire(
+            audio,
+            langue=langue,
+            amorce=reglages.whisper_amorce_dictee,
+            beam=reglages.whisper_beam,
+        )
     except transcribe.TranscriptionIndisponible as exc:
         # 503 et non 500 : le service est absent, pas casse. La distinction
         # compte pour le client, qui peut alors se replier proprement.
@@ -61,8 +67,15 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
     est-il », on evite de lui faire repeter sa question.
     """
     audio = file.file.read()
+    reglages = get_settings()
     try:
-        texte = transcribe.transcrire(audio, langue="fr", modele=get_settings().whisper_wake_model)
+        texte = transcribe.transcrire(
+            audio,
+            langue="fr",
+            modele=reglages.whisper_wake_model,
+            amorce=reglages.whisper_amorce,
+            beam=reglages.whisper_beam_reveil,
+        )
     except transcribe.TranscriptionIndisponible as exc:
         raise HTTPException(503, str(exc)) from exc
     except Exception as exc:  # noqa: BLE001

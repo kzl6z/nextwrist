@@ -58,7 +58,12 @@ def _modele(nom: str | None = None):
 
 
 def transcrire(
-    audio: bytes, *, langue: str = "fr", modele: str | None = None, amorce: str | None = None
+    audio: bytes,
+    *,
+    langue: str = "fr",
+    modele: str | None = None,
+    amorce: str | None = None,
+    beam: int | None = None,
 ) -> str:
     """Transcrit un enregistrement audio en texte.
 
@@ -80,13 +85,23 @@ def transcrire(
             str(chemin),
             language=langue,
             vad_filter=settings.whisper_vad,
-            beam_size=1,  # 1 = le plus rapide ; suffisant pour de la dictee
+            # 1 = glouton, le plus rapide. Au-dela, le modele garde plusieurs
+            # hypotheses en parallele et tranche une fois la phrase connue.
+            beam_size=beam or settings.whisper_beam,
             # L'amorce oriente le vocabulaire : c'est ce qui fait la difference
             # entre entendre « Nova » et entendre « Nouveau ».
             initial_prompt=amorce,
             # Chaque extrait est independant : sans ce reglage, le modele se
             # laisse influencer par ce qu'il a transcrit juste avant et derive.
             condition_on_previous_text=False,
+            # Repli progressif : si le decodage glouton produit un resultat
+            # incoherent (repetitions, charabia), Whisper recommence avec plus
+            # d'aleatoire au lieu de rendre le charabia. C'est ce qui evite les
+            # « ... ... ... » observes en conditions reelles.
+            temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+            compression_ratio_threshold=2.4,
+            # Un extrait juge silencieux ne doit pas etre meuble d'inventions.
+            no_speech_threshold=0.6,
         )
         morceaux = [segment.text.strip() for segment in segments]
         texte = " ".join(morceaux).strip()
