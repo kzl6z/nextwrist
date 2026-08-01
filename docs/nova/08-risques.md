@@ -18,6 +18,7 @@ spectaculaires arrivent loin derrière.
 | R10 | Fuite de données | Faible | **Grave** | Tailscale, jamais d'exposition publique |
 | R11 | Enfermement technologique | Faible | Modéré | MCP + Postgres + Markdown |
 | R12 | Dette de code incompréhensible | Moyenne | Grave | Ne pas fusionner ce qu'on ne sait pas expliquer |
+| R13 | ⚡ Nova ralentit en apprenant | **Certaine** | **Fatal** | Budget en caractères sur tout ce qui entre dans le prompt |
 
 ---
 
@@ -195,6 +196,66 @@ projet s'arrête là, sans qu'aucune décision d'arrêt n'ait été prise.
 - Chaque module reste sous ~150 lignes. Si ça déborde, c'est qu'il faut découper.
 - Écrire, pour chaque serveur MCP, cinq lignes en français : ce qu'il fait, pourquoi
   il existe, ce qui casse s'il tombe.
+
+---
+
+## R13 — Nova ralentit à mesure qu'elle apprend ⚡
+
+> Découvert en conditions réelles, après avoir accusé le modèle pendant trois
+> jours. C'est le seul risque de ce registre dont la probabilité est **certaine**,
+> parce qu'il ne dépend d'aucun aléa : il est une conséquence arithmétique de
+> l'architecture.
+
+**Mécanisme.** Sur un modèle local, le temps avant le premier mot est
+proportionnel à la **taille du prompt**. Mesure sur l'iMac M1 :
+
+```
+prompt 6573 car.  →  premier mot 21,4 s  ·  total 24,2 s  ·  9,6 jetons/s
+```
+
+Le modèle écrivait sa réponse en 2,8 secondes. Les 21,4 autres partaient à
+**relire** — dont ~18 s rien que pour la mémoire, injectée en entier à chaque
+question.
+
+Or la mémoire est la raison d'être de Nova. Elle grossit *par construction*.
+Donc, sans borne :
+
+> **Chaque chose que Nova apprend rend toutes ses réponses futures plus lentes.**
+
+C'est le pire mode d'échec possible pour ce projet, pour trois raisons :
+
+1. **Il punit exactement l'usage qu'on veut encourager.** Plus tu nourris ton
+   second cerveau, moins il est agréable à utiliser. C'est R2 pris à revers.
+2. **Il est invisible.** Aucune erreur, aucun message. Juste une dégradation de
+   quelques dizaines de millisecondes par semaine.
+3. **Il désigne le mauvais coupable.** On accuse le modèle, la machine, le
+   réseau. On change de modèle. Ça ne change rien, et on recommence.
+
+**Le piège précis.** Les deux mémoires du système étaient bornées en **nombre
+d'entrées** (80 côté Nova Core, 40 côté application) et jamais en longueur. Un
+plafond exprimé en nombre ne borne rien : quatre-vingts faits courts et
+quatre-vingts faits longs coûtent des temps sans commune mesure.
+
+**Traitement.**
+
+- **Tout ce qui entre dans un prompt a un budget en caractères, pas en éléments.**
+  C'est la règle générale ; elle vaudra aussi pour les documents, les liens du
+  graphe et l'historique de conversation.
+- **Journaliser la composition du prompt à chaque appel.** « Le prompt fait 6573
+  caractères » ne dit pas quoi couper ; `contrat 810 + mémoire 1187 + instant 152`
+  le dit.
+- **Journaliser séparément la lecture et l'écriture.** Elles se corrigent à
+  l'opposé l'une de l'autre : raccourcir le prompt d'un côté, baisser le plafond
+  de jetons de l'autre. Confondre les deux fait corriger la mauvaise chose.
+- **Ordonner le prompt du plus stable au plus volatil.** Le moteur met en cache
+  le travail fait sur un début de prompt identique, jusqu'au premier caractère qui
+  change. L'heure — qui contient les minutes — était en deuxième position et
+  annulait ce cache à chaque minute.
+- **À terme (V0.3) :** au-delà du budget, choisir les faits pertinents plutôt que
+  de tronquer les plus anciens. Le budget est un garde-fou, pas une stratégie.
+
+**Indicateur.** Si `premier mot` dépasse 5 s, le prompt est trop gros. Regarder
+sa composition avant toute autre hypothèse.
 
 ---
 
