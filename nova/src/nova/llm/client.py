@@ -12,6 +12,7 @@ c'est le standard de fait, donc ce qui garantit l'interchangeabilite.
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Iterator
 
 import httpx
@@ -181,6 +182,22 @@ class LLMClient:
             "messages": messages,
             "temperature": self.default_temperature if temperature is None else temperature,
             "max_tokens": max_tokens or self.max_tokens,
+            # ⚠️ Envoye, mais SANS GARANTIE — et c'est un piege coûteux.
+            #
+            # `keep_alive` est une option de l'API NATIVE d'Ollama. Ce point
+            # d'entree est le point d'entree OpenAI-compatible : les champs
+            # qu'il ne connait pas sont ignores en silence. On le laisse parce
+            # qu'il ne coute rien et qu'il servira le jour ou Ollama l'y
+            # acceptera, mais il ne faut pas compter dessus.
+            #
+            # Le seul reglage qui fasse foi est cote SERVEUR :
+            #
+            #     launchctl setenv OLLAMA_KEEP_ALIVE -1
+            #
+            # Sans lui, le modele est decharge et RECHARGE DEPUIS LE DISQUE
+            # avant la reponse. Mesure sur la machine reelle : un cout fixe de
+            # 21 secondes, identique pour un prompt de 880 et de 6573
+            # caracteres — ce qui l'a longtemps fait passer pour de la lecture.
             "keep_alive": "30m",
         }
         if json_mode:
@@ -260,6 +277,43 @@ class LLMClient:
                         yield reste
         except httpx.HTTPError as exc:
             raise LLMError(_explique(exc, self.model)) from exc
+
+    def chauffer(self) -> float | None:
+        """Force le modele a etre resident. Retourne le temps que ca a pris.
+
+        POURQUOI C'EST NECESSAIRE
+
+        Un modele decharge doit etre relu depuis le disque avant de repondre.
+        Mesure sur l'iMac M1 : un cout FIXE de 21 secondes, identique pour un
+        prompt de 880 et de 6573 caracteres. C'est cette independance a la
+        taille de l'entree qui trahit un chargement — un vrai temps de lecture
+        aurait ete sept fois moindre sur le petit prompt.
+
+        Ollama decharge par defaut apres cinq minutes d'inactivite, et plus tot
+        encore quand la machine manque de memoire. Le champ `keep_alive` de
+        l'API OpenAI-compatible est ignore en silence.
+
+        On ne demande donc rien a personne : on entretient nous-memes. Un seul
+        jeton suffit a remettre le compteur a zero, et ca coute quelques
+        centaines de millisecondes.
+        """
+        depart = time.perf_counter()
+        try:
+            with httpx.Client(timeout=180.0) as client:
+                reponse = client.post(
+                    f"{self.base_url}/chat/completions",
+                    json={
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": "ok"}],
+                        "max_tokens": 1,
+                        "keep_alive": "30m",
+                    },
+                )
+                reponse.raise_for_status()
+        except httpx.HTTPError as exc:
+            log.warning("Modele %s : mise en chauffe impossible (%s)", self.model, exc)
+            return None
+        return time.perf_counter() - depart
 
     def health(self) -> bool:
         """Le moteur repond-il ? Utilise par /health."""
