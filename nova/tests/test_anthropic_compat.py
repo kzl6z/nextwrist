@@ -31,3 +31,24 @@ def test_texte_survit_a_un_contenu_vide():
 def test_le_mode_est_deduit_du_nom_du_modele():
     assert _mode("nova") == "normal"
     assert _mode("nova-critique") == "critique"
+
+
+# --- contrat impose par un client structure ----------------------------------
+
+from nova.api.anthropic_compat import _contrat, _exige_du_json  # noqa: E402
+
+
+def test_absence_de_system_signifie_aucun_contrat():
+    assert _contrat(None) is None
+    assert _contrat("   ") is None
+
+
+def test_un_system_fourni_devient_un_contrat():
+    assert _contrat("Renvoie un objet JSON.") == "Renvoie un objet JSON."
+
+
+def test_le_mode_json_se_declenche_sur_le_contrat():
+    assert _exige_du_json("Tu renvoies UNIQUEMENT un objet JSON valide.")
+    assert _exige_du_json("reponds en json")
+    assert not _exige_du_json("Reponds en trois phrases.")
+    assert not _exige_du_json(None)

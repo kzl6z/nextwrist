@@ -17,8 +17,20 @@ sur Nova :
 en arriere a tout moment. C'est exactement ce que promettait l'architecture —
 on remplace le cerveau sans toucher au visage.
 
-CE QUI NE CHANGE PAS : le prompt systeme reste construit par Nova. Une interface
-peut envoyer le sien, il est ignore. L'identite de Nova ne se delegue pas.
+DEUX TYPES DE CLIENTS, DEUX COMPORTEMENTS
+
+  - Client conversationnel (aucun champ `system`) : Nova construit tout. Son
+    identite ne se delegue pas a une interface.
+
+  - Client structure (champ `system` fourni) : la consigne du client est un
+    CONTRAT — elle definit le format attendu, souvent du JSON strict. L'ecraser
+    casserait l'application sans un mot : elle recevrait de la prose la ou elle
+    attend un objet, echouerait a l'analyser, et se replierait en silence sur
+    son mode degrade. On respecte donc le contrat, et on y INJECTE la memoire.
+
+C'est la nuance qu'un vrai branchement a revelee, et elle merite d'etre retenue :
+« ignorer le prompt du client » est la bonne regle pour une interface de chat,
+et la mauvaise pour un client qui attend une structure.
 """
 
 from __future__ import annotations
@@ -81,6 +93,23 @@ def _mode(nom_modele: str) -> str:
     return "critique" if "critique" in nom_modele else "normal"
 
 
+def _contrat(system: Any) -> str | None:
+    """Consigne imposee par le client, si elle existe."""
+    texte = _texte(system).strip()
+    return texte or None
+
+
+def _exige_du_json(contrat: str | None) -> bool:
+    """Le contrat demande-t-il une sortie JSON ?
+
+    Heuristique volontairement simple et lisible. Quand elle se declenche, on
+    active le decodage contraint du moteur : la sortie ne PEUT plus etre du JSON
+    invalide. C'est indispensable avec un petit modele local, qui produit
+    regulierement des accolades manquantes ou du texte autour de l'objet.
+    """
+    return bool(contrat) and "json" in contrat.lower()
+
+
 def _flux(request: MessagesRequest) -> Iterator[str]:
     """Serie d'evenements SSE au format Anthropic.
 
@@ -114,12 +143,16 @@ def _flux(request: MessagesRequest) -> Iterator[str]:
         {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
     )
 
+    contrat = _contrat(request.system)
     mots = 0
     try:
         for morceau in orchestrator.answer_stream(
             [{"role": m.role, "content": _texte(m.content)} for m in request.messages],
             conversation_external_id=(request.metadata or {}).get("user_id"),
             mode=_mode(request.model),
+            contrat=contrat,
+            json_mode=_exige_du_json(contrat),
+            max_tokens=request.max_tokens,
         ):
             mots += 1
             yield evenement(
@@ -163,11 +196,15 @@ def messages(request: MessagesRequest):
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+    contrat = _contrat(request.system)
     texte = "".join(
         orchestrator.answer_stream(
             [{"role": m.role, "content": _texte(m.content)} for m in request.messages],
             conversation_external_id=(request.metadata or {}).get("user_id"),
             mode=_mode(request.model),
+            contrat=contrat,
+            json_mode=_exige_du_json(contrat),
+            max_tokens=request.max_tokens,
         )
     )
     return {

@@ -114,15 +114,33 @@ class LLMClient:
         self.max_tokens = settings.max_tokens
 
     # -- appel simple -------------------------------------------------------
-    def chat(self, messages: list[Message], *, temperature: float | None = None) -> str:
-        """Reponse complete, en un bloc. Pour la CLI et les traitements de fond."""
-        payload = {
+    def _payload(
+        self,
+        messages: list[Message],
+        temperature: float | None,
+        max_tokens: int | None,
+        json_mode: bool,
+    ) -> dict:
+        payload: dict = {
             "model": self.model,
             "messages": messages,
             "temperature": self.default_temperature if temperature is None else temperature,
-            "max_tokens": self.max_tokens,
-            "stream": False,
+            "max_tokens": max_tokens or self.max_tokens,
+            "keep_alive": "30m",
         }
+        if json_mode:
+            # Sortie JSON garantie par le moteur : il contraint le decodage token
+            # par token, ce qui rend une sortie invalide IMPOSSIBLE plutot
+            # qu'improbable. Sans cela, un petit modele produit regulierement du
+            # JSON casse — et une application qui fait JSON.parse() se replie
+            # silencieusement sur autre chose, sans que personne ne le voie.
+            payload["response_format"] = {"type": "json_object"}
+            payload["format"] = "json"  # champ natif Ollama, ignore ailleurs
+        return payload
+
+    def chat(self, messages: list[Message], *, temperature: float | None = None) -> str:
+        """Reponse complete, en un bloc. Pour la CLI et les traitements de fond."""
+        payload = self._payload(messages, temperature, None, False) | {"stream": False}
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 resp = client.post(f"{self.base_url}/chat/completions", json=payload)
@@ -132,7 +150,14 @@ class LLMClient:
             raise LLMError(_explique(exc, self.model)) from exc
 
     # -- appel en flux ------------------------------------------------------
-    def stream(self, messages: list[Message], *, temperature: float | None = None) -> Iterator[str]:
+    def stream(
+        self,
+        messages: list[Message],
+        *,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        json_mode: bool = False,
+    ) -> Iterator[str]:
         """Reponse morceau par morceau, pour l'interface.
 
         Le flux n'est pas cosmetique : sur un modele local, la premiere phrase
@@ -142,17 +167,9 @@ class LLMClient:
         Format SSE renvoye par l'API : des lignes `data: {json}`, terminees par
         `data: [DONE]`.
         """
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": self.default_temperature if temperature is None else temperature,
-            "max_tokens": self.max_tokens,
-            # keep_alive : champ propre a Ollama, ignore par les autres moteurs.
-            # Garde le modele en memoire entre deux questions — sans lui, chaque
-            # appel recharge 2,5 Go depuis le disque.
-            "keep_alive": "30m",
-            "stream": True,
-        }
+        # keep_alive garde le modele en memoire entre deux questions ; sans lui,
+        # chaque appel rechargerait plusieurs Go depuis le disque.
+        payload = self._payload(messages, temperature, max_tokens, json_mode) | {"stream": True}
         try:
             with httpx.Client(timeout=self.timeout) as client:
                 with client.stream(

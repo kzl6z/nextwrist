@@ -51,16 +51,26 @@ def _format_sources(hits: list[SearchHit]) -> str:
     return "\n\n".join(blocks)
 
 
-def build_system_prompt(user_message: str, *, mode: str = "normal") -> tuple[str, list[SearchHit]]:
+def build_system_prompt(
+    user_message: str, *, mode: str = "normal", contrat: str | None = None
+) -> tuple[str, list[SearchHit]]:
     """Construit le message systeme complet. Retourne aussi les sources utilisees.
 
     Renvoyer les sources permet de les journaliser et, plus tard, de les
     afficher dans l'interface : une reponse verifiable est une reponse a
     laquelle on peut faire confiance.
     """
-    parts = [prompts.load("identity")]
+    # `contrat` : consigne imposee par une application cliente (format de sortie,
+    # role attendu). On la RESPECTE au lieu de la remplacer.
+    #
+    # Nuance importante, apprise en branchant une vraie application : pour une
+    # interface de conversation, ignorer le prompt du client est le bon choix —
+    # l'identite de Nova ne se delegue pas. Mais un client STRUCTURE attend un
+    # format precis ; ecraser sa consigne casse l'application sans un mot.
+    # On distingue donc les deux cas, et dans les deux la memoire est injectee.
+    parts = [contrat] if contrat else [prompts.load("identity")]
 
-    if mode == "critique":
+    if mode == "critique" and not contrat:
         parts.append(prompts.load("mode_critique"))
 
     if memory_block := facts.render_for_prompt():
@@ -84,7 +94,7 @@ def build_system_prompt(user_message: str, *, mode: str = "normal") -> tuple[str
             + _format_sources(hits)
         )
 
-    if not get_settings().thinking:
+    if not get_settings().thinking and not contrat:
         # Interrupteur documente de Qwen 3. Inoffensif pour les modeles qui ne
         # le connaissent pas : ce n'est qu'une ligne de texte de plus.
         parts.append("/no_think")
@@ -97,6 +107,9 @@ def answer_stream(
     *,
     conversation_external_id: str | None = None,
     mode: str = "normal",
+    contrat: str | None = None,
+    json_mode: bool = False,
+    max_tokens: int | None = None,
 ) -> Iterator[str]:
     """Produit la reponse morceau par morceau, et journalise l'echange.
 
@@ -107,7 +120,7 @@ def answer_stream(
     user_messages = [m for m in messages if m.get("role") == "user"]
     last_user = user_messages[-1]["content"] if user_messages else ""
 
-    system_prompt, hits = build_system_prompt(last_user, mode=mode)
+    system_prompt, hits = build_system_prompt(last_user, mode=mode, contrat=contrat)
     history = [m for m in messages if m.get("role") != "system"]
     full: list[Message] = [{"role": "system", "content": system_prompt}, *history]
 
@@ -118,7 +131,7 @@ def answer_stream(
     collected: list[str] = []
     completed = False
     try:
-        for piece in client.stream(full):
+        for piece in client.stream(full, json_mode=json_mode, max_tokens=max_tokens):
             collected.append(piece)
             yield piece
         completed = True
