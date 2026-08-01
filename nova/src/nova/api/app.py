@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from nova.api import admin, openai_compat
+from nova.api import admin, anthropic_compat, openai_compat
 from nova.db import run_migrations
 from nova.logging_setup import get_logger
 from nova.settings import get_settings
@@ -38,12 +38,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Nova",
-    description="Assistant personnel local. Compatible OpenAI sur /v1.",
+    description="Assistant personnel local. Compatible OpenAI et Anthropic sur /v1.",
     version="0.1.0",
     lifespan=lifespan,
 )
 
 app.include_router(openai_compat.router)
+app.include_router(anthropic_compat.router)
 app.include_router(admin.router)
 
 
