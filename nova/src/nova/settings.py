@@ -127,6 +127,14 @@ class Settings(BaseSettings):
         "Nova, ouvre un nouveau projet. Nova, resume-moi ce document. "
         "Quel jour sommes-nous aujourd'hui ?"
     )
+    # Vocabulaire declare a la main, separe par des virgules. Sert aux noms
+    # que Nova ne peut pas deviner : marques, personnes, jargon de metier.
+    #
+    #     NOVA_WHISPER_VOCABULAIRE=Sentinel, Aznavour, Kozlowski, pinata
+    #
+    # Les noms deja presents dans sa memoire s'y ajoutent automatiquement :
+    # plus elle te connait, mieux elle t'entend.
+    whisper_vocabulaire: str = ""
     request_timeout: float = 300.0
     log_level: str = "INFO"
 

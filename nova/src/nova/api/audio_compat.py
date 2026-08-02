@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
+from nova import orchestrator
 from nova.logging_setup import get_logger
 from nova.settings import get_settings
 from nova.voice import transcribe, wake
@@ -37,12 +38,14 @@ def transcriptions(
     langue = (language or language_code or "fr")[:2].lower()
 
     try:
-        reglages = get_settings()
         texte = transcribe.transcrire(
             audio,
             langue=langue,
-            amorce=reglages.whisper_amorce_dictee,
-            beam=reglages.whisper_beam,
+            # L'amorce est construite par l'orchestrateur : elle contient les
+            # noms propres que Nova a en memoire, et c'est lui qui a le droit
+            # de consulter la memoire.
+            amorce=orchestrator.amorce_dictee(),
+            beam=get_settings().whisper_beam,
         )
     except transcribe.TranscriptionIndisponible as exc:
         # 503 et non 500 : le service est absent, pas casse. La distinction

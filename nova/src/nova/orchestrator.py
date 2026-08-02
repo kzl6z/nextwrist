@@ -31,6 +31,7 @@ from nova.logging_setup import get_logger
 from nova.memory import conversations, facts
 from nova.memory.models import SearchHit
 from nova.settings import get_settings
+from nova.voice import vocabulaire
 
 log = get_logger(__name__)
 
@@ -56,6 +57,47 @@ MOIS = (
     "novembre",
     "decembre",
 )
+
+
+def amorce_dictee() -> str:
+    """L'amorce de transcription, enrichie des noms propres que Nova connait.
+
+    C'EST ICI ET PAS DANS `voice/` PAR RESPECT DE LA REGLE DE DEPENDANCE
+
+    `voice/vocabulaire.py` ne connait rien du projet : il transforme des
+    phrases en termes. Aller chercher ces phrases dans la memoire est le
+    travail de l'orchestrateur, seul module autorise a connaitre les autres.
+    Sans ca, la couche voix dependrait de la couche memoire et la fleche
+    remonterait.
+
+    POURQUOI CA MARCHE
+
+    Whisper se trompe sur ce qui est rare dans la langue — les noms propres.
+    Releve en conditions reelles : « pinata » entendu « pierre pienita ».
+    Une amorce contenant le mot le fait reconnaitre ; le meme mot absent est
+    massacre, quelle que soit la taille du modele.
+
+    Or les noms que l'utilisateur prononce sont exactement ceux que Nova a
+    deja en memoire. Plus elle te connait, mieux elle t'entend.
+    """
+    reglages = get_settings()
+    base = reglages.whisper_amorce_dictee
+
+    termes: list[str] = []
+    # Le vocabulaire declare a la main passe en premier : c'est un choix
+    # explicite de l'utilisateur, il ne doit pas etre evince par la memoire.
+    if declares := reglages.whisper_vocabulaire.strip():
+        termes.extend(t.strip() for t in declares.split(",") if t.strip())
+
+    try:
+        contenus = [f.content for f in facts.list_facts(status="confirmed")]
+        termes.extend(vocabulaire.extraire_termes(contenus))
+    except Exception as exc:  # noqa: BLE001
+        # La memoire indisponible ne doit pas empecher de transcrire : on
+        # perd la precision sur les noms propres, pas la parole.
+        log.warning("Vocabulaire indisponible, amorce de base : %s", exc)
+
+    return vocabulaire.construire_amorce(base, termes)
 
 
 def instant_present(maintenant: datetime | None = None) -> str:
