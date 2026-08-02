@@ -27,6 +27,7 @@ from pathlib import Path
 
 from nova.logging_setup import get_logger
 from nova.settings import get_settings
+from nova.voice import corrections as corrections_homophones
 
 log = get_logger(__name__)
 
@@ -166,6 +167,14 @@ def transcrire(
         if est_hallucination(texte):
             log.info("Formule de sous-titrage ignoree (aucune parole) : « %s »", texte)
             return ""
+
+        # Homophones : « sais », « c'est », « ces », « ses » et « s'est » se
+        # prononcent tous /sɛ/. Aucun reglage de Whisper ne les distingue —
+        # le son est reellement identique. On corrige donc apres coup, et
+        # uniquement les formes qui n'existent pas en francais.
+        texte, corrections = corrections_homophones.corriger(texte)
+        if corrections:
+            log.info("Homophone corrige : %s → forme correcte", ", ".join(corrections))
 
         # Journalisation detaillee : sans elle, une transcription vide est
         # indiscernable d'un echec de decodage. Les deux se corrigent
