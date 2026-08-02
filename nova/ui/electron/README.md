@@ -10,11 +10,13 @@ d'essai — ce qui serait impossible s'ils ne vivaient que dans l'application.
 | `brain.js` | `nova-project/electron/` | `test-flux.cjs`, `test-recuperation.cjs` |
 | `reveil-vocal.js` | fin de `nova-project/script.js` | `test-reveil.cjs` |
 | `parole-en-flux.js` | fin de `nova-project/script.js` | `test-flux.cjs` |
+| `rendu-econome.js` | fin de `nova-project/script.js` | `test-rendu.cjs` |
 
 ```bash
 node test-reveil.cjs
 node test-flux.cjs
 node test-recuperation.cjs
+node test-rendu.cjs
 ```
 
 Aucun n'a besoin de micro, d'Electron, d'Ollama ni de Nova Core.
@@ -182,3 +184,67 @@ node test-recuperation.cjs
 
 Le cas réel est dans le test, avec les formes plausibles autour (clé anglaise,
 clé française, tableau, imbrication) et ce qu'il ne faut surtout pas récupérer.
+
+---
+
+# Rendu économe
+
+`rendu-econome.js` rend le processeur graphique au modèle pendant qu'il
+réfléchit.
+
+## Le constat
+
+Mêmes appels, même modèle, mesurés au banc :
+
+| | Application fermée | Application ouverte |
+|---|---|---|
+| Lecture de la question | 0,2 s | **14,6 s** |
+| Écriture | 28,8 jetons/s | **7,6 jetons/s** |
+
+Soixante-treize fois plus lent à lire, presque quatre fois plus lent à écrire.
+Le modèle n'y était pour rien, le prompt non plus : **c'est l'interface qui
+étranglait le moteur.**
+
+## Pourquoi l'écart est si différent sur les deux phases
+
+C'est ce rapport — 73 contre 3,8 — qui a permis de désigner la sphère plutôt
+que la mémoire ou le disque. Sur Apple Silicon, l'animation et le modèle
+partagent le **même** processeur graphique, mais les deux phases n'en
+dépendent pas de la même façon :
+
+- la **lecture** traite tous les jetons du prompt en parallèle — la phase la
+  plus massivement parallèle, donc la plus sensible à un GPU déjà occupé ;
+- l'**écriture** produit un jeton après l'autre et bute surtout sur la bande
+  passante mémoire.
+
+Une contention mémoire aurait dégradé les deux dans les mêmes proportions.
+
+## Ce que fait le module
+
+Il n'arrête pas l'animation — une sphère figée dirait « c'est planté »
+exactement au moment où il ne faut pas. Il abaisse sa cadence, et l'abaisse
+le plus fort quand le modèle travaille :
+
+| État | Images/s | Pourquoi |
+|---|---|---|
+| INTRO, PRESENTING | 30 | mise en scène, aucun modèle ne tourne |
+| LISTENING | 20 | elle réagit à la voix, ça doit rester vivant |
+| IDLE | 12 | une respiration de 7,5 s n'a pas besoin de plus |
+| SPEAKING | 12 | il écrit peut-être encore la phrase suivante |
+| **THINKING** | **4** | ⚡ le GPU appartient au modèle |
+
+Soixante images par seconde pour une respiration de 7,5 secondes est de toute
+façon du gaspillage : l'œil ne voit rien en dessous de 15, la machine si.
+
+```bash
+node test-rendu.cjs
+```
+
+Le banc simule `requestAnimationFrame` hors navigateur et vérifie chaque
+cadence, la réduction pendant la réflexion (**93 % d'images en moins**), et
+que l'annulation d'image reste fonctionnelle — une erreur ici figerait
+l'interface ou laisserait une animation tourner en fond.
+
+> La première version du banc annonçait 146 img/s pour une cadence visée à
+> 30 : chaque mesure laissait tourner la boucle de la précédente. Un banc
+> d'essai se vérifie comme le reste.
