@@ -34,7 +34,7 @@ from nova.core.planificateur import planifier
 from nova.core.routeur import Routeur
 from nova.memory import conversations, facts
 from nova.memory.models import SearchHit
-from nova.settings import get_settings
+from nova.settings import get_settings, get_tuning
 from nova.voice import vocabulaire
 
 log = get_logger(__name__)
@@ -179,17 +179,47 @@ def instant_present(maintenant: datetime | None = None) -> str:
     )
 
 
-def _format_sources(hits: list[SearchHit]) -> str:
-    """Met les extraits en forme pour le prompt.
+def _format_sources(hits: list[SearchHit], budget: int | None = None) -> str:
+    """Met les extraits en forme pour le prompt, dans un budget de caracteres.
 
     Chaque extrait est explicitement etiquete par sa source afin que le modele
     puisse citer. Sans cette etiquette, il invente les references — c'est
     systematique.
+
+    POURQUOI UN BUDGET, ET PAS SEULEMENT UN NOMBRE D'EXTRAITS
+
+    Exactement la meme raison que pour la memoire (R13), et le meme defaut
+    trouve au meme endroit : borner le NOMBRE ne borne pas la TAILLE, et le
+    temps de lecture d'un modele local est proportionnel a la taille.
+
+    Mesure en conditions reelles, pour « Dis bonjour en une phrase » :
+
+        identite 1495 + memoire 260 + instant 183 + documents 4825
+        -> prompt 6805 car. -> premier mot 10,4 s
+
+    Les documents pesaient 71 % du prompt, sur une demande qui n'en appelait
+    aucun. Les extraits arrivent deja classes par pertinence : couper par la
+    fin sacrifie donc les moins utiles.
     """
-    blocks = []
+    budget = get_tuning().extraits_budget if budget is None else budget
+    blocks: list[str] = []
+    total = 0
     for hit in hits:
         label = hit.heading or "sans titre"
-        blocks.append(f'--- [{hit.document_title}, "{label}"]\n{hit.content}')
+        bloc = f'--- [{hit.document_title}, "{label}"]\n{hit.content}'
+        if total + len(bloc) > budget:
+            # On saute plutot que d'arreter : un extrait anormalement long ne
+            # doit pas faire taire les suivants, qui tiendraient tres bien.
+            continue
+        blocks.append(bloc)
+        total += len(bloc)
+
+    if len(blocks) < len(hits):
+        log.info(
+            "Documents : %d extraits sur %d injectes (budget %d caracteres). "
+            "Au-dela, chaque caractere ajoute ~1,5 ms d'attente a CHAQUE question.",
+            len(blocks), len(hits), budget,
+        )
     return "\n\n".join(blocks)
 
 

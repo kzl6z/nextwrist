@@ -5,6 +5,22 @@
 # Nombre d'extraits injectes dans le contexte. 4-8 est la bonne zone :
 # en dessous Nova manque d'information, au dessus le signal se noie.
 extraits_max = 6
+# ── Budget en CARACTERES des extraits injectes ───────────────────────────
+#
+# Meme defaut que la memoire avant correction (R13), meme cause : borner le
+# NOMBRE d'extraits ne borne pas leur TAILLE. Releve en conditions reelles,
+# pour la demande « Dis bonjour en une phrase » :
+#
+#     identite 1495 + memoire 260 + instant 183 + documents 4825
+#     -> prompt 6805 car. -> premier mot 10,4 s
+#
+# Les documents pesaient 71 % du prompt, sur une demande qui n'en appelait
+# aucun. Six extraits de 1000 caracteres, c'est six secondes de lecture — a
+# chaque question, y compris « bonjour ».
+#
+# 2000 caracteres ~ 3 s. Au-dela, il faudra choisir les extraits pertinents
+# plutot que prendre les six premiers (V0.3).
+budget_caracteres_extraits = 2000
 # Nombre de candidats remontes par chaque moteur avant fusion.
 candidats_par_moteur = 20
 

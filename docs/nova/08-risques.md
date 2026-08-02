@@ -257,6 +257,23 @@ quatre-vingts faits longs coûtent des temps sans commune mesure.
 **Indicateur.** Si `premier mot` dépasse 5 s, le prompt est trop gros. Regarder
 sa composition avant toute autre hypothèse.
 
+**Le défaut s'est reproduit ailleurs, exactement pareil.** Un mois — non, une
+journée — après avoir borné la mémoire, la même mesure a montré :
+
+```
+identite 1495 + memoire 260 + instant 183 + documents 4825
+→ prompt 6805 car. → premier mot 10,4 s
+```
+
+Les **documents** pesaient 71 % du prompt, pour la demande « Dis bonjour en une
+phrase ». `extraits_max = 6` bornait leur nombre, jamais leur taille — le
+défaut mot pour mot.
+
+La leçon est plus large que les deux cas : **tout ce qui entre dans un prompt
+doit avoir un budget en caractères, et rien ne doit pouvoir en entrer sans
+en avoir un.** Le prochain candidat est déjà identifiable : l'historique de
+conversation, quand il sera injecté.
+
 ---
 
 ## Les quatre indicateurs à surveiller

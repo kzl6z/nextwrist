@@ -170,6 +170,9 @@ class Tuning:
     def __init__(self, data: dict) -> None:
         self.extraits_max: int = data["recherche"]["extraits_max"]
         self.candidats_par_moteur: int = data["recherche"]["candidats_par_moteur"]
+        # Defaut si la config vient d'une version anterieure : une ancienne
+        # config ne doit jamais empecher Nova de demarrer.
+        self.extraits_budget: int = data["recherche"].get("budget_caracteres_extraits", 2000)
         self.chunk_size: int = data["decoupage"]["taille"]
         self.chunk_overlap: int = data["decoupage"]["recouvrement"]
         self.faits_max: int = data["memoire"]["faits_max_dans_prompt"]
