@@ -2,89 +2,252 @@
 
 LE PROBLEME
 
-En francais, « sais », « c'est », « ces », « ses » et « s'est » se prononcent
-tous /sɛ/. Whisper choisit d'apres le contexte, et se trompe. Releve en
-conditions reelles :
+Le francais est plein de mots qui se prononcent exactement pareil et
+s'ecrivent differemment. Whisper entend un son, doit choisir une graphie, et
+se trompe. Releve en conditions reelles :
 
     « que sais-tu de moi ? »  ->  « que c'est-tu de moi ? »
 
-Aucun reglage de Whisper ne corrige ca : le son est reellement identique.
+Aucun reglage n'y peut rien : le son est REELLEMENT identique. Un modele plus
+gros se trompera moins souvent, jamais jamais. La correction se fait donc
+apres coup, sur le texte.
 
-LA REGLE QU'ON S'IMPOSE
+LA REGLE GENERALE, ET POURQUOI ELLE SUFFIT
 
-On ne corrige QUE des formes agrammaticales — des suites de mots qui
-n'existent pas en francais correct. « c'est-tu » n'est pas du francais ;
-« c'est tout » l'est. La premiere peut etre corrigee sans risque, la seconde
-ne doit jamais etre touchee.
+Enumerer les fautes une par une ne tient pas : il y en a des centaines. Mais
+elles obeissent presque toutes a une seule regle de grammaire :
+
+    APRES UN PRONOM SUJET, IL FAUT LA FORME VERBALE DE CE PRONOM.
+
+« je c'est » est faux non pas parce que « c'est » est un mauvais mot, mais
+parce qu'apres « je » on attend un verbe conjugue a la premiere personne. La
+meme regle corrige « il et », « tu à », « je peu », « il fais », « ils son ».
+
+On organise donc les corrections par SON. Chaque groupe rassemble les graphies
+qui se prononcent pareil, et donne la forme attendue pour chaque pronom. Le
+reste est mecanique.
+
+LA LIMITE QU'ON S'IMPOSE
+
+On ne corrige QUE des formes agrammaticales — jamais une phrase qui pourrait
+etre juste. « il s'est » est correct (« il s'est leve »), « je s'est » ne
+l'est pas : les exclusions le disent, pronom par pronom.
 
 C'est ce qui separe une correction d'un pari. Un correcteur qui remplace tout
 ce qui sonne pareil casse plus de phrases justes qu'il n'en repare, et le fait
-en silence.
-
-CE QU'ON NE FAIT PAS
-
-« il s'est tu » (verbe se taire) est parfaitement correct. La forme non
-tiretee de « s'est » est donc exclue, alors que « s'est-tu » — impossible —
-est corrigee. Un caractere de difference, deux traitements opposes.
+en silence. D'ou le nombre de tests NEGATIFS : ils comptent plus que les
+autres.
 """
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 
-# Chaque entree : (motif, remplacement, pourquoi cette forme est impossible).
-# Le « pourquoi » n'est pas decoratif : il est la condition d'admission dans
-# cette table. Si on ne sait pas dire pourquoi la forme est fausse, la regle
-# n'y entre pas.
-REGLES: tuple[tuple[str, str, str], ...] = (
-    (
-        r"\b(?:c'est|ces|ses|sait|s'est)-tu\b",
-        "sais-tu",
-        "inversion interrogative : seul « sais-tu » existe a la deuxieme personne",
+# Pronoms sujets. « qu'il » et « qu'elle » sont couverts sans effort :
+# l'apostrophe est une frontiere de mot, donc `\bil\b` y trouve « il ».
+PRONOMS = ("je", "tu", "il", "elle", "on", "ils", "elles")
+
+
+@dataclass(frozen=True)
+class Groupe:
+    """Un son, les graphies qui le partagent, et la forme juste par pronom."""
+
+    son: str
+    #: Graphies entendues a la place du verbe. La forme correcte y figure
+    #: aussi : elle sera simplement ignoree pour le pronom dont c'est la forme.
+    graphies: tuple[str, ...]
+    #: Forme attendue apres chaque pronom. Un pronom absent n'est pas corrige —
+    #: soit parce que sa forme ne partage pas ce son (« je suis » n'est pas
+    #: homophone de « est »), soit parce que le cas est trop rare pour valoir
+    #: le risque.
+    formes: dict[str, str]
+    #: Couples (pronom, graphie) parfaitement corrects malgre l'apparence.
+    exclusions: frozenset[tuple[str, str]] = field(default_factory=frozenset)
+    #: Couples (pronom, graphie) a ne corriger QUE si la suite ne correspond
+    #: pas au motif donne. Sert aux cas ou la meme suite de mots est tantot
+    #: fautive, tantot correcte, et ou seule la suite les separe.
+    gardes: dict[tuple[str, str], str] = field(default_factory=dict)
+
+
+GROUPES: tuple[Groupe, ...] = (
+    Groupe(
+        son="savoir /sɛ/",
+        graphies=("sais", "sait", "c'est", "ces", "ses", "s'est"),
+        formes={"je": "sais", "tu": "sais", "il": "sait", "elle": "sait", "on": "sait"},
+        # « il s'est leve », « elle s'est tue » : pronominal, parfaitement correct.
+        exclusions=frozenset({("il", "s'est"), ("elle", "s'est"), ("on", "s'est")}),
     ),
-    (
-        # Sans trait d'union, mais « s'est tu » est exclu : c'est le passe
-        # compose de « se taire », parfaitement correct.
+    Groupe(
+        son="etre /ɛ/",
+        graphies=("est", "es", "et", "ait", "aie"),
+        # « je suis » ne partage pas ce son : la premiere personne est absente.
+        formes={"tu": "es", "il": "est", "elle": "est", "on": "est"},
+        # ── Le piege du « et » de coordination ──
         #
-        # Le `\b` final suffit a proteger « ces tulipes » et « ses tuiles » :
-        # dans ces mots, « tu » n'est pas suivi d'une frontiere. Une garde
-        # supplementaire avait ete ajoutee par prudence et bloquait le cas
-        # reel — « que c'est tu de moi » — sans rien proteger de plus.
-        r"\b(?:c'est|ces|ses)\s+tu\b",
-        "sais-tu",
-        "« c'est tu », « ces tu », « ses tu » n'existent pas",
+        # « elle et lui sont partis » est parfaitement correct. « il et parti »
+        # ne l'est pas. La difference n'est pas dans la suite mais dans le
+        # pronom : en francais, un pronom SUJET ne se coordonne pas. On dit
+        # « lui et son frere », jamais « il et son frere ».
+        #
+        # Or « elle » est a la fois sujet ET forme accentuee. Elle seule peut
+        # donc etre coordonnee, et elle seule a besoin d'une garde. « il » et
+        # « on » n'en ont pas besoin : apres eux, « et » est toujours une faute.
+        gardes={
+            ("elle", "et"): r"(?!\s*,)(?!\s+(?:lui|elle|elles|eux|moi|toi|nous|vous|"
+                            r"il|ils|je|tu|on|son|sa|ses|leur|leurs|mon|ma|mes|"
+                            r"ton|ta|tes|le|la|les|un|une|des|du|de)\b)(?!\s+(?-i:[A-ZÉÈÀÂÎÔÛ]))",
+        },
     ),
-    (
-        r"\b(je|tu)\s+(?:c'est|ces|ses|s'est)\b",
-        r"\1 sais",
-        "apres « je » ou « tu », le verbe savoir s'ecrit « sais »",
+    Groupe(
+        son="avoir /a/",
+        graphies=("a", "as", "à"),
+        formes={"tu": "as", "il": "a", "elle": "a", "on": "a"},
     ),
-    (
-        r"\bqu'est-ce que tu (?:c'est|ces|ses)\b",
-        "qu'est-ce que tu sais",
-        "meme cas, dans la tournure interrogative complete",
+    Groupe(
+        son="pouvoir /pø/",
+        graphies=("peux", "peut", "peu"),
+        formes={"je": "peux", "tu": "peux", "il": "peut", "elle": "peut", "on": "peut"},
+    ),
+    Groupe(
+        son="vouloir /vø/",
+        graphies=("veux", "veut", "veulent"),
+        formes={"je": "veux", "tu": "veux", "il": "veut", "elle": "veut", "on": "veut"},
+    ),
+    Groupe(
+        son="faire /fɛ/",
+        graphies=("fais", "fait", "faits", "fai"),
+        formes={"je": "fais", "tu": "fais", "il": "fait", "elle": "fait", "on": "fait"},
+    ),
+    Groupe(
+        son="voir /vwa/",
+        graphies=("vois", "voit", "voie", "voix"),
+        formes={"je": "vois", "tu": "vois", "il": "voit", "elle": "voit", "on": "voit"},
+    ),
+    Groupe(
+        son="mettre /mɛ/",
+        graphies=("mets", "met", "mes", "mais", "m'est", "mai"),
+        formes={"je": "mets", "tu": "mets", "il": "met", "elle": "met", "on": "met"},
+    ),
+    Groupe(
+        son="prendre /pʁɑ̃/",
+        graphies=("prends", "prend", "prent"),
+        formes={"je": "prends", "tu": "prends", "il": "prend", "elle": "prend", "on": "prend"},
+    ),
+    Groupe(
+        son="dire /di/",
+        graphies=("dis", "dit", "dix"),
+        formes={"je": "dis", "tu": "dis", "il": "dit", "elle": "dit", "on": "dit"},
+    ),
+    Groupe(
+        son="aller /va/",
+        graphies=("vas", "va"),
+        # « je vais » ne partage pas ce son.
+        formes={"tu": "vas", "il": "va", "elle": "va", "on": "va"},
+    ),
+    Groupe(
+        son="etre pluriel /sɔ̃/",
+        graphies=("sont", "son"),
+        formes={"ils": "sont", "elles": "sont"},
+    ),
+    Groupe(
+        son="avoir pluriel /ɔ̃/",
+        graphies=("ont", "on"),
+        formes={"ils": "ont", "elles": "ont"},
     ),
 )
 
-_COMPILEES = tuple((re.compile(motif, re.IGNORECASE), remplacement) for motif, remplacement, _ in REGLES)
+
+def _regles_apres_pronom() -> list[tuple[re.Pattern[str], str]]:
+    """Deroule les groupes en regles concretes.
+
+    C'est ici que la regle de grammaire devient du code : pour chaque pronom
+    et chaque graphie qui n'est pas la sienne, une correction. Ecrire ces
+    centaines de cas a la main serait intenable et faux quelque part.
+    """
+    regles = []
+    for groupe in GROUPES:
+        for pronom, correcte in groupe.formes.items():
+            for graphie in groupe.graphies:
+                if graphie == correcte or (pronom, graphie) in groupe.exclusions:
+                    continue
+                # Une regle par graphie, et non une alternative unique : c'est
+                # ce qui permet a une garde de ne s'appliquer qu'a la graphie
+                # qui en a besoin.
+                garde = groupe.gardes.get((pronom, graphie), "")
+                motif = re.compile(
+                    rf"\b({pronom})(\s+){re.escape(graphie)}\b{garde}",
+                    re.IGNORECASE,
+                )
+                regles.append((motif, rf"\1\2{correcte}"))
+    return regles
+
+
+# ── Inversion interrogative ───────────────────────────────────────────────
+# « sais-tu », « es-tu », « as-tu »… Le verbe precede le pronom, la regle
+# generale ne s'y applique donc pas. Ces formes sont assez peu nombreuses
+# pour etre ecrites, et assez frequentes a l'oral pour compter.
+INVERSIONS: tuple[tuple[str, str], ...] = (
+    (r"\b(?:c'est|ces|ses|s'est|sait)-(?:tu|t'u)\b", "sais-tu"),
+    (r"\b(?:et|ait|aie|es)-tu\b", "es-tu"),
+    (r"\b(?:et|ait|aie|es)-(?:il|elle|on)\b", "est-\\g<0>"),  # remplace plus bas
+    (r"\b(?:peu|peus)-tu\b", "peux-tu"),
+    (r"\b(?:peu|peus)-(?:il|elle|on)\b", "peut-\\g<0>"),
+    (r"\bà-t-(?:il|elle|on)\b", "a-t-\\g<0>"),
+)
+
+# Les deux formes ci-dessus qui referencent le pronom sont trop delicates a
+# ecrire en une passe : on les traite separement, pronom par pronom.
+_INVERSIONS_SIMPLES = tuple(
+    (re.compile(motif, re.IGNORECASE), remplacement)
+    for motif, remplacement in INVERSIONS
+    if "\\g<0>" not in remplacement
+)
+_INVERSIONS_PRONOM = tuple(
+    (re.compile(rf"\b(?:{alternatives})-({pronoms})\b", re.IGNORECASE), verbe)
+    for alternatives, pronoms, verbe in (
+        ("et|ait|aie|es", "il|elle|on", "est"),
+        ("peu|peus", "il|elle|on", "peut"),
+        ("veut|veus", "je", "veux"),
+    )
+)
+_INVERSIONS_T = tuple(
+    (re.compile(rf"\b(?:{alternatives})-t-({pronoms})\b", re.IGNORECASE), verbe)
+    for alternatives, pronoms, verbe in (
+        ("à|ah", "il|elle|on", "a"),
+    )
+)
+
+_APRES_PRONOM = _regles_apres_pronom()
 
 
 def corriger(texte: str) -> tuple[str, list[str]]:
-    """Applique les corrections. Retourne le texte et la liste de ce qui a change.
+    """Applique les corrections. Retourne le texte et ce qui a change.
 
-    Retourner les changements plutot que de corriger en silence : une
+    Rapporter les changements plutot que de corriger en silence : une
     correction invisible qui se trompe est indebogable.
     """
     if not texte:
         return texte, []
 
-    changements: list[str] = []
     corrige = texte
-    for motif, remplacement in _COMPILEES:
-        nouveau = motif.sub(remplacement, corrige)
-        if nouveau != corrige:
-            for trouve in motif.findall(corrige):
-                fragment = trouve if isinstance(trouve, str) else " ".join(trouve)
-                changements.append(fragment)
-            corrige = nouveau
+    changements: list[str] = []
+
+    def appliquer(motif: re.Pattern[str], remplacement) -> None:
+        nonlocal corrige
+        avant = corrige
+        corrige = motif.sub(remplacement, corrige)
+        if corrige != avant:
+            for trouve in motif.finditer(avant):
+                changements.append(trouve.group(0))
+
+    for motif, remplacement in _INVERSIONS_SIMPLES:
+        appliquer(motif, remplacement)
+    for motif, verbe in _INVERSIONS_PRONOM:
+        appliquer(motif, rf"{verbe}-\1")
+    for motif, verbe in _INVERSIONS_T:
+        appliquer(motif, rf"{verbe}-t-\1")
+    for motif, remplacement in _APRES_PRONOM:
+        appliquer(motif, remplacement)
+
     return corrige, changements
