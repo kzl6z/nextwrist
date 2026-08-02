@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 import tempfile
 import unicodedata
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
@@ -34,6 +35,30 @@ log = get_logger(__name__)
 
 class TranscriptionIndisponible(RuntimeError):
     """La dependance vocale n'est pas installee."""
+
+
+@dataclass(frozen=True)
+class Transcription:
+    """Le texte, ET ce que le modele pense de son propre travail.
+
+    Rendre une simple chaine faisait perdre `avg_logprob` — la seule mesure
+    de doute disponible sans rien calculer. Un objet coute une ligne et rend
+    tout le pipeline de comprehension possible.
+
+    `str(transcription)` donne le texte : les appelants qui n'ont besoin que
+    de lui ne changent pas.
+    """
+
+    texte: str
+    #: Confiance du modele : 0 = certain, -1 = il a devine. `None` si inconnue.
+    logprob: float | None = None
+    duree: float = 0.0
+
+    def __str__(self) -> str:
+        return self.texte
+
+    def __bool__(self) -> bool:
+        return bool(self.texte)
 
 
 # ── Hallucinations de Whisper sur le quasi-silence ────────────────────────
@@ -122,15 +147,16 @@ def transcrire(
     modele: str | None = None,
     amorce: str | None = None,
     beam: int | None = None,
-) -> str:
-    """Transcrit un enregistrement audio en texte.
+) -> Transcription:
+    """Transcrit un enregistrement audio. Retourne le texte ET sa confiance.
 
     `audio` est le contenu brut du fichier (webm, wav, mp4, ogg…). On l'ecrit
     sur disque temporairement parce que le decodeur audio sous-jacent travaille
     sur des fichiers, pas sur de la memoire.
     """
     if len(audio) < 2000:
-        return ""  # enregistrement trop court : silence ou declenchement rate
+        # Enregistrement trop court : silence ou declenchement rate.
+        return Transcription(texte="", logprob=None, duree=0.0)
 
     settings = get_settings()
     moteur = _modele(modele)
@@ -161,12 +187,30 @@ def transcrire(
             # Un extrait juge silencieux ne doit pas etre meuble d'inventions.
             no_speech_threshold=0.6,
         )
+        # ── LA CONFIANCE QU'ON JETAIT ──
+        #
+        # `avg_logprob` est la confiance que Whisper accorde a son PROPRE
+        # travail : 0 = certain, -1 = il a devine. Elle est disponible depuis
+        # toujours et etait ignoree — c'est pourtant le signal le plus honnete
+        # du pipeline, puisque c'est le modele lui-meme qui dit qu'il a doute.
+        #
+        # On garde la MOYENNE PONDEREE par la duree : un segment d'une demi
+        # seconde ne doit pas peser autant qu'un segment de trois.
+        segments = list(segments)
         morceaux = [segment.text.strip() for segment in segments]
         texte = " ".join(morceaux).strip()
 
+        duree_totale = sum(max(s.end - s.start, 0.01) for s in segments) or 1.0
+        logprob = (
+            sum(getattr(s, "avg_logprob", 0.0) * max(s.end - s.start, 0.01) for s in segments)
+            / duree_totale
+            if segments
+            else None
+        )
+
         if est_hallucination(texte):
             log.info("Formule de sous-titrage ignoree (aucune parole) : « %s »", texte)
-            return ""
+            return Transcription(texte="", logprob=logprob, duree=info.duration)
 
         # Homophones : « sais », « c'est », « ces », « ses » et « s'est » se
         # prononcent tous /sɛ/. Aucun reglage de Whisper ne les distingue —
@@ -199,7 +243,7 @@ def transcrire(
                     "Micro trop loin, ou filtre VAD trop strict (NOVA_WHISPER_VAD).",
                     info.duration,
                 )
-        return texte
+        return Transcription(texte=texte, logprob=logprob, duree=info.duration)
     finally:
         chemin.unlink(missing_ok=True)
 

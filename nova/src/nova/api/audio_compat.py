@@ -38,7 +38,7 @@ def transcriptions(
     langue = (language or language_code or "fr")[:2].lower()
 
     try:
-        texte = transcribe.transcrire(
+        transcription = transcribe.transcrire(
             audio,
             langue=langue,
             # L'amorce est construite par l'orchestrateur : elle contient les
@@ -55,7 +55,34 @@ def transcriptions(
         log.error("Transcription impossible : %s", exc)
         raise HTTPException(500, f"transcription impossible : {exc}") from exc
 
-    return {"text": texte}
+    # ── LE PIPELINE DE COMPREHENSION ──
+    #
+    # C'est ici, et pas dans `transcribe`, parce que comprendre demande le
+    # LEXIQUE — donc la memoire — et que la couche voix n'a pas le droit de
+    # la consulter. L'orchestrateur le construit, on l'applique.
+    comprise = orchestrator.comprendre_la_parole(transcription)
+
+    # `text` reste le champ historique : aucun client existant ne casse. Les
+    # champs suivants sont un ajout, et un client qui les ignore obtient
+    # exactement le comportement d'avant.
+    return {
+        "text": comprise.texte,
+        "brut": comprise.origine,
+        "confiance": comprise.confiance,
+        "sure": comprise.sure,
+        "a_confirmer": comprise.a_confirmer,
+        "question": None if comprise.sure else comprise.question(),
+        "intention": (
+            {"nom": comprise.intention.nom, "cible": comprise.intention.cible}
+            if comprise.intention.reconnue
+            else None
+        ),
+        "corrections": [
+            {"entendu": c.entendu, "propose": c.propose, "confiance": round(c.confiance, 3)}
+            for c in comprise.corrections
+        ],
+        "raisons": list(comprise.raisons),
+    }
 
 
 @router.post("/audio/wake")
@@ -72,12 +99,14 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
     audio = file.file.read()
     reglages = get_settings()
     try:
-        texte = transcribe.transcrire(
-            audio,
-            langue="fr",
-            modele=reglages.whisper_wake_model,
-            amorce=reglages.whisper_amorce,
-            beam=reglages.whisper_beam_reveil,
+        texte = str(
+            transcribe.transcrire(
+                audio,
+                langue="fr",
+                modele=reglages.whisper_wake_model,
+                amorce=reglages.whisper_amorce,
+                beam=reglages.whisper_beam_reveil,
+            )
         )
     except transcribe.TranscriptionIndisponible as exc:
         raise HTTPException(503, str(exc)) from exc

@@ -1,0 +1,330 @@
+"""Reconnaissance d'intention : ce que la personne VEUT, pas ce qu'elle a dit.
+
+LE PRINCIPE
+
+Quatre phrases, une seule intention :
+
+    « Ouvre Discord »
+    « Lance Discord »
+    « Tu pourrais ouvrir Discord ? »
+    « Est-ce que tu peux ouvrir Discord ? »
+
+        -> ouvrir_application(cible="Discord")
+
+La methode tient en deux temps, et c'est ce qui la rend robuste sans etre
+fragile :
+
+  1. DEPOLITESSER — retirer l'enrobage. « Est-ce que tu peux », « tu
+     pourrais », « s'il te plait » ne portent aucune information sur
+     l'intention. Les enlever ramene les quatre phrases a deux.
+  2. RECONNAITRE — un verbe declencheur, puis ce qui suit est la cible.
+
+Enumerer les formulations completes aurait demande des centaines d'entrees et
+en aurait raté autant. Enumerer les VERBES et les tournures de politesse
+demande vingt lignes et couvre tout le reste.
+
+POURQUOI CE N'EST PAS UN MODELE QUI FAIT CA
+
+Un modele local mettrait deux secondes et se tromperait parfois. Ici c'est
+zero milliseconde, reproductible, et testable. Le modele reste pour ce qui
+demande du jugement — pas pour reconnaitre « ouvre ».
+
+CE QUI ARRIVE ENSUITE, ET QUI N'EST PAS ICI
+
+Une intention reconnue n'est PAS une action executee. `ouvrir_application`
+dit ce qui est voulu ; c'est au Tool Manager de decider s'il sait le faire, et
+a la politique d'autorisation de decider s'il en a le droit. Separer les deux
+est ce qui permettra d'ajouter des actions sans jamais toucher ce fichier.
+"""
+
+from __future__ import annotations
+
+import re
+import unicodedata
+from dataclasses import dataclass, field
+
+#: Enrobage de politesse et de tournure. Retire avant toute reconnaissance.
+#: L'ordre compte : les plus longues d'abord, sinon « tu peux » consommerait
+#: le debut de « est-ce que tu peux ».
+POLITESSES: tuple[str, ...] = (
+    "est ce que tu pourrais", "est-ce que tu pourrais",
+    "est ce que tu peux", "est-ce que tu peux",
+    "est ce que tu veux bien", "serait il possible de", "serais tu capable de",
+    "j aimerais que tu", "je voudrais que tu", "je veux que tu", "il faudrait que tu",
+    "tu pourrais", "tu peux", "peux tu", "pourrais tu", "voudrais tu",
+    "s il te plait", "s il vous plait", "stp", "merci de",
+    "j aimerais", "je voudrais", "je veux",
+    "vas y", "allez", "dis moi",
+)
+
+#: Determinants et prepositions a retirer en tete de cible.
+#: « ouvre l'application Chrome » -> cible « Chrome ».
+BRUIT_CIBLE: tuple[str, ...] = (
+    "l application", "l appli", "le logiciel", "le programme", "le site",
+    "la page", "le fichier", "le dossier", "moi", "le", "la", "les", "l", "un", "une", "du", "de",
+)
+
+
+@dataclass(frozen=True)
+class Intention:
+    """Ce que Nova a compris de la demande.
+
+    `confiance` n'est pas cosmetique : elle decide si Nova agit, demande
+    confirmation, ou laisse passer au modele. Une intention a 0,55 ne doit
+    jamais declencher l'extinction d'un ordinateur.
+    """
+
+    nom: str
+    cible: str = ""
+    confiance: float = 0.0
+    #: Le fragment qui a declenche la reconnaissance. Pour le journal et pour
+    #: pouvoir expliquer une reconnaissance surprenante.
+    declencheur: str = ""
+    arguments: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def reconnue(self) -> bool:
+        return self.nom != "aucune"
+
+
+AUCUNE = Intention(nom="aucune")
+
+
+#: Les intentions, leurs verbes declencheurs, et si elles attendent une cible.
+#:
+#: Ajouter une intention = ajouter une ligne. C'est le critere qui a decide
+#: de cette forme plutot que d'une fonction par intention.
+DECLENCHEURS: tuple[tuple[str, tuple[str, ...], bool], ...] = (
+    # (nom, verbes ou expressions, exige une cible)
+    ("ouvrir_application", ("ouvre", "ouvrir", "lance", "lancer", "demarre", "demarrer",
+                            "execute", "executer", "start"), True),
+    ("fermer_application", ("ferme", "fermer", "quitte", "quitter", "arrete", "arreter",
+                            "termine", "kill"), True),
+    ("arret_pc", ("eteins", "eteindre", "arrete l ordinateur", "arrete le pc",
+                  "eteins le pc", "eteins l ordinateur", "shutdown"), False),
+    ("redemarrer_pc", ("redemarre", "redemarrer", "reboot"), False),
+    ("meteo", ("quel temps", "la meteo", "il va pleuvoir", "il fera",
+               "temperature", "va t il pleuvoir"), False),
+    ("heure", ("quelle heure", "il est quelle heure", "l heure"), False),
+    ("date", ("quel jour", "quelle date", "on est quel", "la date"), False),
+    ("volume_haut", ("monte le son", "augmente le volume", "monte le volume", "plus fort"), False),
+    ("volume_bas", ("baisse le son", "baisse le volume", "diminue le volume", "moins fort"), False),
+    ("silence", ("coupe le son", "mets en sourdine", "silence", "tais toi", "stop"), False),
+    ("recherche_web", ("cherche", "chercher", "recherche sur", "google", "trouve moi"), True),
+    ("memoire", ("que sais tu de moi", "retiens", "souviens toi", "rappelle toi",
+                 "note que", "mes projets"), False),
+)
+
+
+def _normaliser(texte: str) -> str:
+    """Minuscules, sans accents, apostrophes et tirets devenus espaces.
+
+    Les apostrophes deviennent des espaces a dessein : « s'il te plait » et
+    « s il te plait » doivent se comparer pareil, et Whisper produit les deux.
+    """
+    sans_accents = "".join(
+        c for c in unicodedata.normalize("NFD", texte) if unicodedata.category(c) != "Mn"
+    )
+    reduit = re.sub(r"[''`\-_]", " ", sans_accents.lower())
+    return re.sub(r"[^a-z0-9 ]+", " ", reduit)
+
+
+def depolitesser(texte: str) -> str:
+    """Retire l'enrobage de politesse et de tournure.
+
+    C'est l'etape qui fait que quatre formulations donnent une intention. On
+    boucle : « est-ce que tu peux s'il te plait ouvrir » en contient deux.
+    """
+    reduit = re.sub(r"\s+", " ", _normaliser(texte)).strip()
+    change = True
+    while change:
+        change = False
+        for tournure in POLITESSES:
+            for motif in (rf"^{re.escape(tournure)}\b", rf"\b{re.escape(tournure)}$"):
+                nouveau = re.sub(motif, " ", reduit).strip()
+                if nouveau != reduit:
+                    reduit, change = re.sub(r"\s+", " ", nouveau).strip(), True
+    return reduit
+
+
+def _aligner(mots: list[str]) -> tuple[list[str], list[int]]:
+    """Les jetons normalises, et le mot original dont chacun provient.
+
+    LE PIEGE QUE CETTE FONCTION EXISTE POUR EVITER
+
+    « s'il » est UN mot pour l'utilisateur et DEUX apres normalisation
+    (« s il ») ; « l'application » de meme. Compter les mots du cote normalise
+    pour en retirer du cote original coupe donc au mauvais endroit — dans un
+    sens on laisse « Discord s'il te », dans l'autre on ne reconnait jamais
+    « l'application » parce qu'on la compare a « l application ».
+
+    Cette correspondance jeton -> mot d'origine est la reponse aux deux cas.
+    """
+    jetons: list[str] = []
+    portee: list[int] = []   # index du mot original pour chaque jeton
+    for index, mot in enumerate(mots):
+        for jeton in _normaliser(mot).split():
+            jetons.append(jeton)
+            portee.append(index)
+    return jetons, portee
+
+
+def _retirer_politesse_finale(texte: str) -> str:
+    """Retire la politesse en fin de phrase, sur le texte ORIGINAL."""
+    mots = texte.split()
+    if not mots:
+        return texte
+
+    jetons, portee = _aligner(mots)
+    for tournure in POLITESSES:
+        attendus = tournure.split()
+        if len(attendus) > len(jetons):
+            continue
+        if jetons[-len(attendus):] == attendus:
+            premier_mot = portee[len(jetons) - len(attendus)]
+            return " ".join(mots[:premier_mot]).strip(" ?!.,")
+    return texte
+
+
+def _retirer_bruit_initial(texte: str) -> str:
+    """Retire UN determinant ou une locution en tete de cible.
+
+    Meme alignement que pour la politesse finale, et pour la meme raison :
+    « ouvre l'application Discord » donne la cible « l'application Discord »,
+    dont les jetons sont « l application discord » alors que le mot original
+    en tete est « l'application ». Une comparaison brute sur la chaine ne
+    trouve donc jamais le bruit, et la cible garde son determinant.
+
+    La coupure n'est acceptee qu'a une FRONTIERE de mot original : sans cette
+    garde, le bruit « l » couperait « l'appli » en deux et laisserait
+    « appli » — un demi-mot, qu'aucun lexique ne retrouvera.
+    """
+    mots = texte.split()
+    if not mots:
+        return texte
+
+    jetons, portee = _aligner(mots)
+    for bruit in BRUIT_CIBLE:
+        attendus = bruit.split()
+        # Il doit rester quelque chose : « ouvre le » n'a pas de cible « le »,
+        # mais retirer « le » pour ne rien laisser n'aide personne non plus.
+        if len(attendus) >= len(jetons):
+            continue
+        if jetons[: len(attendus)] != attendus:
+            continue
+        # Frontiere de mot original.
+        if portee[len(attendus) - 1] == portee[len(attendus)]:
+            continue
+        return " ".join(mots[portee[len(attendus)] :]).strip()
+    return texte
+
+
+def _nettoyer_cible(brut: str) -> str:
+    """Enleve les determinants en tete et la politesse en queue de cible.
+
+    La politesse en queue compte autant que celle en tete : la cible de
+    « lance Discord s'il te plait » est « Discord », pas « Discord s'il te
+    plait ». Sans ce retrait, aucune application ne serait jamais retrouvee
+    dans le lexique.
+    """
+    cible = re.sub(r"\s+", " ", brut).strip(" ?!.,")
+
+    change = True
+    while change:
+        change = False
+        for etage in (_retirer_bruit_initial, _retirer_politesse_finale):
+            reduit = etage(cible)
+            if reduit != cible:
+                cible, change = reduit.strip(" ?!.,"), True
+    return cible.strip(" ?!.,")
+
+
+def reconnaitre(texte: str) -> Intention:
+    """L'intention de la phrase, ou `AUCUNE`.
+
+    La confiance suit deux regles simples et defendables :
+
+      — une intention SANS cible attendue est sure des que son declencheur
+        est present : « eteins le pc » ne veut rien dire d'autre ;
+      — une intention AVEC cible n'est sure que si la cible existe. « ouvre »
+        tout seul n'est pas une demande, c'est un debut de phrase.
+    """
+    if not texte or not texte.strip():
+        return AUCUNE
+
+    reduit = depolitesser(texte)
+    if not reduit:
+        return AUCUNE
+
+    for nom, declencheurs, exige_cible in DECLENCHEURS:
+        for declencheur in declencheurs:
+            # En tete, ou precede uniquement d'un mot outil deja retire par
+            # `depolitesser`. Chercher n'importe ou produirait des faux
+            # positifs — « je me demande si tu peux ouvrir » n'est pas un ordre.
+            # `[sz]?` tolere la conjugaison : « lance », « lances »,
+            # « lancez ». Enumerer les formes conjuguees aurait triple la
+            # table pour rien — et en aurait rate autant. Uniquement sur les
+            # declencheurs d'UN mot : « quel temps » n'a pas de forme en -s.
+            fin = "[sz]?" if " " not in declencheur else ""
+            motif = re.compile(rf"(?:^|\b)({re.escape(declencheur)}{fin})\b")
+            trouve = motif.search(reduit)
+            if not trouve:
+                continue
+
+            if not exige_cible:
+                # Le declencheur doit occuper l'essentiel de la phrase :
+                # « quelle heure est-il » oui, « je me souviens de l'heure ou
+                # nous nous sommes rencontres » non.
+                if trouve.start() > 12:
+                    continue
+                return Intention(nom=nom, confiance=0.95, declencheur=declencheur)
+
+            cible = _nettoyer_cible(texte[len(texte) - len(reduit) :][trouve.end() :]) \
+                if len(reduit) <= len(texte) else ""
+            # On prefere retrouver la cible dans le texte ORIGINAL : c'est la
+            # que « Discord » garde sa majuscule et son orthographe.
+            cible = _cible_dans_original(texte, declencheur) or cible
+            if not cible:
+                continue
+            return Intention(
+                nom=nom,
+                cible=cible,
+                confiance=0.9 if trouve.start() <= 12 else 0.7,
+                declencheur=declencheur,
+            )
+
+    return AUCUNE
+
+
+def _cible_dans_original(texte: str, declencheur: str) -> str:
+    """Ce qui suit le declencheur, dans le texte tel qu'il a ete dit.
+
+    Passer par le texte normalise ferait perdre les majuscules et les accents
+    du nom cherche — or « Discord » et « discord » ne se lancent pas pareil,
+    et c'est ce nom qui sera compare au lexique des applications.
+    """
+    mots_origine = texte.split()
+    mots_reduits = [_normaliser(m).strip() for m in mots_origine]
+    cible_mots = declencheur.split()
+
+    for debut in range(len(mots_reduits) - len(cible_mots) + 1):
+        fenetre = mots_reduits[debut : debut + len(cible_mots)]
+        # Meme tolerance a la conjugaison que dans `reconnaitre` : sans elle,
+        # la cible de « lances Discord » serait introuvable alors que
+        # l'intention, elle, a bien ete reconnue.
+        conjugue = (
+            len(cible_mots) == 1
+            and bool(fenetre)
+            and fenetre[0].rstrip("sz") == cible_mots[0].rstrip("sz")
+            and fenetre[0].startswith(
+                cible_mots[0][:-1] if len(cible_mots[0]) > 3 else cible_mots[0]
+            )
+        )
+        if fenetre == cible_mots or conjugue:
+            return _nettoyer_cible(" ".join(mots_origine[debut + len(cible_mots) :]))
+    return ""
+
+
+def intentions_connues() -> tuple[str, ...]:
+    """Le catalogue, pour l'interface et pour le journal."""
+    return tuple(nom for nom, _, _ in DECLENCHEURS)

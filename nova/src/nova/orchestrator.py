@@ -20,22 +20,31 @@ C'est deterministe, debogable et previsible. L'appel d'outils par le modele
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Iterator
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from nova import prompts
-from nova.documents import search as document_search
-from nova.llm.client import LLMClient, Message
-from nova.logging_setup import get_logger
 from nova.core import plateforme
 from nova.core.contrats import Demande, Modele, Plan
 from nova.core.planificateur import planifier
 from nova.core.routeur import Routeur
+from nova.documents import search as document_search
+from nova.llm.client import LLMClient, Message
+from nova.logging_setup import get_logger
 from nova.memory import conversations, facts
 from nova.memory.models import SearchHit
 from nova.settings import get_settings, get_tuning
 from nova.voice import vocabulaire
+
+if TYPE_CHECKING:
+    # Importes UNIQUEMENT pour les annotations. A l'execution, ces modules
+    # sont charges tard, dans les fonctions qui s'en servent : la couche voix
+    # est facultative, et Nova doit demarrer sans elle.
+    from nova.voice import comprehension as voice_comprehension
+    from nova.voice import lexique as voice_lexique
 
 log = get_logger(__name__)
 
@@ -128,6 +137,134 @@ def analyser(texte: str) -> tuple[Plan, str | None]:
     return plan, nom_espace
 
 
+#: Duree de vie du vocabulaire deduit de la memoire, en secondes.
+#:
+#: POURQUOI UN CACHE, ET POURQUOI COURT
+#:
+#: Chaque phrase dictee declenchait DEUX lectures de la memoire — une pour
+#: l'amorce de transcription, une pour le lexique de correction — avant meme
+#: que Whisper ne commence. Sur une base distante ou indisponible, c'est du
+#: temps d'attente pur, paye a chaque mot prononce.
+#:
+#: Les faits confirmes changent quelques fois par jour ; le vocabulaire qu'on
+#: en tire, encore moins. Une minute de cache supprime la quasi-totalite de ces
+#: lectures et retarde d'au plus une minute la prise en compte d'un nom
+#: nouveau — un delai qu'aucun usage ne remarque. `oublier_le_vocabulaire()`
+#: est la pour les cas ou on ne veut pas attendre du tout.
+DUREE_CACHE_VOCABULAIRE = 60.0
+
+#: (instant de calcul, termes). Volontairement un simple tuple protege par un
+#: verrou plutot qu'un `lru_cache` : il faut pouvoir l'invalider a la demande.
+_vocabulaire_cache: tuple[float, tuple[str, ...]] | None = None
+_verrou_vocabulaire = threading.Lock()
+
+
+def _termes_de_la_memoire() -> tuple[str, ...]:
+    """Les noms propres des faits confirmes, avec un cache court.
+
+    Ne leve jamais : memoire indisponible = vocabulaire vide, donc une
+    transcription moins precise sur les noms propres. Jamais une panne.
+    """
+    global _vocabulaire_cache
+
+    maintenant = time.monotonic()
+    cache = _vocabulaire_cache
+    if cache is not None and maintenant - cache[0] < DUREE_CACHE_VOCABULAIRE:
+        return cache[1]
+
+    with _verrou_vocabulaire:
+        # Un autre fil a pu le calculer pendant qu'on attendait le verrou.
+        cache = _vocabulaire_cache
+        if cache is not None and time.monotonic() - cache[0] < DUREE_CACHE_VOCABULAIRE:
+            return cache[1]
+        try:
+            contenus = [f.content for f in facts.list_facts(status="confirmed")]
+            termes = tuple(vocabulaire.extraire_termes(contenus))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Vocabulaire de la memoire indisponible : %s", exc)
+            termes = ()
+        _vocabulaire_cache = (time.monotonic(), termes)
+        return termes
+
+
+def oublier_le_vocabulaire() -> None:
+    """Force le prochain appel a relire la memoire.
+
+    A appeler quand un fait vient d'etre confirme : le nom qu'il contient doit
+    etre entendu correctement des la phrase suivante, pas dans une minute.
+    """
+    global _vocabulaire_cache
+    _vocabulaire_cache = None
+
+
+def lexique_personnel() -> voice_lexique.Lexique:
+    """Le vocabulaire personnel de Nova, assemble depuis ses trois sources.
+
+    C'EST ICI PAR RESPECT DE LA REGLE DE DEPENDANCE
+
+    `voice/lexique.py` sait indexer et comparer des mots ; il ne sait pas d'ou
+    ils viennent, et c'est ce qui le rend testable en trois lignes. Aller les
+    chercher dans les reglages puis dans la memoire est le travail de
+    l'orchestrateur, seul module autorise a connaitre les autres.
+
+    Trois sources, par ordre de confiance decroissante :
+
+        declare   NOVA_WHISPER_VOCABULAIRE, ecrit a la main
+        memoire   noms propres des faits confirmes
+        appris    corrections que tu as confirmees (a venir)
+
+    L'ordre compte : un terme declare a la main l'emporte sur un terme deduit,
+    a ressemblance phonetique egale.
+    """
+    from nova.voice import lexique as voice_lexique
+
+    lex = voice_lexique.Lexique()
+    reglages = get_settings()
+
+    if declares := reglages.whisper_vocabulaire.strip():
+        lex.ajouter_tous([t.strip() for t in declares.split(",") if t.strip()], "declare")
+
+    lex.ajouter_tous(list(_termes_de_la_memoire()), "memoire")
+    return lex
+
+
+def comprendre_la_parole(transcription) -> voice_comprehension.Comprehension:
+    """Transforme une transcription brute en demande sure — ou en question.
+
+    Assemble le pipeline complet : nettoyage, correction lexicale, intention,
+    puis la decision d'agir, de demander confirmation, ou de faire repeter.
+
+    Ne leve jamais : une comprehension qui echoue rendrait Nova muette, alors
+    qu'une comprehension degradee la rend seulement moins fine.
+    """
+    from nova.voice import comprehension as voice_comprehension
+
+    texte = getattr(transcription, "texte", transcription) or ""
+    logprob = getattr(transcription, "logprob", None)
+
+    try:
+        comprise = voice_comprehension.comprendre(
+            texte, lexique=lexique_personnel(), logprob=logprob
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Comprehension indisponible, texte brut conserve : %s", exc)
+        from nova.voice.intentions import AUCUNE
+
+        return voice_comprehension.Comprehension(
+            texte=texte, origine=texte, confiance=1.0, intention=AUCUNE,
+        )
+
+    niveau = "sûre" if comprise.sure else ("à confirmer" if comprise.a_confirmer else "incomprise")
+    log.info(
+        "Parole %s (%.2f) : « %s »%s",
+        niveau,
+        comprise.confiance,
+        comprise.texte,
+        f" — {' · '.join(comprise.raisons)}" if comprise.raisons else "",
+    )
+    return comprise
+
+
 def amorce_dictee() -> str:
     """L'amorce de transcription, enrichie des noms propres que Nova connait.
 
@@ -158,13 +295,9 @@ def amorce_dictee() -> str:
     if declares := reglages.whisper_vocabulaire.strip():
         termes.extend(t.strip() for t in declares.split(",") if t.strip())
 
-    try:
-        contenus = [f.content for f in facts.list_facts(status="confirmed")]
-        termes.extend(vocabulaire.extraire_termes(contenus))
-    except Exception as exc:  # noqa: BLE001
-        # La memoire indisponible ne doit pas empecher de transcrire : on
-        # perd la precision sur les noms propres, pas la parole.
-        log.warning("Vocabulaire indisponible, amorce de base : %s", exc)
+    # Meme source, meme cache que le lexique de correction : les deux etages
+    # de la chaine vocale lisent desormais la memoire une fois pour deux.
+    termes.extend(_termes_de_la_memoire())
 
     return vocabulaire.construire_amorce(base, termes)
 
@@ -383,7 +516,11 @@ def answer_stream(
                 jetons / generation,
             )
         else:
-            log.warning("Modele %s : aucun mot produit en %.1f s.", get_settings().chat_model, total)
+            log.warning(
+                "Modele %s : aucun mot produit en %.1f s.",
+                get_settings().chat_model,
+                total,
+            )
 
         # `finally` est indispensable ici, et la raison n'est pas theorique :
         # si l'utilisateur ferme l'onglet en cours de reponse, Python ferme le

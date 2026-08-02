@@ -21,7 +21,7 @@ from nova.core.contrats import (
 )
 from nova.core.planificateur import planifier, planifier_deterministe
 from nova.core.registre import ErreurRegistre, Registre
-from nova.core.routeur import AucunModele, Exigence, Routeur, USAGES
+from nova.core.routeur import USAGES, AucunModele, Exigence, Routeur
 
 __all__ = [
     "CAPACITES_CONNUES",

@@ -88,7 +88,11 @@ def test_lit_un_plan_bien_forme():
 
 def test_tolere_le_bavardage_autour_du_json():
     # Un petit modele entoure presque toujours sa reponse de texte.
-    brut = 'Voici le plan :\n```json\n[{"intitule": "Chercher", "capacite": "recherche"}]\n```\nVoila.'
+    brut = (
+        'Voici le plan :\n```json\n'
+        '[{"intitule": "Chercher", "capacite": "recherche"}]\n'
+        '```\nVoila.'
+    )
     plan = lire_plan(brut, "x")
     assert plan is not None and plan.etapes[0].intitule == "Chercher"
 

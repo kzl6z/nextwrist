@@ -14,7 +14,6 @@ from nova.espaces import choisir_espace, registre_espaces
 from nova.outils import LireFichier, registre_outils
 from nova.vision import MoteurVision, PasEncoreImplemente, disponible
 
-
 # ── Outils ────────────────────────────────────────────────────────────────
 
 

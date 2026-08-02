@@ -106,7 +106,9 @@ class MoteurVision:
             "multimodal capable de localiser."
         )
 
-    def analyser_video(self, video: Path, images_par_seconde: float = 1.0) -> tuple[Observation, ...]:
+    def analyser_video(
+        self, video: Path, images_par_seconde: float = 1.0
+    ) -> tuple[Observation, ...]:
         raise PasEncoreImplemente(
             "L'analyse video demande le decoupage en images-cles, puis une "
             "description par image. Le cout est celui de `decrire`, multiplie."

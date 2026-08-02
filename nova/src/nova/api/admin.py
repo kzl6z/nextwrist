@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from nova import orchestrator
 from nova.db import connection
 from nova.documents import ingest, search
 from nova.llm.client import LLMClient
@@ -59,17 +60,23 @@ def get_facts(status: str | None = None) -> list[dict]:
 def post_fact(payload: FactIn) -> dict:
     if payload.category not in facts.CATEGORIES:
         raise HTTPException(400, f"Categorie inconnue. Attendu : {facts.CATEGORIES}")
-    return facts.add(
+    fait = facts.add(
         payload.content,
         category=payload.category,
         origin=payload.origin,
         source=payload.source,
-    ).__dict__
+    )
+    # Le nom propre que ce fait contient doit etre ENTENDU des la phrase
+    # suivante. L'invalidation est ici et non dans `memory/facts.py` : la
+    # memoire ne connait pas l'orchestrateur, et la fleche ne remonte jamais.
+    orchestrator.oublier_le_vocabulaire()
+    return fait.__dict__
 
 
 @router.post("/facts/{fact_id}/confirm")
 def confirm_fact(fact_id: int) -> dict:
     facts.confirm(fact_id)
+    orchestrator.oublier_le_vocabulaire()
     return {"ok": True}
 
 
