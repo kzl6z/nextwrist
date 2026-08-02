@@ -7,11 +7,13 @@ d'entree grossit est une application dont la logique a fui hors des modules.
 from __future__ import annotations
 
 import threading
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from nova.api import admin, anthropic_compat, audio_compat, openai_compat
+from nova.api import admin, anthropic_compat, audio_compat, noyau, openai_compat
+from nova.core import plateforme
 from nova.db import run_migrations
 from nova.llm.client import LLMClient
 from nova.logging_setup import get_logger
@@ -36,6 +38,35 @@ log = get_logger(__name__)
 # On n'en depend donc pas : Nova entretient elle-meme. Un jeton toutes les
 # quatre minutes suffit, et ne coute rien de perceptible.
 INTERVALLE_CHAUFFE = 240.0
+
+
+def _prechauffer_la_voix() -> None:
+    """Charge le modele de transcription AVANT qu'on en ait besoin.
+
+    Sans ca, la premiere phrase prononcee paie le chargement — plusieurs
+    secondes pendant lesquelles Nova parait sourde alors qu'elle demarre. Le
+    faire en tache de fond, des le lancement, deplace ce cout la ou personne
+    ne l'attend.
+
+    C'est la forme la plus simple du principe de reactivite : le travail
+    previsible se fait pendant que l'utilisateur ne regarde pas.
+    """
+    try:
+        from nova.voice import transcribe
+
+        if not transcribe.disponible():
+            return
+        depart = time.perf_counter()
+        transcribe._modele()  # noqa: SLF001 — chargement volontaire
+        log.info(
+            "Transcription prete (%s) en %.1f s — la premiere phrase ne l'attendra pas.",
+            get_settings().whisper_model,
+            time.perf_counter() - depart,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Une capacite facultative qui echoue ne doit jamais empecher Nova de
+        # demarrer. C'est la regle du projet.
+        log.warning("Prechauffage de la transcription impossible : %s", exc)
 
 
 def _entretenir(arret: threading.Event) -> None:
@@ -73,10 +104,23 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # noqa: BLE001
         log.error("Base de donnees injoignable : %s", exc)
 
-    # En tache de fond : le demarrage ne doit pas attendre le modele.
+    # ── Inventaire, puis prechauffage ────────────────────────────────────
+    #
+    # L'inventaire est instantane et dit ce que Nova sait faire aujourd'hui.
+    # Le prechauffage est lent et se fait DERRIERE : le demarrage ne doit
+    # jamais attendre un modele.
+    log.info("Machine : %s", plateforme.resume())
+    try:
+        from nova.outils import enregistrer_outils_standard, registre_outils
+
+        enregistrer_outils_standard(settings.root / "data")
+        log.info("Outils disponibles : %s", ", ".join(registre_outils.noms()))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Outils indisponibles : %s", exc)
+
     arret = threading.Event()
-    fil = threading.Thread(target=_entretenir, args=(arret,), daemon=True, name="chauffe")
-    fil.start()
+    threading.Thread(target=_entretenir, args=(arret,), daemon=True, name="chauffe").start()
+    threading.Thread(target=_prechauffer_la_voix, daemon=True, name="voix").start()
 
     yield
 
@@ -94,6 +138,7 @@ app = FastAPI(
 app.include_router(openai_compat.router)
 app.include_router(anthropic_compat.router)
 app.include_router(audio_compat.router)
+app.include_router(noyau.router)
 app.include_router(admin.router)
 
 

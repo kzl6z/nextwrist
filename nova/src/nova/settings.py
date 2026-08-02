@@ -135,6 +135,15 @@ class Settings(BaseSettings):
     # Les noms deja presents dans sa memoire s'y ajoutent automatiquement :
     # plus elle te connait, mieux elle t'entend.
     whisper_vocabulaire: str = ""
+    # Vitesse d'ecriture MESUREE du modele, en jetons par seconde. Sert au
+    # routeur pour ecarter un modele trop lent pour un usage donne.
+    #
+    #     uv run python scripts/bench_models.py
+    #
+    # La valeur par defaut est celle relevee sur l'iMac M1 de reference avec
+    # llama3.2:3b. Une mesure fausse vaut mieux qu'une absence : elle se
+    # corrige, alors qu'un champ vide oblige a deviner.
+    vitesse_mesuree: float = 28.8
     request_timeout: float = 300.0
     log_level: str = "INFO"
 

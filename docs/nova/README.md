@@ -68,6 +68,7 @@ de route est construite exactement comme ça.
 | [`10-direction-artistique.md`](10-direction-artistique.md) | Lecture des références, identité visuelle, règles de design |
 | [`11-architecture-v1.md`](11-architecture-v1.md) | Arborescence, rôle de chaque fichier, dépendances, bonnes pratiques |
 | [`12-profil-mac-m1-8go.md`](12-profil-mac-m1-8go.md) | ⚙️ La machine réelle : modèles retenus, pas de Docker, attentes |
+| [`13-nova-core.md`](13-nova-core.md) | 🧩 La plateforme : registre, planificateur, routeur — et ce qui n'a PAS été construit |
 
 **Ordre de lecture conseillé :** 06 (la critique) → 01 (l'architecture) → 09 (la
 faisabilité) → 03 (la trajectoire) → 05 (aujourd'hui). Le document 06 est le plus

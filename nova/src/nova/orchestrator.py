@@ -28,6 +28,10 @@ from nova import prompts
 from nova.documents import search as document_search
 from nova.llm.client import LLMClient, Message
 from nova.logging_setup import get_logger
+from nova.core import plateforme
+from nova.core.contrats import Demande, Modele, Plan
+from nova.core.planificateur import planifier
+from nova.core.routeur import Routeur
 from nova.memory import conversations, facts
 from nova.memory.models import SearchHit
 from nova.settings import get_settings
@@ -57,6 +61,71 @@ MOIS = (
     "novembre",
     "decembre",
 )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  LE NOYAU, VU DEPUIS L'ORCHESTRATEUR
+#
+#  `core` ne connait ni la base, ni le moteur, ni l'interface : il ne
+#  manipule que des descriptions et des decisions. C'est l'orchestrateur qui
+#  lui fournit la matiere et qui execute ce qu'il decide. La fleche ne
+#  remonte jamais.
+#
+#  L'integration est volontairement OBSERVABLE avant d'etre agissante : le
+#  plan est calcule et journalise, la reponse continue de passer par le
+#  chemin eprouve. Brancher l'execution des agents le meme jour aurait mis en
+#  jeu tout ce qui fonctionne pour une capacite que rien n'attend encore.
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def routeur() -> Routeur:
+    """Le catalogue des modeles, tel que la configuration le decrit.
+
+    Les capacites et la vitesse viennent de `.env`, donc de la MESURE faite
+    par `scripts/bench_models.py`, jamais d'une reputation. Un seul modele est
+    declare aujourd'hui : c'est celui qui tourne. Le jour ou il y en aura
+    trois, le routeur choisira sans qu'aucun appelant ne change.
+    """
+    reglages = get_settings()
+    machine = plateforme.detecter()
+    return Routeur(
+        (
+            Modele(
+                nom=reglages.chat_model,
+                capacites=frozenset({"conversation", "raisonnement", "extraction", "redaction"}),
+                vitesse=reglages.vitesse_mesuree,
+                # Une estimation prudente vaut mieux qu'une valeur absente :
+                # elle sert a departager, pas a decider seule.
+                poids=min(machine.budget_modele_go, 2.0),
+            ),
+        )
+    )
+
+
+def analyser(texte: str) -> tuple[Plan, str | None]:
+    """Le plan de Nova et l'espace de travail concerne, sans rien executer.
+
+    Ne fait AUCUN appel au modele : le planificateur deterministe suffit pour
+    les familles connues, et le reste est une phrase a laquelle on repond.
+    C'est ce qui permet d'appeler cette fonction a chaque demande sans en
+    payer le prix.
+    """
+    from nova.espaces import choisir_espace  # tard : evite un cycle a l'import
+
+    demande = Demande(texte=texte)
+    plan = planifier(demande)
+    espace = choisir_espace(demande)
+    nom_espace = espace.nom if espace else None
+
+    if not plan.direct:
+        log.info(
+            "Plan (%s) — %d etapes%s : %s",
+            plan.origine,
+            len(plan.etapes),
+            f", espace « {nom_espace} »" if nom_espace else "",
+            " → ".join(e.intitule for e in plan.etapes),
+        )
+    return plan, nom_espace
 
 
 def amorce_dictee() -> str:
