@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 import wave
 from pathlib import Path
 
@@ -75,6 +76,53 @@ def duree_secondes(pcm: bytes, taux: int = TAUX) -> float:
     return len(pcm) / 2 / taux
 
 
+def lire_en_boucle(flux, reechantillonneur, arret, garder, patience: float = 5.0) -> None:
+    """Lit le flux jusqu'a l'arret, en tolerant « pas encore de donnees ».
+
+    ⚠️ ERRNO 35 N'EST PAS UNE PANNE, C'EST UNE ATTENTE.
+
+    avfoundation livre ses trames de facon ASYNCHRONE. Tant que la carte son
+    n'en a pas produit, toute lecture rend EAGAIN — « reessaie plus tard ».
+    Le diagnostic le montrait noir sur blanc :
+
+        :0  — ouvre mais ne capte rien ([Errno 35])
+        :1  — ouvre mais ne capte rien ([Errno 35])
+
+    Deux micros s'ouvraient parfaitement. J'abandonnais a la premiere
+    occurrence, donc systematiquement — la premiere lecture arrive toujours
+    avant la premiere trame.
+
+    Le generateur de PyAV se referme quand une exception le traverse : on le
+    RECREE plutot que de reprendre celui qui est mort. C'est la subtilite qui
+    fait qu'un simple `try` autour de la boucle ne suffit pas.
+
+    `patience` borne l'attente : sans elle, un micro reellement muet ferait
+    tourner cette boucle indefiniment, ce qui ressemble a un blocage.
+    """
+    import av
+
+    limite = time.monotonic() + patience
+    recu = False
+    while not arret.is_set():
+        try:
+            for trame in flux.decode(audio=0):
+                if arret.is_set():
+                    return
+                recu = True
+                for sortie in reechantillonneur.resample(trame):
+                    garder(sortie.to_ndarray().tobytes())
+        except av.error.BlockingIOError:
+            # Rien de pret. On rend la main brievement, puis on redemande.
+            if not recu and time.monotonic() > limite:
+                raise TimeoutError(
+                    "le peripherique s'ouvre mais ne produit aucun son "
+                    f"apres {patience:.0f} s"
+                ) from None
+            arret.wait(0.01)
+        except StopIteration:
+            return
+
+
 class Micro:
     """Capture le micro jusqu'a ce qu'on demande l'arret.
 
@@ -124,11 +172,7 @@ class Micro:
 
             flux = self._ouvrir()
             reechantillonneur = av.AudioResampler(format="s16", layout="mono", rate=TAUX)
-            for trame in flux.decode(audio=0):
-                if self._arret.is_set():
-                    break
-                for sortie in reechantillonneur.resample(trame):
-                    self._morceaux.append(sortie.to_ndarray().tobytes())
+            lire_en_boucle(flux, reechantillonneur, self._arret, self._morceaux.append)
             flux.close()
         except Exception as exc:  # noqa: BLE001
             self.erreur = exc
@@ -174,19 +218,23 @@ def tester_les_peripheriques() -> int:
             continue
 
         try:
-            # Lire quelques trames prouve que le peripherique DONNE du son,
-            # pas seulement qu'il s'ouvre. Un micro coupe s'ouvre tres bien.
+            # Lire vraiment prouve que le peripherique DONNE du son, pas
+            # seulement qu'il s'ouvre : un micro coupe s'ouvre tres bien.
+            # On lit par la MEME fonction que l'enregistrement, sinon le
+            # diagnostic testerait autre chose que ce qui sert ensuite.
             reechantillonneur = av.AudioResampler(format="s16", layout="mono", rate=TAUX)
-            octets = 0
-            for compte, trame in enumerate(flux.decode(audio=0)):
-                for sortie in reechantillonneur.resample(trame):
-                    octets += len(sortie.to_ndarray().tobytes())
-                if compte >= 20:
-                    break
-            print(f"— OK, {duree_secondes(b'0' * octets):.2f} s captees")
-            trouves += 1
+            recolte: list[bytes] = []
+            arret = threading.Event()
+            threading.Timer(1.5, arret.set).start()
+            lire_en_boucle(flux, reechantillonneur, arret, recolte.append, patience=3.0)
+            octets = sum(len(m) for m in recolte)
+            if octets == 0:
+                print("— ouvre mais reste muet")
+            else:
+                print(f"— OK, {duree_secondes(b'0' * octets):.2f} s captees")
+                trouves += 1
         except Exception as exc:  # noqa: BLE001
-            print(f"— ouvre mais ne capte rien ({str(exc)[:40]})")
+            print(f"— ouvre mais ne capte rien ({str(exc)[:45]})")
         finally:
             flux.close()
 
