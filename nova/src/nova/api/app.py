@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from nova.api import admin, anthropic_compat, audio_compat, noyau, openai_compat
+from nova.api import actions, admin, anthropic_compat, audio_compat, noyau, openai_compat
 from nova.core import plateforme
 from nova.db import run_migrations
 from nova.llm.client import LLMClient
@@ -130,8 +130,13 @@ async def lifespan(app: FastAPI):
             log.warning("%s", ligne)
     try:
         from nova.outils import enregistrer_outils_standard, registre_outils
+        from nova.outils.systeme import enregistrer_actions_systeme
 
         enregistrer_outils_standard(settings.root / "data")
+        # Les actions systeme sont enregistrees SEPAREMENT : ce sont les
+        # seules qui modifient la machine, et on doit pouvoir les retirer
+        # d'une ligne sans toucher au reste.
+        enregistrer_actions_systeme(registre_outils)
         log.info("Outils disponibles : %s", ", ".join(registre_outils.noms()))
     except Exception as exc:  # noqa: BLE001
         log.warning("Outils indisponibles : %s", exc)
@@ -157,6 +162,7 @@ app.include_router(openai_compat.router)
 app.include_router(anthropic_compat.router)
 app.include_router(audio_compat.router)
 app.include_router(noyau.router)
+app.include_router(actions.router)
 app.include_router(admin.router)
 
 

@@ -1051,6 +1051,109 @@ async function analyser(texte, adresse = 'vous', options = {}) {
 // appelé dès qu'une phrase est prononçable. Si le flux échoue pour une
 // raison quelconque, on retombe sur l'appel classique — une nouveauté ne
 // doit jamais rendre Nova moins fiable qu'avant.
+
+// ══════════════════════════════════════════════════════════════════════
+//  AGIR — et la question qui doit precéder certains actes
+//
+//  Nova reconnaissait « ouvre Discord » depuis longtemps : nom de
+//  l'intention, cible, confiance. Elle n'en faisait rien. Ce bloc est le
+//  fil manquant entre comprendre et faire.
+//
+//  DEUX TEMPS, ET C'EST VOULU
+//
+//  Nova Core ne garde AUCUN etat entre deux appels. Une action de niveau 2
+//  ou 3 revient donc avec `etat: "a_confirmer"` et une question ; c'est
+//  l'application — celle qui parle a l'utilisateur — qui retient ce qui est
+//  en attente et repose la question.
+//
+//  ⚠️ `confirme` NE VIENT JAMAIS DU MODELE.
+//
+//  Il vient de l'utilisateur, qui a entendu la question et repondu. Si un
+//  modele pouvait remplir ce champ, tout le bareme de risque deviendrait un
+//  decor : on demanderait au renard s'il a le droit d'entrer au poulailler.
+// ══════════════════════════════════════════════════════════════════════
+
+// L'action suspendue, en attente d'un « oui ». Volontairement une seule :
+// empiler des confirmations rendrait impossible de savoir a quoi on repond.
+let actionEnAttente = null;
+
+// Ce qui vaut un « oui ». Court et ferme : « peut-etre » ou « si tu veux »
+// ne sont PAS des accords, et une action irreversible ne se declenche pas
+// sur une hesitation.
+const ACCORDS = /^(oui|ouais|d'accord|daccord|confirme|vas[- ]?y|fais[- ]?le|c'est bon|ok|okay)\b/i;
+const REFUS = /^(non|annule|laisse tomber|stop|arrete|surtout pas)\b/i;
+
+function appelerAction(texte, confiance, confirme) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ texte, confiance, confirme });
+    const req = http.request({
+      hostname: NOVA_HOST, port: NOVA_PORT, path: '/v1/action', method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
+      timeout: 15000,
+    }, (res) => {
+      const morceaux = [];
+      res.on('data', (c) => morceaux.push(c));
+      res.on('end', () => {
+        try { resolve(JSON.parse(Buffer.concat(morceaux).toString('utf8'))); }
+        catch (e) { reject(e); }
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('délai dépassé')));
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+// Rend une reponse toute faite si l'action a ete traitee, `null` sinon —
+// auquel cas la demande suit son chemin normal vers le modele.
+async function tenterAction(texte, confiance) {
+  if (!CERVEAU_LOCAL) return null;
+
+  // 1. Une confirmation est-elle attendue ?
+  if (actionEnAttente) {
+    const attendue = actionEnAttente;
+    actionEnAttente = null;
+    if (REFUS.test(texte.trim())) {
+      console.info('[NOVA/action] refusée par l’utilisateur — rien n’est fait');
+      return { response: 'Très bien, je ne fais rien.', intent: 'action_annulee' };
+    }
+    if (ACCORDS.test(texte.trim())) {
+      console.info('[NOVA/action] confirmée par l’utilisateur : ' + attendue.texte);
+      const r = await appelerAction(attendue.texte, attendue.confiance, true);
+      return { response: r.message, intent: r.intention || 'action' };
+    }
+    // Ni oui ni non : on abandonne l'action et on traite la phrase
+    // normalement. Insister ferait boucler sur une question sans issue.
+    console.info('[NOVA/action] ni accord ni refus — action abandonnée');
+  }
+
+  // 2. Cette phrase est-elle une action ?
+  let r;
+  try {
+    r = await appelerAction(texte, confiance, false);
+  } catch (e) {
+    // Nova Core injoignable : on ne bloque pas, la conversation continue.
+    console.warn('[NOVA/action] non tentée :', e.message);
+    return null;
+  }
+
+  if (r.etat === 'a_confirmer') {
+    actionEnAttente = { texte, confiance };
+    console.info('[NOVA/action] ' + r.outil + ' (niveau ' + r.niveau + ') — confirmation demandée');
+    return { response: r.message, intent: 'confirmation_requise' };
+  }
+  if (r.etat === 'executee') {
+    console.info('[NOVA/action] ' + r.outil + ' exécutée');
+    return { response: r.message, intent: r.intention || 'action' };
+  }
+  if (r.etat === 'echouee') {
+    console.warn('[NOVA/action] échec : ' + r.message);
+    return { response: r.message, intent: 'action_echouee' };
+  }
+  return null;   // « ignoree » : ce n'est pas une action, on parle normalement
+}
+
 async function analyserEnFlux(texte, adresse = 'vous', surPhrase = () => {}) {
   console.info('[NOVA] User Input Received');
   console.info('        « ' + texte + ' »');
@@ -1061,6 +1164,15 @@ async function analyserEnFlux(texte, adresse = 'vous', surPhrase = () => {}) {
     console.info('        « ' + direct.response + ' »');
     surPhrase(direct.response);
     return garde(direct, texte);
+  }
+
+  // Agir passe avant parler : inutile de faire ecrire deux phrases au modele
+  // quand la demande etait « ouvre Discord ».
+  const agi = await tenterAction(texte, 1.0);
+  if (agi) {
+    console.info('[NOVA] ' + agi.intent + ' — « ' + agi.response + ' »');
+    surPhrase(agi.response);
+    return garde(agi, texte);
   }
 
   if (apiKey) {

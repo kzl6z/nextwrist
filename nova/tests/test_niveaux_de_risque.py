@@ -208,19 +208,35 @@ def test_tous_les_outils_livres_declarent_leur_niveau():
         assert niveau in contrats.NIVEAUX, f"« {brique.nom} » n'a pas de niveau valide"
 
 
-def test_aucun_outil_livre_n_agit_encore_sans_confirmation():
-    """Etat des lieux, et garde-fou.
+def test_tout_outil_dangereux_a_reellement_un_garde_fou():
+    """L'invariant a CHANGE DE NATURE, et il faut le dire.
 
-    Aujourd'hui Nova ne fait que lire. Le jour ou un outil de niveau 2 ou 3
-    est ajoute, ce test echoue — et c'est voulu : il force a verifier que
-    l'interface sait poser la question AVANT que l'outil ne parte en
-    production.
+    Sa premiere version affirmait « aucun outil livre n'exige de
+    confirmation » — vrai tant que Nova ne faisait que lire, et concu pour
+    echouer le jour ou une action dangereuse arriverait. Ce jour est venu
+    avec `eteindre_ordinateur`, le test a sonne, et il a fait son travail.
+
+    Constater l'absence de danger ne veut plus rien dire maintenant que le
+    danger est la. Ce qui compte desormais est que chaque outil dangereux
+    soit REELLEMENT bloque — pas qu'il ait une etiquette.
+
+    On l'appelle donc pour de vrai, sans confirmation, et on exige qu'il
+    refuse. Une etiquette « irreversible » sur un outil qui s'execute quand
+    meme serait pire que pas d'etiquette du tout : elle rassure a tort.
     """
+    from nova.outils.systeme import enregistrer_actions_systeme
+
+    enregistrer_actions_systeme(registre_outils)
     dangereux = [
-        b.nom for b in registre_outils.tout()
+        b for b in registre_outils.tout()
         if contrats.exige_confirmation(getattr(b, "niveau", 99))
     ]
-    assert dangereux == [], (
-        f"Outils exigeant confirmation : {dangereux}. "
-        "Verifie que l'interface sait la demander avant de livrer."
-    )
+    assert dangereux, "aucun outil dangereux : ce test ne verifie plus rien"
+
+    for outil_dangereux in dangereux:
+        with pytest.raises(ConfirmationRequise) as attente:
+            executer_outil(outil_dangereux.nom)
+        question = attente.value.question()
+        assert outil_dangereux.nom in question and question.endswith("?"), (
+            f"« {outil_dangereux.nom} » bloque, mais sans question posable."
+        )

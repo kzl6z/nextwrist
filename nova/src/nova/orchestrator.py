@@ -23,6 +23,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -654,3 +655,86 @@ def answer_stream(
 def answer(question: str, *, mode: str = "normal") -> str:
     """Reponse complete en un bloc. Pour la CLI et les traitements de fond."""
     return "".join(answer_stream([{"role": "user", "content": question}], mode=mode))
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  EXECUTER UNE INTENTION
+#
+#  C'est ici, et nulle part ailleurs, que Nova passe de la parole a l'acte.
+#  L'orchestrateur est le seul module autorise a connaitre a la fois la
+#  couche voix (qui reconnait) et la couche outils (qui agit) — les deux
+#  s'ignorent, et c'est ce qui permet d'ajouter une action sans toucher a la
+#  reconnaissance vocale.
+# ══════════════════════════════════════════════════════════════════════════
+
+
+@dataclass(frozen=True)
+class Resultat:
+    """Ce qu'il est advenu d'une intention.
+
+    Quatre issues, et il faut les quatre. Rendre un simple booleen forcerait
+    l'appelant a deviner POURQUOI rien ne s'est passe — et il devinerait mal.
+    """
+
+    etat: str            # executee | a_confirmer | ignoree | echouee
+    message: str
+    outil: str | None = None
+    niveau: int | None = None
+    arguments: dict | None = None
+
+    @property
+    def agie(self) -> bool:
+        return self.etat == "executee"
+
+
+def executer_intention(comprise, *, confirme: bool = False) -> Resultat:
+    """Passe a l'acte, si et seulement si tout concorde. Ne leve jamais.
+
+    `confirme` vient de l'UTILISATEUR, jamais du modele : c'est la reponse
+    a une question posee, pas un champ qu'une IA peut remplir elle-meme.
+    """
+    from nova.core import actions
+    from nova.outils import ConfirmationRequise, executer_outil
+
+    intention = comprise.intention
+    if not intention.reconnue:
+        return Resultat("ignoree", "Aucune intention reconnue.")
+
+    # ── LES DEUX CONFIANCES, ET POURQUOI IL EN FAUT DEUX ─────────────────
+    #
+    # « Sur quelle planete pour lui en ouvrir » etait une transcription
+    # bancale contenant « ouvrir » : intention nette, parole douteuse. Agir
+    # sur ce seul signal aurait lance une application au milieu d'une
+    # question d'astronomie.
+    #
+    # Dans le doute, Nova PARLE au lieu d'AGIR. C'est rattrapable dans ce
+    # sens-la, jamais dans l'autre.
+    if not actions.executable(intention.nom, intention.confiance, comprise.sure):
+        raison = (
+            "action inconnue" if actions.action_pour(intention.nom) is None
+            else "parole ou intention trop incertaine"
+        )
+        log.info(
+            "Intention « %s » NON executee (%s) : parole %s (%.2f), intention %.2f.",
+            intention.nom, raison,
+            "sûre" if comprise.sure else "douteuse",
+            comprise.confiance, intention.confiance,
+        )
+        return Resultat("ignoree", f"Intention reconnue mais non executee : {raison}.")
+
+    action = actions.action_pour(intention.nom)
+    arguments = {action.argument: intention.cible} if action.argument else {}
+
+    try:
+        message = executer_outil(action.outil, confirme=confirme, **arguments)
+        return Resultat("executee", str(message), outil=action.outil, arguments=arguments)
+    except ConfirmationRequise as attente:
+        return Resultat(
+            "a_confirmer", attente.question(),
+            outil=action.outil, niveau=attente.niveau, arguments=arguments,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Une action qui echoue doit le DIRE. Un echec silencieux laisse
+        # croire que Nova a agi, ce qui est la pire des issues.
+        log.warning("Action « %s » en echec : %s", action.outil, exc)
+        return Resultat("echouee", str(exc), outil=action.outil, arguments=arguments)
