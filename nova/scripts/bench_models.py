@@ -184,7 +184,9 @@ def main() -> None:
     )
 
     table = Table(title="Ou passent les secondes, sur cette machine")
-    for colonne in ("Modele", "Taille", "Chargement", "Lecture", "Ecriture", "Raisonne ?", "Reponse"):
+    colonnes = ("Modele", "Taille", "Chargement", "Lecture", "Ecriture",
+                "Raisonne ?", "Reponse")
+    for colonne in colonnes:
         table.add_column(colonne)
 
     resultats = []

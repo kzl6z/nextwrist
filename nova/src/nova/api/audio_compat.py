@@ -127,8 +127,66 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
             "net" if franc else "approche, question non enchainee",
             texte,
         )
+
+    if not franc:
+        return {"wake": detecte, "text": texte, "commande": "", "confiance": None}
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  DETECTER VITE, PUIS RELIRE PROPREMENT
+    #
+    #  Ce point d'entree tourne EN BOUCLE des que le micro depasse un seuil.
+    #  Il doit donc etre le plus leger possible, et c'est pourquoi il utilise
+    #  le petit modele en decodage glouton : chercher un seul mot connu ne
+    #  demande aucune finesse.
+    #
+    #  Mais la meme transcription servait AUSSI de question. Un reglage
+    #  choisi pour reconnaitre « Nova » decidait donc de ce que Nova
+    #  comprenait de toute la phrase. Releve en conditions reelles :
+    #
+    #      dit      « quel est le diametre de la Terre »
+    #      entendu  « quelle est-il de germetre de la terre »
+    #      dit      « quelles sont les planetes du systeme solaire »
+    #      entendu  « quelle sont les planeles de notre systeme solaire »
+    #
+    #  Aucun de ces mots n'est rare : ce n'etait pas un manque de
+    #  vocabulaire, mais le mauvais outil pour la tache.
+    #
+    #  On relit donc le MEME audio avec les reglages de dictee — meilleur
+    #  modele, amorce enrichie de la memoire, pipeline de comprehension.
+    #  Le surcout n'est paye que lorsqu'une question suit reellement le mot
+    #  de reveil, jamais pendant l'ecoute continue.
+    # ══════════════════════════════════════════════════════════════════════
+    commande = wake.commande_apres_reveil(texte)
+    if not commande:
+        return {"wake": True, "text": texte, "commande": "", "confiance": None}
+
+    try:
+        soignee = transcribe.transcrire(
+            audio,
+            langue="fr",
+            amorce=orchestrator.amorce_dictee(),
+            beam=reglages.whisper_beam,
+        )
+        comprise = orchestrator.comprendre_la_parole(soignee)
+        relue = wake.commande_apres_reveil(comprise.texte) or comprise.texte
+    except Exception as exc:  # noqa: BLE001
+        # La relecture est une AMELIORATION, pas une dependance : si elle
+        # echoue, la commande du modele de reveil reste utilisable.
+        log.warning("Relecture soignee impossible, commande de reveil conservee : %s", exc)
+        return {"wake": True, "text": texte, "commande": commande, "confiance": None}
+
+    if relue.lower() != commande.lower():
+        log.info("Relecture : « %s » → « %s »", commande, relue)
+
     return {
-        "wake": detecte,
+        "wake": True,
         "text": texte,
-        "commande": wake.commande_apres_reveil(texte) if franc else "",
+        "commande": relue,
+        # Les champs du pipeline de comprehension. Un client qui les ignore
+        # obtient exactement le comportement d'avant.
+        "confiance": comprise.confiance,
+        "sure": comprise.sure,
+        "a_confirmer": comprise.a_confirmer,
+        "question": None if comprise.sure else comprise.question(),
+        "raisons": list(comprise.raisons),
     }

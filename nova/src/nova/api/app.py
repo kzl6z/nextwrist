@@ -74,6 +74,18 @@ def _entretenir(arret: threading.Event) -> None:
     client = LLMClient()
     premiere = True
     while not arret.is_set():
+        # Le vocabulaire personnel se relit ICI, ou l'attente ne coute rien.
+        # Dans une requete vocale, la meme lecture ferait attendre la parole
+        # de Nova pour un enrichissement facultatif.
+        try:
+            from nova import orchestrator
+
+            termes = orchestrator.rafraichir_le_vocabulaire()
+            if premiere:
+                log.info("Vocabulaire personnel : %d terme(s) connu(s).", len(termes))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Vocabulaire non rafraichi : %s", exc)
+
         duree = client.chauffer()
         if duree is not None and (premiere or duree > 5.0):
             # Au-dela de cinq secondes, ce n'etait pas un simple aller-retour :

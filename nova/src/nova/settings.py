@@ -120,10 +120,23 @@ class Settings(BaseSettings):
     # qu'il evite (Whisper qui invente du texte sur du silence) concerne
     # surtout l'ecoute continue, qu'on ne fait pas encore.
     whisper_vad: bool = False
-    # Meme modele que la dictee, volontairement. Deux modeles differents, ce
-    # sont deux jeux de poids residents ; sur 8 Go partages avec le modele de
-    # langue, chaque megaoctet resident se paie deux fois — en memoire, puis
-    # en lenteur de tout ce qui tourne a cote.
+    # ── Deux modeles, deux metiers ────────────────────────────────────────
+    #
+    # Celui-ci tourne EN BOUCLE des que le micro depasse un seuil, et ne
+    # cherche qu'un seul mot connu. Il doit etre le plus leger possible ; la
+    # finesse n'y apporte rien.
+    #
+    # Il servait AUSSI a transcrire la question qui suit le mot de reveil —
+    # un reglage choisi pour reconnaitre « Nova » decidait donc de ce que Nova
+    # comprenait de toute la phrase. Releve en conditions reelles :
+    #
+    #     dit      « quel est le diametre de la Terre »
+    #     entendu  « quelle est-il de germetre de la terre »
+    #
+    # Depuis, `/v1/audio/wake` RELIT le meme audio avec les reglages de
+    # dictee des qu'une question suit. Les deux metiers sont separes, et
+    # `whisper_model` peut donc grossir sans alourdir l'ecoute continue.
+    # Pour choisir sur ta voix :  uv run python scripts/bench_whisper.py
     whisper_wake_model: str = "base"
     # Amorce donnee au modele : elle oriente le vocabulaire attendu.
     # Sans elle, « Nova » — qui n'est pas un mot francais courant — est

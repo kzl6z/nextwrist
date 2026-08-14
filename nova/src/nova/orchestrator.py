@@ -158,43 +158,93 @@ DUREE_CACHE_VOCABULAIRE = 60.0
 _vocabulaire_cache: tuple[float, tuple[str, ...]] | None = None
 _verrou_vocabulaire = threading.Lock()
 
+#: Empeche dix requetes simultanees de lancer dix relectures de la base.
+_rafraichissement_en_cours = False
+_verrou_demande = threading.Lock()
 
-def _termes_de_la_memoire() -> tuple[str, ...]:
-    """Les noms propres des faits confirmes, avec un cache court.
 
-    Ne leve jamais : memoire indisponible = vocabulaire vide, donc une
-    transcription moins precise sur les noms propres. Jamais une panne.
+def rafraichir_le_vocabulaire() -> tuple[str, ...]:
+    """Relit la memoire MAINTENANT, en bloquant. Ne leve jamais.
+
+    Appele par le fil d'entretien, jamais depuis une requete : c'est ici que
+    l'attente est acceptable, parce que personne ne la subit.
     """
     global _vocabulaire_cache
 
-    maintenant = time.monotonic()
-    cache = _vocabulaire_cache
-    if cache is not None and maintenant - cache[0] < DUREE_CACHE_VOCABULAIRE:
-        return cache[1]
-
     with _verrou_vocabulaire:
-        # Un autre fil a pu le calculer pendant qu'on attendait le verrou.
-        cache = _vocabulaire_cache
-        if cache is not None and time.monotonic() - cache[0] < DUREE_CACHE_VOCABULAIRE:
-            return cache[1]
         try:
             contenus = [f.content for f in facts.list_facts(status="confirmed")]
             termes = tuple(vocabulaire.extraire_termes(contenus))
         except Exception as exc:  # noqa: BLE001
+            # Memoire indisponible : vocabulaire vide, donc une transcription
+            # moins fine sur les noms propres. Jamais une panne.
             log.warning("Vocabulaire de la memoire indisponible : %s", exc)
             termes = ()
         _vocabulaire_cache = (time.monotonic(), termes)
         return termes
 
 
-def oublier_le_vocabulaire() -> None:
-    """Force le prochain appel a relire la memoire.
+def _termes_de_la_memoire() -> tuple[str, ...]:
+    """Le vocabulaire connu, SANS JAMAIS ATTENDRE.
 
-    A appeler quand un fait vient d'etre confirme : le nom qu'il contient doit
-    etre entendu correctement des la phrase suivante, pas dans une minute.
+    ⚠️ CETTE FONCTION EST DANS LE CHEMIN VOCAL. ELLE NE DOIT RIEN BLOQUER.
+
+    Elle lisait la base directement. Tant que la base repond en dix
+    millisecondes, personne ne le voit. Le jour ou elle tarde — reveil de
+    veille, disque occupe, service arrete — c'est la PAROLE de Nova qui
+    attend. Mesure avec une base injoignable : 30 secondes avant la premiere
+    transcription, pour un enrichissement facultatif.
+
+    Un travail previsible doit se faire pendant que personne ne regarde. On
+    rend donc ce qu'on a, et on demande une relecture EN FOND si c'est vieux.
+    Le pire cas devient « Nova entend un peu moins bien les noms propres
+    pendant une minute », au lieu de « Nova ne repond pas ».
+    """
+    cache = _vocabulaire_cache
+    if cache is None:
+        # Rien encore : on demande une lecture de fond et on repond tout de
+        # suite. La toute premiere phrase perd les noms propres ; le
+        # prechauffage au demarrage fait que ce cas n'arrive quasiment jamais.
+        _demander_un_rafraichissement()
+        return ()
+
+    if time.monotonic() - cache[0] >= DUREE_CACHE_VOCABULAIRE:
+        _demander_un_rafraichissement()
+    return cache[1]
+
+
+def _demander_un_rafraichissement() -> None:
+    """Lance une relecture en fond, sauf s'il y en a deja une."""
+    global _rafraichissement_en_cours
+
+    with _verrou_demande:
+        if _rafraichissement_en_cours:
+            return
+        _rafraichissement_en_cours = True
+
+    def travailler() -> None:
+        global _rafraichissement_en_cours
+        try:
+            rafraichir_le_vocabulaire()
+        finally:
+            with _verrou_demande:
+                _rafraichissement_en_cours = False
+
+    threading.Thread(target=travailler, name="nova-vocabulaire", daemon=True).start()
+
+
+def oublier_le_vocabulaire() -> None:
+    """Le vocabulaire a change : on le relit, en fond, tout de suite.
+
+    A appeler quand un fait vient d'etre confirme. La relecture est lancee
+    immediatement plutot qu'a la prochaine phrase : entre le moment ou tu
+    confirmes un fait et celui ou tu prononces le nom qu'il contient, il
+    s'ecoule des secondes — largement de quoi la terminer sans que personne
+    n'attende.
     """
     global _vocabulaire_cache
     _vocabulaire_cache = None
+    _demander_un_rafraichissement()
 
 
 def lexique_personnel() -> voice_lexique.Lexique:

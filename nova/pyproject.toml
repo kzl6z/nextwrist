@@ -38,11 +38,17 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.isort]
+# Les bancs d'essai de `scripts/` sont du code du projet, pas des scripts
+# jetables : ils sont testes comme le reste. Sans cette ligne, ruff les range
+# parmi les dependances tierces et reclame un ordre d'import impossible.
+known-first-party = ["nova", "bench_whisper", "bench_models"]
+
 [tool.ruff.lint.per-file-ignores]
 # FastAPI : `File(...)`, `Form(...)`, `Depends(...)` dans les valeurs par defaut
 # est l'idiome officiel du framework, pas un piege de mutabilite.
 "src/nova/api/*" = ["B008"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "scripts"]
 testpaths = ["tests"]
