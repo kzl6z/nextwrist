@@ -403,9 +403,22 @@ function appelIAEnFlux(texte, adresse, surPhrase) {
     const TDEBUT = Date.now();
     const consigne = systemPrompt(adresse);
     const msPrompt = Date.now() - TDEBUT;
-    console.info('[NOVA] prompt envoyé : ' + consigne.length
-      + ' caractères → environ ' + Math.round(consigne.length * 3.3 / 1000)
-      + ' s de lecture avant le premier mot');
+    // ⚠️ NE PAS ANNONCER UNE DUREE ICI.
+    //
+    // Cette ligne estimait « environ N s de lecture » a partir d'une
+    // constante de 3,3 ms par caractere. Mesure reelle sur un prompt de
+    // 1195 caracteres : annonce 4 s, constate 22,6 s.
+    //
+    // L'estimation etait fausse parce que la constante melangeait deux couts
+    // de natures differentes : le prefill, proportionnel a la taille du
+    // prompt, et le CHARGEMENT DU MODELE, qui est fixe et le domine
+    // largement. Un prompt deux fois plus court ne divise pas l'attente par
+    // deux quand 21 des 22 secondes servent a lire 2 Go sur le disque.
+    //
+    // Une estimation fausse est pire qu'aucune : elle envoie raccourcir le
+    // prompt alors qu'il faut garder le modele en memoire.
+    console.info('[NOVA] prompt envoyé : ' + consigne.length + ' caractères'
+      + ' (si le modèle n’est pas résident, le chargement dominera l’attente)');
 
     const body = JSON.stringify({
       model: config.model,
