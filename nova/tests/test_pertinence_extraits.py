@@ -75,10 +75,22 @@ class _Resultat:
 
 @pytest.fixture
 def base(monkeypatch):
-    def installer(distances, mots=()):
+    """Installe une base simulee.
+
+    `toujours` force la vectorisation meme sans mot commun : les tests qui
+    portent sur le SEUIL DE DISTANCE ont besoin d'atteindre cette etape,
+    alors que le filtre plein texte les arreterait avant. Deux garde-fous
+    successifs se testent separement, sinon on ne sait plus lequel a agi.
+    """
+
+    def installer(distances, mots=(), toujours=True):
         fausse = FausseConnexion(distances, list(mots))
         monkeypatch.setattr(recherche, "connection", lambda: fausse)
         monkeypatch.setattr(recherche, "embed_one", lambda texte: [0.0] * 8)
+        monkeypatch.setattr(
+            type(recherche.get_tuning()), "semantique_toujours",
+            property(lambda self: toujours), raising=False,
+        )
         return fausse
 
     return installer
@@ -128,7 +140,7 @@ def test_un_extrait_trouve_par_les_mots_est_garde_meme_loin(base):
 
 
 def test_sans_correspondance_de_mots_le_seuil_s_applique(base):
-    base({7: 0.93}, mots=[])
+    base({7: 0.93}, mots=[], toujours=True)
     assert recherche.search("Sentinel") == []
 
 
@@ -166,3 +178,61 @@ def test_le_seuil_est_configurable():
     se regler sans toucher au code."""
     seuil = recherche.get_tuning().distance_max
     assert 0.0 < seuil < 1.0
+
+
+# ── Les mots d'abord : ils sont gratuits, le sens ne l'est pas ────────────
+#
+# Vectoriser demande bge-m3, un SECOND modele de 1,2 Go. Sur 8 Go, Ollama ne
+# garde pas toujours les deux residents : la vectorisation decharge alors le
+# modele de conversation, qu'il faut recharger juste apres. Mesure sur la
+# machine reelle, question « qu'est-ce que la relativite » :
+#
+#     recherche documentaire 2343 ms — pour ZERO extrait retenu
+#     premier mot 4,7 s
+#
+# La recherche plein texte, elle, est un index GIN : quelques millisecondes,
+# aucun modele. Elle sert donc de test de pertinence GRATUIT.
+
+
+def test_sans_mot_commun_on_ne_vectorise_pas(base, monkeypatch):
+    """Le cas qui coutait 2,3 secondes pour rien.
+
+    C'est la verification la plus importante du fichier : elle ne porte pas
+    sur le resultat — qui etait deja vide — mais sur le fait qu'on n'a PAS
+    paye pour l'obtenir.
+    """
+    base({1: 0.82, 2: 0.88}, mots=[], toujours=False)
+    appels = {"embed": 0}
+    monkeypatch.setattr(
+        recherche, "embed_one",
+        lambda t: appels.__setitem__("embed", appels["embed"] + 1) or [0.0] * 8,
+    )
+
+    assert recherche.search("qu'est-ce que la relativite") == []
+    assert appels["embed"] == 0, "bge-m3 a ete appele alors qu'aucun mot ne correspondait"
+
+
+def test_un_seul_mot_commun_declenche_le_sens(base, monkeypatch):
+    """Un mot suffit : c'est ce qui garde la recherche semantique utile.
+
+    « comment financer le projet » trouve « budget » des que « projet »
+    figure quelque part — seule une reformulation TOTALE echappe au filet.
+    """
+    base({1: 0.30, 5: 0.72}, mots=[5], toujours=False)
+    appels = {"embed": 0}
+    original = recherche.embed_one
+    monkeypatch.setattr(
+        recherche, "embed_one",
+        lambda t: appels.__setitem__("embed", appels["embed"] + 1) or original(t),
+    )
+
+    trouves = recherche.search("comment financer le projet")
+    assert appels["embed"] == 1, "le mot commun aurait du declencher la vectorisation"
+    # Le chunk 1, trouve seulement par le sens, doit remonter avec le 5.
+    assert {h.chunk_id for h in trouves} == {1, 5}
+
+
+def test_le_reglage_permet_de_toujours_vectoriser(base, monkeypatch):
+    """Qui prefere ses documents aux deux secondes doit pouvoir le dire."""
+    base({1: 0.30}, mots=[], toujours=True)
+    assert len(recherche.search("une reformulation totale")) == 1

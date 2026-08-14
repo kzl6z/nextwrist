@@ -29,6 +29,21 @@ extraits_max = 6
 #   trop bas  : Nova cesse d'utiliser tes documents quand il le faudrait
 #   trop haut : on revient au defaut d'origine
 distance_max = 0.55
+# ── LES MOTS D'ABORD : ILS SONT GRATUITS, LE SENS NE L'EST PAS ───────────
+#
+# Vectoriser la question demande bge-m3, un SECOND modele de 1,2 Go. Sur une
+# machine de 8 Go, Ollama ne garde pas toujours les deux residents : la
+# vectorisation decharge alors le modele de conversation, qu'il faut
+# recharger juste apres. Mesure sur l'iMac M1 :
+#
+#     recherche documentaire 2343 ms — pour ZERO extrait retenu
+#
+# Par defaut (false), on ne vectorise que si au moins un mot de la question
+# figure deja dans un document. Ce qu'on perd : la question ENTIEREMENT
+# paraphrasee, sans un seul mot commun.
+#
+# Mets true si tes documents comptent plus que les deux secondes.
+recherche_semantique_toujours = false
 # ── Budget en CARACTERES des extraits injectes ───────────────────────────
 #
 # Meme defaut que la memoire avant correction (R13), meme cause : borner le

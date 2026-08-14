@@ -95,8 +95,53 @@ def search(query: str, limit: int | None = None) -> list[SearchHit]:
         if conn.execute("SELECT 1 FROM chunks LIMIT 1").fetchone() is None:
             return []
 
-        par_vecteur, distances = _vector_ranking(conn, query, candidates)
+        # ══════════════════════════════════════════════════════════════════
+        #  LES MOTS D'ABORD — ILS SONT GRATUITS, LE SENS NE L'EST PAS
+        #
+        #  Vectoriser la question demande bge-m3, un SECOND modele de 1,2 Go.
+        #  Sur une machine de 8 Go, Ollama ne garde pas toujours les deux
+        #  residents : la vectorisation decharge alors le modele de
+        #  conversation, qui doit etre recharge juste apres. Mesure sur
+        #  l'iMac M1, question « qu'est-ce que la relativite » :
+        #
+        #      recherche documentaire 2343 ms — pour ZERO extrait retenu
+        #      premier mot 4,7 s
+        #
+        #  Deux secondes et demie, plus un rechargement, pour ne rien
+        #  trouver. Sur une question de culture generale, c'est-a-dire la
+        #  plupart.
+        #
+        #  La recherche plein texte, elle, est un simple index GIN : quelques
+        #  millisecondes, aucun modele. On la lance donc EN PREMIER, et elle
+        #  sert de test de pertinence gratuit.
+        #
+        #  LE RAISONNEMENT, ET SA LIMITE ASSUMEE
+        #
+        #  Si la question ne partage AUCUN mot de contenu avec aucun
+        #  document, la probabilite qu'un rapprochement purement semantique
+        #  soit utile est faible — et son cout, lui, est certain. On y
+        #  renonce.
+        #
+        #  Ce qu'on perd : la question entierement paraphrasee, sans un seul
+        #  mot commun. « Comment financer » trouve encore « budget » des que
+        #  « financer » ou « projet » figure quelque part dans le corpus ;
+        #  seule une reformulation totale echappe au filet.
+        #
+        #  C'est un compromis, pas une verite. Le reglage
+        #  `recherche_semantique_toujours` (config/nova.toml) le renverse
+        #  pour qui prefere payer la seconde et demie a chaque question.
+        # ══════════════════════════════════════════════════════════════════
         par_mots = _fulltext_ranking(conn, query, candidates)
+        toujours = tuning.semantique_toujours
+
+        if not par_mots and not toujours:
+            log.info(
+                "Aucun mot de la question dans les documents — vectorisation "
+                "evitee (~2 s economisees, et le modele reste charge)."
+            )
+            return []
+
+        par_vecteur, distances = _vector_ranking(conn, query, candidates)
         scores = reciprocal_rank_fusion([par_vecteur, par_mots])
         if not scores:
             return []

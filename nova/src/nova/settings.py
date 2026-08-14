@@ -230,6 +230,14 @@ class Tuning:
         # Trop bas : Nova cesse d'utiliser tes documents quand il le faudrait.
         # Trop haut : on revient au defaut d'origine.
         self.distance_max: float = data["recherche"].get("distance_max", 0.55)
+        # Vectoriser meme quand aucun mot de la question ne figure dans les
+        # documents. Coute ~2 s par question sur l'iMac M1 (bge-m3 est un
+        # SECOND modele de 1,2 Go, qui decharge celui de conversation).
+        # Faux par defaut : on paie le sens quand il y a une chance qu'il
+        # serve, pas systematiquement.
+        self.semantique_toujours: bool = data["recherche"].get(
+            "recherche_semantique_toujours", False
+        )
         self.chunk_size: int = data["decoupage"]["taille"]
         self.chunk_overlap: int = data["decoupage"]["recouvrement"]
         self.faits_max: int = data["memoire"]["faits_max_dans_prompt"]
