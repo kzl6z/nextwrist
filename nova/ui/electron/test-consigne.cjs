@@ -54,21 +54,44 @@ const sansAccents = consigne
 
 console.log('\nLa mémoire ne doit pas devenir la limite du savoir');
 verifier('la consigne dit explicitement que la mémoire ne limite pas',
-  /ne limite (en rien|pas)/.test(sansAccents));
+  /ne limitent? (en rien|pas)/.test(sansAccents));   // « limite » ou « limitent »
 verifier('la culture générale est autorisée nommément',
   sansAccents.includes('culture generale'));
 verifier('refuser une question générale est interdit',
   /ne refuse jamais/.test(sansAccents));
 
 console.log('\nLa mémoire reste la seule source sur les faits personnels');
-verifier('les faits personnels viennent de la mémoire',
-  /uniquement depuis la memoire|a partir d(e la memoire|'elles)/.test(sansAccents));
+verifier('les faits personnels ne viennent que de la mémoire',
+  /uniquement depuis eux|uniquement depuis la memoire/.test(sansAccents));
 verifier('inventer un fait personnel reste interdit',
   /n'invente jamais/.test(sansAccents));
 
+// ── UN SEUL PROPRIETAIRE DE LA MEMOIRE ──────────────────────────────────
+//
+// Deux systemes l'injectaient dans le meme prompt : `memory.js` cote
+// application, et les faits PostgreSQL cote Nova Core. Nova relisait donc
+// qui est Hugo deux fois, a chaque question, dans deux formats.
+//
+// Ce n'est pas qu'une depense. Quand les deux blocs se contredisent — un
+// fait corrige d'un cote, pas de l'autre — rien ne dit lequel fait foi, et
+// le modele tranche au hasard. Une memoire qui se contredit est pire
+// qu'une memoire absente.
+console.log('\nEn mode local, Nova Core est le seul propriétaire');
+verifier('aucun bloc <memoire> envoyé par l’application',
+  !consigne.includes('<memoire>'));
+verifier('la mémoire de l’application n’est pas recopiée',
+  !consigne.includes('Adam'));
+verifier('le modèle est prévenu que les faits arrivent',
+  /faits connus sur hugo sont fournis/.test(sansAccents));
+
+console.log('\nLa taille ne dépend plus de la mémoire');
+// C'est la propriete qui compte sur dix ans : une memoire qui grossit ne
+// doit pas ralentir CHAQUE question (risque R13).
+const avecPlus = systemPrompt('tu');
+verifier('la consigne locale est de taille constante',
+  avecPlus.length === consigne.length);
+
 console.log('\nLe contrat de forme tient toujours');
-verifier('le bloc mémoire est présent', consigne.includes('<memoire>'));
-verifier('la mémoire injectée y figure', consigne.includes('Adam'));
 verifier('la clé JSON est nommée explicitement', /clé[^.]*response|response/.test(consigne));
 verifier('deux phrases demandées', /DEUX phrases/.test(consigne));
 

@@ -157,8 +157,45 @@ function memoireBornee() {
   return garde;
 }
 
+// ══════════════════════════════════════════════════════════════════════
+//  QUI EST PROPRIETAIRE DE LA MEMOIRE ?
+//
+//  Deux systemes la portaient, et tous deux l'injectaient dans le MEME
+//  prompt :
+//
+//    — `memory.js`, la memoire locale de l'application, anterieure a
+//      Nova Core ;
+//    — les faits confirmes de PostgreSQL, injectes par Nova Core.
+//
+//  Releve en conditions reelles :
+//
+//      Prompt systeme : contrat 1337 + memoire 260 + instant 184 + …
+//
+//  Le « contrat 1337 » contenait deja un bloc mémoire ; le « memoire 260 »
+//  en ajoutait un second. Nova relisait donc qui est Hugo deux fois, a
+//  chaque question, dans deux formats differents.
+//
+//  Ce n'est pas qu'une dépense : c'est une ambiguïté. Quand deux blocs se
+//  contredisent — un fait corrigé d'un côté, pas de l'autre — rien ne dit
+//  lequel fait foi, et le modèle tranche au hasard.
+//
+//  UN SEUL PROPRIETAIRE : Nova Core. C'est lui qui a la base, le statut
+//  confirmé/proposé, et la revue. L'application, elle, n'a qu'un fichier.
+//
+//  En mode cloud (NOVA_BRAIN=cloud) il n'y a pas de Nova Core : la mémoire
+//  locale reste alors la seule, et on continue de l'envoyer.
+// ══════════════════════════════════════════════════════════════════════
+function blocMemoire() {
+  if (CERVEAU_LOCAL) {
+    // Nova Core injecte les faits juste apres cette consigne. On ne les
+    // recopie pas — on annonce seulement qu'ils arrivent, pour que le
+    // modele sache ou chercher.
+    return 'Les faits connus sur Hugo sont fournis plus bas.';
+  }
+  return `Ce que tu sais déjà d'Hugo :\n<memoire>\n${memoireBornee()}\n</memoire>`;
+}
+
 function systemPrompt(adresse) {
-  const MEMOIRE = memoireBornee();
   // ══════════════════════════════════════════════════════════════════
   //  UN SEUL CHAMP — mesuré, pas supposé
   //
@@ -201,19 +238,15 @@ Question : « Quelle heure est-il ? »
 Question : « Qu'est-ce qu'un trou noir ? »
 {"response": "Un trou noir est une région où la gravité est si forte que rien ne s'en échappe. Même la lumière y reste piégée."}
 
-Ce que tu sais déjà d'Hugo :
-<memoire>
-${MEMOIRE}
-</memoire>
+${blocMemoire()}
 
-Cette mémoire ne contient QUE ce qui concerne Hugo. Elle ne limite en rien
-le reste de ce que tu sais.
+Ces faits ne concernent QU'Hugo. Ils ne limitent en rien le reste de ton savoir.
 
 — Culture générale (sciences, histoire, définitions, calcul) : réponds
   directement, avec tes propres connaissances. Ne dis JAMAIS que tu ne sais
-  pas parce que ce n'est pas dans la mémoire ci-dessus.
-— Sur Hugo, ses proches, ses projets : réponds uniquement depuis la
-  mémoire. Si l'information n'y est pas, dis-le en une phrase.
+  pas parce que ce n'est pas dans ces faits.
+— Sur Hugo, ses proches, ses projets : réponds uniquement depuis eux.
+  Si l'information n'y est pas, dis-le en une phrase.
 
 N'invente jamais un fait personnel. Ne refuse jamais une question générale.`;
 }
