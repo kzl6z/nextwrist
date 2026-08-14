@@ -124,11 +124,31 @@ def lire_en_boucle(flux, reechantillonneur, arret, garder, patience: float = 5.0
 
 
 class Micro:
-    """Capture le micro jusqu'a ce qu'on demande l'arret.
+    """Le micro, ouvert UNE FOIS pour toute la seance.
 
-    Isole dans une classe pour une raison precise : c'est la seule partie
-    qu'aucun test ne peut couvrir sans micro. Tout le reste — ecriture WAV,
-    nommage, duree — se teste normalement.
+    ⚠️ NE PAS OUVRIR ET REFERMER LE PERIPHERIQUE A CHAQUE PHRASE.
+
+    C'est ce que faisait la premiere version : un `av.open()` par phrase,
+    douze fois. Releve en conditions reelles — sept phrases enregistrees
+    normalement, puis plus rien :
+
+        [8/12]  « Est-ce qu'Adam est rentre ? »
+            trop court (0.0 s) — on recommence cette phrase.
+        [8/12]  « Quelle heure est-il ? »
+            trop court (0.0 s) — on recommence cette phrase.
+
+    Fermer un peripherique avfoundation n'est pas instantane, et rien ne dit
+    quand il est reellement rendu. Au bout de quelques cycles, l'ouverture
+    suivante obtient un flux qui ne produira jamais rien — sans erreur,
+    puisque techniquement elle a reussi. Le pire mode de panne : silencieux,
+    et il n'arrive qu'apres plusieurs minutes de travail.
+
+    On ouvre donc une fois, on capte en continu, et une « phrase » n'est
+    qu'un intervalle dans ce flux. Le peripherique n'est plus touche entre
+    deux phrases, donc il n'y a plus rien a rater.
+
+    La capture elle-meme reste la seule partie qu'aucun test ne couvre sans
+    micro ; tout le reste — ecriture WAV, nommage, duree — se teste.
     """
 
     def __init__(self, peripherique: str = PERIPHERIQUE) -> None:
@@ -137,6 +157,7 @@ class Micro:
         self._arret = threading.Event()
         self._fil: threading.Thread | None = None
         self.erreur: Exception | None = None
+        self._enregistre = False
 
     def _ouvrir(self):
         """Ouvre le micro dans SON format, pas dans celui qui nous arrange.
@@ -166,29 +187,52 @@ class Micro:
                 self._arret.wait(0.3 * (essai + 1))
         raise derniere  # type: ignore[misc]
 
+    def _garder(self, octets: bytes) -> None:
+        """Ne conserve le son que pendant une phrase.
+
+        Entre deux phrases, le micro tourne toujours — mais on jette. C'est
+        ce qui permet de ne jamais refermer le peripherique sans accumuler
+        les silences d'attente dans les fichiers.
+        """
+        if self._enregistre:
+            self._morceaux.append(octets)
+
     def _capturer(self) -> None:
         try:
             import av
 
             flux = self._ouvrir()
             reechantillonneur = av.AudioResampler(format="s16", layout="mono", rate=TAUX)
-            lire_en_boucle(flux, reechantillonneur, self._arret, self._morceaux.append)
+            lire_en_boucle(flux, reechantillonneur, self._arret, self._garder, patience=8.0)
             flux.close()
         except Exception as exc:  # noqa: BLE001
             self.erreur = exc
 
-    def demarrer(self) -> None:
+    def ouvrir(self) -> None:
+        """Demarre la capture continue. Une seule fois par seance."""
+        if self._fil is not None:
+            return
         self._arret.clear()
-        self._morceaux.clear()
         self.erreur = None
         self._fil = threading.Thread(target=self._capturer, daemon=True)
         self._fil.start()
 
-    def arreter(self) -> bytes:
+    def commencer(self) -> None:
+        """Debut d'une phrase : on repart d'un tampon vide."""
+        self._morceaux.clear()
+        self._enregistre = True
+
+    def terminer(self) -> bytes:
+        """Fin d'une phrase. Le micro CONTINUE de tourner."""
+        self._enregistre = False
+        return b"".join(self._morceaux)
+
+    def fermer(self) -> None:
+        """Fin de la seance. C'est ici, et seulement ici, qu'on rend le micro."""
         self._arret.set()
         if self._fil:
             self._fil.join(timeout=3.0)
-        return b"".join(self._morceaux)
+            self._fil = None
 
 
 def tester_les_peripheriques() -> int:
@@ -300,23 +344,28 @@ ceux dont on ne se sert pas. C'est sans consequence, l'enregistrement tourne.
         print("Lance la mesure :  uv run python scripts/bench_whisper.py\n")
         return 0
 
+    # UNE seule ouverture pour toute la seance. Le micro tourne ensuite en
+    # continu ; une « phrase » n'est qu'un intervalle dans ce flux.
+    micro = Micro(peripherique)
+    micro.ouvrir()
+
     enregistrees = 0
-    for phrase in a_faire:
-        print(f"\n  [{numero}/{len(PHRASES)}]  « {phrase} »")
-        reponse = input("      Entree pour demarrer > ").strip().lower()
-        if reponse == "q":
-            break
-        if reponse == "p":
-            continue
+    try:
+        for phrase in a_faire:
+            print(f"\n  [{numero}/{len(PHRASES)}]  « {phrase} »")
+            reponse = input("      Entree pour demarrer > ").strip().lower()
+            if reponse == "q":
+                break
+            if reponse == "p":
+                continue
 
-        micro = Micro(peripherique)
-        micro.demarrer()
-        input("      ● enregistrement… Entree pour arreter > ")
-        pcm = micro.arreter()
+            micro.commencer()
+            input("      ● enregistrement… Entree pour arreter > ")
+            pcm = micro.terminer()
 
-        if micro.erreur is not None:
-            print(f"\n  Micro inaccessible : {micro.erreur}")
-            print("""
+            if micro.erreur is not None:
+                print(f"\n  Micro inaccessible : {micro.erreur}")
+                print("""
   Dans l'ordre de probabilite :
 
   1. L'APPLICATION NOVA TIENT LE MICRO. Elle ecoute en permanence pour
@@ -325,26 +374,29 @@ ceux dont on ne se sert pas. C'est sans consequence, l'enregistrement tourne.
 
   2. Le bon micro n'est pas le premier peripherique. Essaie :
          uv run python scripts/enregistrer_voix.py :1
-         uv run python scripts/enregistrer_voix.py :2
 
   3. Le Terminal n'a pas l'autorisation : Reglages Systeme >
      Confidentialite et securite > Microphone > Terminal.
 
   Rien n'est perdu : la seance reprendra ou elle s'est arretee.
 """)
-            return 1
+                return 1
 
-        duree = duree_secondes(pcm)
-        if duree < 0.4:
-            print(f"      trop court ({duree:.1f} s) — on recommence cette phrase.")
-            continue
+            duree = duree_secondes(pcm)
+            if duree < 0.4:
+                print(f"      trop court ({duree:.1f} s) — on recommence cette phrase.")
+                continue
 
-        audio = DOSSIER / f"{numero:02d}.wav"
-        ecrire_wav(audio, pcm)
-        audio.with_suffix(".txt").write_text(phrase, encoding="utf-8")
-        print(f"      enregistre : {audio.name}  ({duree:.1f} s)")
-        numero += 1
-        enregistrees += 1
+            audio = DOSSIER / f"{numero:02d}.wav"
+            ecrire_wav(audio, pcm)
+            audio.with_suffix(".txt").write_text(phrase, encoding="utf-8")
+            print(f"      enregistre : {audio.name}  ({duree:.1f} s)")
+            numero += 1
+            enregistrees += 1
+    finally:
+        # Le micro n'est rendu qu'ici, meme si on part par une exception :
+        # un peripherique laisse ouvert bloque la seance suivante.
+        micro.fermer()
 
     total = len(list(DOSSIER.glob("*.wav")))
     print(f"\n{enregistrees} phrase(s) enregistree(s), {total} au total.")

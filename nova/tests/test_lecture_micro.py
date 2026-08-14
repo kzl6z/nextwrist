@@ -25,6 +25,7 @@ que personne ne verrait a la lecture.
 
 import sys
 import threading
+import time
 import types
 
 import pytest
@@ -166,3 +167,97 @@ def test_l_arret_interrompt_la_lecture():
 
     lire_en_boucle(flux, FauxReechantillonneur(), arret, garder, patience=2.0)
     assert 5 <= len(recolte) <= 6, "l'arret doit etre pris en compte tout de suite"
+
+
+# ── Une seule ouverture pour toute la seance ──────────────────────────────
+#
+# Le defaut releve en conditions reelles : un `av.open()` par phrase, douze
+# fois. Sept phrases sont passees, puis plus rien —
+#
+#     [8/12]  « Est-ce qu'Adam est rentre ? »
+#         trop court (0.0 s) — on recommence cette phrase.
+#
+# Fermer un peripherique avfoundation n'est pas instantane, et rien ne dit
+# quand il est reellement rendu. Au bout de quelques cycles, l'ouverture
+# suivante donne un flux qui ne produira jamais rien — SANS erreur, puisque
+# techniquement elle a reussi.
+
+
+def micro_espion(monkeypatch, flux):
+    """Un Micro dont l'ouverture est comptee et le peripherique simule."""
+    from enregistrer_voix import Micro
+
+    micro = Micro(":0")
+    ouvertures = {"n": 0}
+
+    def fausse_ouverture():
+        ouvertures["n"] += 1
+        return flux
+
+    monkeypatch.setattr(micro, "_ouvrir", fausse_ouverture)
+    monkeypatch.setattr(
+        sys.modules["av"], "AudioResampler",
+        lambda **kwargs: FauxReechantillonneur(), raising=False,
+    )
+    return micro, ouvertures
+
+
+def test_douze_phrases_n_ouvrent_le_micro_qu_une_fois(monkeypatch):
+    """Le coeur du defaut : douze ouvertures devenaient sept, puis zero."""
+    flux = FauxFlux(refus=0, trames=10**6)
+    micro, ouvertures = micro_espion(monkeypatch, flux)
+
+    micro.ouvrir()
+    for _ in range(12):
+        micro.commencer()
+        time.sleep(0.02)
+        assert micro.terminer(), "chaque phrase doit capter du son"
+    micro.fermer()
+
+    assert ouvertures["n"] == 1, f"{ouvertures['n']} ouvertures pour douze phrases"
+
+
+def test_ouvrir_deux_fois_ne_relance_rien(monkeypatch):
+    flux = FauxFlux(refus=0, trames=10**6)
+    micro, ouvertures = micro_espion(monkeypatch, flux)
+    micro.ouvrir()
+    micro.ouvrir()
+    micro.fermer()
+    assert ouvertures["n"] == 1
+
+
+def test_entre_deux_phrases_le_son_est_jete(monkeypatch):
+    """Le micro tourne en continu, mais les silences d'attente ne doivent
+    pas se retrouver dans les fichiers."""
+    flux = FauxFlux(refus=0, trames=10**6)
+    micro, _ = micro_espion(monkeypatch, flux)
+
+    micro.ouvrir()
+    time.sleep(0.05)                 # le micro tourne, personne n'enregistre
+    micro.commencer()
+    time.sleep(0.02)
+    court = micro.terminer()
+    time.sleep(0.05)                 # encore du silence, hors phrase
+    micro.commencer()
+    time.sleep(0.02)
+    second = micro.terminer()
+    micro.fermer()
+
+    assert court and second
+    assert len(second) < 4 * len(court), "le son hors phrase s'est accumule"
+
+
+def test_une_phrase_repart_d_un_tampon_vide(monkeypatch):
+    flux = FauxFlux(refus=0, trames=10**6)
+    micro, _ = micro_espion(monkeypatch, flux)
+
+    micro.ouvrir()
+    micro.commencer()
+    time.sleep(0.05)
+    longue = micro.terminer()
+    micro.commencer()
+    time.sleep(0.01)
+    breve = micro.terminer()
+    micro.fermer()
+
+    assert len(breve) < len(longue), "le tampon n'a pas ete vide entre les deux"
