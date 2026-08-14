@@ -42,7 +42,7 @@ select = ["E", "F", "I", "UP", "B"]
 # Les bancs d'essai de `scripts/` sont du code du projet, pas des scripts
 # jetables : ils sont testes comme le reste. Sans cette ligne, ruff les range
 # parmi les dependances tierces et reclame un ordre d'import impossible.
-known-first-party = ["nova", "bench_whisper", "bench_models"]
+known-first-party = ["nova", "bench_whisper", "bench_models", "enregistrer_voix"]
 
 [tool.ruff.lint.per-file-ignores]
 # FastAPI : `File(...)`, `Form(...)`, `Depends(...)` dans les valeurs par defaut

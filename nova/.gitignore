@@ -1,4 +1,7 @@
 .env
+# Tout ce qui est a toi : documents ingeres, base locale, et data/voix-test/
+# — tes enregistrements de voix, produits par scripts/enregistrer_voix.py.
+# Ta voix est une donnee personnelle : elle ne quitte pas cette machine.
 data/
 __pycache__/
 *.pyc
