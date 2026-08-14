@@ -135,10 +135,30 @@ class Resultat:
 # ── Le banc ───────────────────────────────────────────────────────────────
 
 
+#: Tous les formats que le decodeur sait lire — c'est-a-dire tous ceux que
+#: Whisper lui-meme accepte. Dictaphone exporte en .m4a, QuickTime en .m4a,
+#: le script d'enregistrement en .wav : refuser l'un d'eux obligerait a
+#: convertir pour rien.
+EXTENSIONS = (".wav", ".m4a", ".mp3", ".aiff", ".aif", ".caf", ".flac", ".ogg", ".mp4")
+
+
+def audios() -> list[Path]:
+    """Les enregistrements, quel que soit leur format, dans l'ordre du nom."""
+    return sorted(
+        (f for f in DOSSIER.iterdir() if f.suffix.lower() in EXTENSIONS),
+        key=lambda f: f.name,
+    ) if DOSSIER.exists() else []
+
+
 def echantillons() -> list[tuple[Path, str]]:
-    """Les paires (audio, ce qui a ete reellement dit)."""
+    """Les paires (audio, ce qui a ete reellement dit).
+
+    Le texte vient du .txt de meme nom. S'il manque, l'audio est ignore
+    plutot que devine : mesurer un ecart contre une phrase supposee
+    condamnerait un modele qui n'a rien fait de mal.
+    """
     paires = []
-    for audio in sorted(DOSSIER.glob("*.wav")):
+    for audio in audios():
         reference = audio.with_suffix(".txt")
         if reference.exists():
             paires.append((audio, reference.read_text(encoding="utf-8").strip()))
@@ -177,46 +197,112 @@ def mesurer(modele: str, beam: int, paires: list[tuple[Path, str]], amorce: str)
     return resultat
 
 
+def associer_les_textes() -> int:
+    """Ecrit les .txt manquants a partir de la liste de phrases, dans l'ordre.
+
+    POURQUOI CE MODE EXISTE
+
+    Recopier douze phrases dans douze fichiers est fastidieux, et surtout
+    c'est la seule etape ou une faute passe INAPERCUE : un decalage d'une
+    ligne, et le banc compare chaque phrase a la suivante. Il annoncerait
+    alors 20 % de mots justes pour un modele parfait, et on changerait de
+    modele pour rien.
+
+    On associe donc par l'ORDRE : premier fichier, premiere phrase. C'est a
+    l'utilisateur de nommer ses enregistrements 01, 02, 03… — ce que
+    Dictaphone fait deja si on les exporte dans l'ordre.
+    """
+    from enregistrer_voix import PHRASES
+
+    fichiers = audios()
+    if not fichiers:
+        print(f"\nAucun enregistrement dans {DOSSIER}\n")
+        return 1
+
+    print(f"\n{len(fichiers)} enregistrement(s). Association par l'ordre des noms :\n")
+    # `strict=False` a dessein : on peut avoir enregistre huit phrases sur
+    # douze, ou en avoir une de trop. S'arreter a la plus courte des deux
+    # listes est le comportement voulu — le surplus est signale plus bas.
+    for numero, (audio, phrase) in enumerate(zip(fichiers, PHRASES, strict=False), 1):
+        texte = audio.with_suffix(".txt")
+        etat = "existe deja" if texte.exists() else "ecrit"
+        if not texte.exists():
+            texte.write_text(phrase, encoding="utf-8")
+        print(f"  {numero:2}. {audio.name:24} → « {phrase} »   [{etat}]")
+
+    if len(fichiers) > len(PHRASES):
+        surplus = len(fichiers) - len(PHRASES)
+        print(f"\n  ⚠️  {surplus} enregistrement(s) en trop : aucune phrase de reference.")
+        print("      Ils seront ignores par la mesure.")
+
+    print("\n⚠️  VERIFIE LA LISTE CI-DESSUS AVANT DE MESURER.")
+    print("    Si une ligne ne correspond pas a ce que tu as reellement dit,")
+    print("    corrige le .txt : le banc mesurerait un ecart qui n'existe pas.\n")
+    print("Puis :  uv run python scripts/bench_whisper.py\n")
+    return 0
+
+
 def mode_d_emploi() -> None:
+    presents = len(audios())
+    from enregistrer_voix import PHRASES
+
+    liste = "\n".join(f"       {n:2}. {p}" for n, p in enumerate(PHRASES, 1))
     print(f"""
-Aucun echantillon dans {DOSSIER}
+Aucun echantillon exploitable dans {DOSSIER}
+({presents} fichier(s) audio trouve(s), aucun accompagne de son texte)
 
-CE QU'IL FAUT, ET POURQUOI TA PROPRE VOIX
+POURQUOI TA PROPRE VOIX, ET PAS UN JEU DE TEST TOUT FAIT
 
-Mesurer sur des enregistrements tiers ne dirait rien : ce qu'on cherche a
-savoir, c'est comment le modele se comporte avec TON micro, TA piece et TON
-accent. Il faut donc des phrases dites par toi.
+Ce qu'on cherche a savoir, c'est comment le modele se comporte avec TON
+micro, TA piece et TON accent. Une mesure faite sur d'autres voix
+choisirait un modele pour quelqu'un d'autre.
 
-1. Cree le dossier :
+╭─ VOIE 1 — le script d'enregistrement ─────────────────────────────────╮
 
-       mkdir -p {DOSSIER}
+  uv run python scripts/enregistrer_voix.py
 
-2. Enregistre une dizaine de phrases, une par fichier. Le plus simple sur
-   Mac est l'application « Dictaphone », puis Fichier > Exporter en .wav.
-   Prends des phrases que tu poserais vraiment a Nova, dont celles qui
-   echouent aujourd'hui :
+  Entree, tu dis la phrase, Entree. Les fichiers audio et texte sont
+  ecrits ensemble, donc toujours d'accord.
 
-       Quel est le diametre de la Terre ?
-       Quelles sont les planetes du systeme solaire ?
-       Qu'est-ce qu'un trou noir ?
-       Ouvre Discord.
-       Qui etait Charles Aznavour ?
+  Si le micro refuse :
+      uv run python scripts/enregistrer_voix.py --tester
 
-3. A cote de chaque `.wav`, un `.txt` du MEME nom contenant exactement ce que
-   tu as dit :
+╰───────────────────────────────────────────────────────────────────────╯
 
-       {DOSSIER}/01.wav
-       {DOSSIER}/01.txt   ->  Quel est le diametre de la Terre ?
+╭─ VOIE 2 — Dictaphone, si le micro resiste ────────────────────────────╮
 
-4. Relance :
+  1. Ouvre l'application Dictaphone et enregistre ces phrases, une par
+     memo, DANS CET ORDRE :
 
-       uv run python scripts/bench_whisper.py
+{liste}
 
-Dix phrases suffisent pour trancher. Vingt donnent un chiffre plus stable.
+  2. Selectionne-les toutes, glisse-les dans ce dossier :
+
+         {DOSSIER}
+
+     Le format n'a pas d'importance : .m4a, .wav, .mp3 conviennent.
+
+  3. Renomme-les 01, 02, 03… dans l'ordre ou tu les as dites, puis :
+
+         uv run python scripts/bench_whisper.py --associer
+
+     Les fichiers texte sont ecrits pour toi, et affiches pour que tu
+     verifies l'appariement avant de mesurer.
+
+╰───────────────────────────────────────────────────────────────────────╯
+
+Puis, dans les deux cas :
+
+    uv run python scripts/bench_whisper.py
+
+Huit phrases suffisent pour trancher. Douze donnent un chiffre plus stable.
 """)
 
 
 def main() -> int:
+    if "--associer" in sys.argv:
+        return associer_les_textes()
+
     paires = echantillons()
     if not paires:
         mode_d_emploi()

@@ -110,3 +110,99 @@ def test_le_facteur_temps_reel_se_lit_comme_une_vitesse():
 
 def test_sans_audio_le_facteur_ne_leve_pas():
     assert Resultat(modele="base", beam=1, secondes=5.0).temps_reel == 0.0
+
+
+# ── Les formats acceptes ──────────────────────────────────────────────────
+#
+# Le banc n'imposait que le .wav. Or Dictaphone exporte en .m4a, QuickTime
+# aussi — et le decodeur les lit tous, puisque c'est le meme que celui de
+# Whisper. Refuser un format obligeait a convertir pour rien, donc a ajouter
+# une etape ou l'on peut se tromper.
+
+
+def test_les_formats_courants_sont_acceptes(tmp_path, monkeypatch):
+    import bench_whisper
+
+    monkeypatch.setattr(bench_whisper, "DOSSIER", tmp_path)
+    for nom in ("01.wav", "02.m4a", "03.mp3", "04.aiff"):
+        (tmp_path / nom).touch()
+    assert len(bench_whisper.audios()) == 4
+
+
+def test_les_fichiers_qui_ne_sont_pas_de_l_audio_sont_ignores(tmp_path, monkeypatch):
+    import bench_whisper
+
+    monkeypatch.setattr(bench_whisper, "DOSSIER", tmp_path)
+    (tmp_path / "01.wav").touch()
+    (tmp_path / "01.txt").touch()
+    (tmp_path / "notes.md").touch()
+    assert [f.name for f in bench_whisper.audios()] == ["01.wav"]
+
+
+def test_l_ordre_suit_le_nom_du_fichier(tmp_path, monkeypatch):
+    """L'association texte/audio se fait par l'ORDRE : il doit etre stable.
+
+    Un tri par date de modification, par exemple, changerait l'ordre a
+    chaque copie du dossier — et decalerait toutes les references d'un cran
+    sans que rien ne le signale.
+    """
+    import bench_whisper
+
+    monkeypatch.setattr(bench_whisper, "DOSSIER", tmp_path)
+    for nom in ("03.wav", "01.wav", "02.wav"):
+        (tmp_path / nom).touch()
+    assert [f.stem for f in bench_whisper.audios()] == ["01", "02", "03"]
+
+
+def test_un_dossier_absent_ne_leve_pas(tmp_path, monkeypatch):
+    import bench_whisper
+
+    monkeypatch.setattr(bench_whisper, "DOSSIER", tmp_path / "pas-la")
+    assert bench_whisper.audios() == []
+
+
+def test_un_audio_sans_texte_est_ignore(tmp_path, monkeypatch):
+    """Mieux vaut mesurer sur huit phrases sures que sur douze dont quatre
+    comparees a une reference devinee."""
+    import bench_whisper
+
+    monkeypatch.setattr(bench_whisper, "DOSSIER", tmp_path)
+    (tmp_path / "01.wav").touch()
+    (tmp_path / "01.txt").write_text("Quel est le diametre de la Terre ?")
+    (tmp_path / "02.wav").touch()          # sans .txt
+    assert len(bench_whisper.echantillons()) == 1
+
+
+# ── L'association automatique ─────────────────────────────────────────────
+
+
+def test_l_association_ecrit_les_textes_dans_l_ordre(tmp_path, monkeypatch, capsys):
+    import bench_whisper
+    from enregistrer_voix import PHRASES
+
+    monkeypatch.setattr(bench_whisper, "DOSSIER", tmp_path)
+    for nom in ("01.m4a", "02.m4a", "03.m4a"):
+        (tmp_path / nom).touch()
+
+    assert bench_whisper.associer_les_textes() == 0
+    for numero, phrase in enumerate(PHRASES[:3], 1):
+        assert (tmp_path / f"{numero:02d}.txt").read_text(encoding="utf-8") == phrase
+
+
+def test_l_association_n_ecrase_jamais_un_texte_existant(tmp_path, monkeypatch):
+    """Une correction faite a la main doit survivre a une seconde execution."""
+    import bench_whisper
+
+    monkeypatch.setattr(bench_whisper, "DOSSIER", tmp_path)
+    (tmp_path / "01.m4a").touch()
+    (tmp_path / "01.txt").write_text("ce que j'ai VRAIMENT dit", encoding="utf-8")
+
+    bench_whisper.associer_les_textes()
+    assert (tmp_path / "01.txt").read_text(encoding="utf-8") == "ce que j'ai VRAIMENT dit"
+
+
+def test_l_association_sans_fichier_le_dit(tmp_path, monkeypatch):
+    import bench_whisper
+
+    monkeypatch.setattr(bench_whisper, "DOSSIER", tmp_path)
+    assert bench_whisper.associer_les_textes() == 1

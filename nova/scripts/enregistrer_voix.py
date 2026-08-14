@@ -147,6 +147,67 @@ class Micro:
         return b"".join(self._morceaux)
 
 
+def tester_les_peripheriques() -> int:
+    """Essaie chaque entree audio et dit laquelle fonctionne.
+
+    POURQUOI CE MODE EXISTE
+
+    « Resource temporarily unavailable » ne dit pas SI le peripherique
+    n'existe pas, S'IL est pris par une autre application, ou si le format
+    demande est refuse. Trois causes, un seul message — donc trois tours a
+    deviner. Essayer reellement chaque entree repond en une fois.
+    """
+    import av
+
+    format_entree = "avfoundation" if sys.platform == "darwin" else "alsa"
+    print(f"\nRecherche des entrees audio ({format_entree})…\n")
+
+    trouves = 0
+    for index in range(6):
+        nom = f":{index}" if sys.platform == "darwin" else f"hw:{index}"
+        print(f"  {nom:8} ", end="", flush=True)
+        try:
+            flux = av.open(nom, format=format_entree)
+        except Exception as exc:  # noqa: BLE001
+            message = str(exc).split("\n")[0][:60]
+            print(f"— indisponible ({message})")
+            continue
+
+        try:
+            # Lire quelques trames prouve que le peripherique DONNE du son,
+            # pas seulement qu'il s'ouvre. Un micro coupe s'ouvre tres bien.
+            reechantillonneur = av.AudioResampler(format="s16", layout="mono", rate=TAUX)
+            octets = 0
+            for compte, trame in enumerate(flux.decode(audio=0)):
+                for sortie in reechantillonneur.resample(trame):
+                    octets += len(sortie.to_ndarray().tobytes())
+                if compte >= 20:
+                    break
+            print(f"— OK, {duree_secondes(b'0' * octets):.2f} s captees")
+            trouves += 1
+        except Exception as exc:  # noqa: BLE001
+            print(f"— ouvre mais ne capte rien ({str(exc)[:40]})")
+        finally:
+            flux.close()
+
+    if trouves:
+        print("\nUtilise un des peripheriques marques OK :")
+        print("    uv run python scripts/enregistrer_voix.py :1\n")
+        return 0
+
+    print("""
+Aucune entree audio utilisable.
+
+  1. L'application NOVA tient-elle le micro ? Elle ecoute en permanence
+     pour detecter le mot de reveil. Ferme-la et refais ce test.
+  2. Le Terminal a-t-il l'autorisation ? Reglages Systeme >
+     Confidentialite et securite > Microphone > Terminal.
+  3. Si rien n'y fait, le mode sans micro est decrit par :
+         uv run python scripts/bench_whisper.py
+""")
+    return 1
+
+
 def prochain_numero() -> int:
     """Reprend la numerotation la ou elle s'est arretee.
 
@@ -160,6 +221,9 @@ def prochain_numero() -> int:
 
 
 def main() -> int:
+    if "--tester" in sys.argv:
+        return tester_les_peripheriques()
+
     peripherique = sys.argv[1] if len(sys.argv) > 1 else PERIPHERIQUE
     DOSSIER.mkdir(parents=True, exist_ok=True)
     numero = prochain_numero()
