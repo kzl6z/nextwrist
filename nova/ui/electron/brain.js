@@ -202,8 +202,16 @@ Ce que tu sais déjà d'Hugo :
 ${MEMOIRE}
 </memoire>
 
-Si la demande porte sur ces informations, réponds À PARTIR d'elles.
-Si tu ne sais pas, dis-le en une phrase. N'invente jamais.`;
+Cette mémoire ne contient QUE ce qui concerne Hugo. Elle ne limite en rien
+le reste de ce que tu sais.
+
+— Culture générale (sciences, histoire, définitions, calcul) : réponds
+  directement, avec tes propres connaissances. Ne dis JAMAIS que tu ne sais
+  pas parce que ce n'est pas dans la mémoire ci-dessus.
+— Sur Hugo, ses proches, ses projets : réponds uniquement depuis la
+  mémoire. Si l'information n'y est pas, dis-le en une phrase.
+
+N'invente jamais un fait personnel. Ne refuse jamais une question générale.`;
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -1009,4 +1017,8 @@ module.exports = {
   // Exportés pour le banc d'essai : la règle « un chemin mort ne se retente
   // pas » vaut 120 secondes par erreur de jugement, elle mérite d'être testée.
   estInjoignable, DELAI_LOCAL_MS, DELAI_CLOUD_MS,
+  // La consigne donnée au modèle décide de ce que NOVA accepte de répondre.
+  // Une ligne mal placée lui a fait dire « je ne connais pas les planètes du
+  // système solaire » : ça se teste.
+  systemPrompt,
 };
