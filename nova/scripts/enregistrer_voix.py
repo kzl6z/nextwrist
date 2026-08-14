@@ -90,16 +90,39 @@ class Micro:
         self._fil: threading.Thread | None = None
         self.erreur: Exception | None = None
 
+    def _ouvrir(self):
+        """Ouvre le micro dans SON format, pas dans celui qui nous arrange.
+
+        ⚠️ NE PAS IMPOSER `sample_rate` NI `channels`.
+
+        On demandait 16 kHz mono, parce que c'est ce que Whisper attend.
+        avfoundation a refuse : « [Errno 35] Resource temporarily
+        unavailable ». Un micro capte a SA frequence native — souvent
+        48 kHz — et refuser d'ouvrir plutot que de convertir est son droit.
+
+        La conversion, c'est le travail du reechantillonneur juste en
+        dessous, et il la fait de toute facon. Imposer le format au materiel
+        n'apportait donc rien, et fermait la porte sur la moitie des micros.
+        """
+        import av
+
+        format_entree = "avfoundation" if sys.platform == "darwin" else "alsa"
+        # avfoundation rend parfois EAGAIN au tout premier essai, le temps
+        # que le peripherique soit pret. Deux tentatives suffisent.
+        derniere: Exception | None = None
+        for essai in range(3):
+            try:
+                return av.open(self.peripherique, format=format_entree)
+            except Exception as exc:  # noqa: BLE001
+                derniere = exc
+                self._arret.wait(0.3 * (essai + 1))
+        raise derniere  # type: ignore[misc]
+
     def _capturer(self) -> None:
         try:
             import av
 
-            format_entree = "avfoundation" if sys.platform == "darwin" else "alsa"
-            flux = av.open(
-                self.peripherique,
-                format=format_entree,
-                options={"channels": "1", "sample_rate": str(TAUX)},
-            )
+            flux = self._ouvrir()
             reechantillonneur = av.AudioResampler(format="s16", layout="mono", rate=TAUX)
             for trame in flux.decode(audio=0):
                 if self._arret.is_set():
@@ -181,10 +204,22 @@ ceux dont on ne se sert pas. C'est sans consequence, l'enregistrement tourne.
 
         if micro.erreur is not None:
             print(f"\n  Micro inaccessible : {micro.erreur}")
-            print("\n  Sur macOS, verifie que le Terminal a le droit d'acceder au")
-            print("  microphone : Reglages Systeme > Confidentialite > Microphone.")
-            print("  Si le bon micro n'est pas le premier, essaie :")
-            print("      uv run python scripts/enregistrer_voix.py :1\n")
+            print("""
+  Dans l'ordre de probabilite :
+
+  1. L'APPLICATION NOVA TIENT LE MICRO. Elle ecoute en permanence pour
+     detecter le mot de reveil, et ne le lache jamais. Ferme-la, puis
+     relance ce script.
+
+  2. Le bon micro n'est pas le premier peripherique. Essaie :
+         uv run python scripts/enregistrer_voix.py :1
+         uv run python scripts/enregistrer_voix.py :2
+
+  3. Le Terminal n'a pas l'autorisation : Reglages Systeme >
+     Confidentialite et securite > Microphone > Terminal.
+
+  Rien n'est perdu : la seance reprendra ou elle s'est arretee.
+""")
             return 1
 
         duree = duree_secondes(pcm)
