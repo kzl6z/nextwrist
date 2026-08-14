@@ -18,6 +18,32 @@
 (function paroleEnFlux() {
   if (typeof traiterDemande !== 'function') return;
 
+  // ── Les nombres, tels qu'ils doivent être ENTENDUS ──────────────────
+  //
+  //  Le modèle écrit les grands nombres avec un séparateur de milliers,
+  //  parce que c'est la typographie française correcte :
+  //
+  //      « La Terre mesure environ 12 742 kilomètres de diamètre. »
+  //
+  //  La synthèse vocale y voit alors DEUX nombres et prononce
+  //  « douze, sept cent quarante-deux ». Le texte est juste ; ce qui sort
+  //  du haut-parleur est faux.
+  //
+  //  On recolle donc les groupes uniquement pour la VOIX. L'affichage garde
+  //  la forme lisible : c'est la même phrase, dans deux médias qui n'ont pas
+  //  les mêmes règles.
+  //
+  //  Le motif exige un premier groupe de 1 à 3 chiffres, puis des groupes de
+  //  exactement 3. « 2024 100 personnes » n'est donc pas recollé — le
+  //  premier groupe y fait quatre chiffres, ce n'est pas un séparateur de
+  //  milliers mais deux nombres voisins.
+  const SEPARATEURS = /[    ]/g;
+  function pourLaVoix(texte) {
+    return String(texte == null ? '' : texte)
+      .replace(/\b\d{1,3}(?:[    ]\d{3})+\b/g,
+        (nombre) => nombre.replace(SEPARATEURS, ''));
+  }
+
   // ── File d'attente ──
   // Les phrases arrivent plus vite qu'elles ne se prononcent. Sans file,
   // deux voix se superposeraient dès la deuxième phrase.
@@ -30,9 +56,12 @@
     file = file
       .then(async () => {
         if (typeof setAppState === 'function' && appState !== 'SPEAKING') setAppState('SPEAKING');
+        // Affichage : la forme lisible, séparateurs compris.
         msgEl.textContent = phrase;
         msgEl.classList.add('visible');
-        const ok = await speak(phrase);
+        // Voix : les nombres recollés, sinon « 12 742 » se dit « douze, sept
+        // cent quarante-deux ».
+        const ok = await speak(pourLaVoix(phrase));
         if (!ok) await typewriter(phrase);
       })
       .catch((e) => console.warn('[NOVA/flux] phrase non prononcée :', e && e.message))
