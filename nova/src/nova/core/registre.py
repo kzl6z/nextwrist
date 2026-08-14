@@ -41,7 +41,7 @@ from __future__ import annotations
 
 from typing import Generic, TypeVar
 
-from nova.core.contrats import CAPACITES_CONNUES
+from nova.core.contrats import CAPACITES_CONNUES, NIVEAUX
 from nova.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -91,6 +91,35 @@ class Registre(Generic[T]):
                     f"Connues : {', '.join(sorted(CAPACITES_CONNUES))}.\n"
                     "Si la capacite est legitime, ajoute-la a CAPACITES_CONNUES — "
                     "c'est un choix d'architecture, pas une faute de frappe."
+                )
+
+        # ── LE NIVEAU DE RISQUE EST OBLIGATOIRE, ET SANS DEFAUT ───────────
+        #
+        # Uniquement pour les briques qui AGISSENT — un espace de travail ou
+        # un modele n'execute rien, exiger un niveau d'eux n'aurait pas de
+        # sens.
+        #
+        # Pas de valeur par defaut, et surtout pas LECTURE : un defaut a zero
+        # ferait passer pour inoffensif tout outil dont l'auteur a oublie d'y
+        # penser — c'est-a-dire exactement ceux dont il faut se mefier. Mieux
+        # vaut un demarrage qui echoue avec un message clair qu'un outil qui
+        # supprime des fichiers en etant classe « lecture ».
+        if callable(getattr(instance, "executer", None)):
+            niveau = getattr(instance, "niveau", None)
+            if not isinstance(niveau, int) or isinstance(niveau, bool):
+                raise ErreurRegistre(
+                    f"{self.genre} « {instance.nom} » : attribut « niveau » manquant.\n"
+                    "Tout ce qui s'execute doit dire ce qu'il en coute si Nova se "
+                    "trompe :\n"
+                    "    contrats.LECTURE      lit, ne modifie rien\n"
+                    "    contrats.REVERSIBLE   se defait (ouvrir une application)\n"
+                    "    contrats.CONSEQUENT   visible par d'autres (envoyer, publier)\n"
+                    "    contrats.IRREVERSIBLE ne se defait pas (supprimer, payer)"
+                )
+            if niveau not in NIVEAUX:
+                raise ErreurRegistre(
+                    f"{self.genre} « {instance.nom} » : niveau {niveau} inconnu.\n"
+                    f"Attendu l'un de : {', '.join(f'{n} ({m})' for n, m in NIVEAUX.items())}."
                 )
 
         if instance.nom in self._entrees:

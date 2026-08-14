@@ -15,6 +15,7 @@ AJOUTER UN OUTIL
 Aucun fichier existant a modifier — c'est la definition operatoire de
 « extensible » :
 
+    from nova.core import contrats
     from nova.core.registre import registre_outils
 
     @registre_outils.enregistrer
@@ -22,6 +23,8 @@ Aucun fichier existant a modifier — c'est la definition operatoire de
         nom = "imprimante"
         description = "Envoie un document a l'imprimante par defaut"
         capacite = "action"
+        # Du papier sort, mais on peut annuler et jeter la feuille.
+        niveau = contrats.REVERSIBLE
         def executer(self, chemin: str) -> str: ...
 
 Le registre valide a l'enregistrement : un outil sans description ou avec une
@@ -43,6 +46,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from nova.core import contrats
 from nova.core.registre import Registre
 from nova.logging_setup import get_logger
 
@@ -66,6 +70,7 @@ class Horloge:
     nom = "horloge"
     description = "Donne la date et l'heure courantes"
     capacite = "recherche"
+    niveau = contrats.LECTURE
 
     JOURS = ("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche")
     MOIS = (
@@ -101,6 +106,8 @@ class LireFichier:
     nom = "lire_fichier"
     description = "Lit un fichier texte du dossier de travail"
     capacite = "extraction"
+    # Lit uniquement, et dans un bac a sable. Ne modifie rien.
+    niveau = contrats.LECTURE
 
     #: Au-dela, ce n'est plus une lecture, c'est une ingestion — et l'ingestion
     #: a son propre chemin, avec decoupage et indexation.
@@ -137,6 +144,7 @@ class ChercherDansLesDocuments:
     nom = "chercher_documents"
     description = "Cherche un passage dans les documents ingeres"
     capacite = "recherche"
+    niveau = contrats.LECTURE
 
     def executer(self, question: str, limite: int | None = None) -> list[dict]:
         from nova.documents import search  # importe tard : dependance optionnelle
@@ -165,6 +173,7 @@ class ChercherDansLaMemoire:
     nom = "chercher_memoire"
     description = "Consulte les faits que Nova connait sur son interlocuteur"
     capacite = "recherche"
+    niveau = contrats.LECTURE
 
     def executer(self, categorie: str | None = None) -> list[dict]:
         from nova.memory import facts
@@ -187,3 +196,78 @@ def enregistrer_outils_standard(racine_travail: Path) -> Registre:
         if outil.nom not in registre_outils:
             registre_outils.enregistrer(outil)
     return registre_outils
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  LE PORTILLON — le seul endroit par lequel un outil s'execute
+#
+#  ⚠️ UN MODELE DE LANGUE PROPOSE. IL N'AUTORISE JAMAIS.
+#
+#  Un modele local de trois milliards de parametres se trompe : il hallucine
+#  un nom de fichier, confond deux applications, prend une transcription
+#  bancale pour un ordre. Tant qu'il ne fait que parler, aucune de ces
+#  erreurs ne coute rien. Le jour ou il agit, chacune devient un geste reel
+#  sur la machine de quelqu'un.
+#
+#  Ce portillon ne rend pas le modele plus fiable — rien ne le fera. Il rend
+#  ses erreurs RATTRAPABLES, ce qui est la seule garantie possible.
+#
+#  POURQUOI UNE SEULE PORTE
+#
+#  Un controle duplique a trois endroits finit contourne au quatrieme, et
+#  c'est toujours celui qu'on a ajoute en urgence. `executer_outil` est donc
+#  le SEUL chemin : appeler `outil.executer()` directement contourne le
+#  bareme, et c'est un bug — pas une optimisation.
+# ══════════════════════════════════════════════════════════════════════════
+
+
+class ConfirmationRequise(PermissionError):
+    """L'action est legitime mais attend un accord explicite.
+
+    Volontairement une exception et non une valeur de retour : oublier de
+    verifier un booleen est facile et silencieux, ignorer une exception
+    demande de l'ecrire. La forme la plus sure est celle qui echoue par
+    defaut.
+    """
+
+    def __init__(self, outil: str, niveau: int, arguments: dict) -> None:
+        self.outil = outil
+        self.niveau = niveau
+        self.arguments = arguments
+        super().__init__(
+            f"« {outil} » est une action de niveau "
+            f"{contrats.nom_du_niveau(niveau)} : elle demande une confirmation."
+        )
+
+    def question(self) -> str:
+        """Ce que Nova doit demander, en francais, avant d'agir."""
+        details = ", ".join(f"{c} = {v}" for c, v in self.arguments.items())
+        precision = f" ({details})" if details else ""
+        return f"Je m'apprete a {self.outil}{precision}. Je confirme ?"
+
+
+def executer_outil(nom: str, *, confirme: bool = False, **arguments):
+    """Execute un outil, apres avoir verifie ce qu'il en coute.
+
+    `confirme` ne doit JAMAIS venir du modele. Il vient de l'utilisateur, par
+    l'interface — sinon le controle se resume a demander au renard s'il a le
+    droit d'entrer dans le poulailler.
+    """
+    outil = registre_outils.exiger(nom)
+    niveau = getattr(outil, "niveau", None)
+
+    # Un outil sans niveau ne devrait pas pouvoir etre enregistre. S'il s'en
+    # trouve un ici, c'est que quelqu'un a contourne le registre : on refuse
+    # plutot que de supposer qu'il est inoffensif.
+    if not isinstance(niveau, int) or niveau not in contrats.NIVEAUX:
+        raise ConfirmationRequise(nom, -1, arguments)
+
+    if contrats.exige_confirmation(niveau) and not confirme:
+        log.info(
+            "Action « %s » (%s) suspendue : confirmation attendue.",
+            nom, contrats.nom_du_niveau(niveau),
+        )
+        raise ConfirmationRequise(nom, niveau, arguments)
+
+    log.info("Action « %s » (%s) executee.", nom, contrats.nom_du_niveau(niveau))
+    return outil.executer(**arguments)

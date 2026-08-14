@@ -7,6 +7,7 @@ jamais eu de description est exactement la dette qu'on refuse.
 
 import pytest
 
+from nova.core import contrats
 from nova.core.registre import ErreurRegistre, Registre
 
 
@@ -18,6 +19,7 @@ class Correct:
     nom = "correct"
     description = "Un outil bien forme"
     capacite = "recherche"
+    niveau = contrats.LECTURE
 
     def executer(self):
         return 42
@@ -80,6 +82,7 @@ def test_recherche_par_capacite():
         nom = "autre"
         description = "Agit"
         capacite = "action"
+        niveau = contrats.REVERSIBLE
 
         def executer(self):
             return None

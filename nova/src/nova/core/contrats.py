@@ -144,6 +144,80 @@ class Modele:
 # ── Contrats structurels ──────────────────────────────────────────────────
 
 
+# ══════════════════════════════════════════════════════════════════════════
+#  LES NIVEAUX DE RISQUE
+#
+#  ⚠️ CE BAREME EST ECRIT AVANT LE PREMIER OUTIL QUI AGIT, PAS APRES.
+#
+#  C'est la seule fenetre ou il peut l'etre. Une fois qu'un outil sait
+#  supprimer un fichier ou envoyer un message, ajouter des niveaux devient
+#  une migration : il faut retrouver tous les appelants, decider pour chacun,
+#  et vivre avec ceux qu'on a oublies. Ecrit maintenant, c'est une ligne par
+#  outil et le compilateur — enfin, le registre — nous rappelle a l'ordre.
+#
+#  LE PRINCIPE QUI GOUVERNE TOUT
+#
+#      Un modele de langue PROPOSE. Il n'AUTORISE jamais.
+#
+#  Un modele local de trois milliards de parametres se trompe. Il hallucine
+#  des noms de fichiers, confond deux applications, prend une transcription
+#  bancale pour un ordre. Rien de tout cela n'est grave tant qu'il ne fait
+#  que parler. Le jour ou il peut agir, chacune de ces erreurs devient une
+#  action reelle sur la machine de quelqu'un.
+#
+#  Le bareme ne rend pas le modele plus fiable. Il rend ses erreurs
+#  RATTRAPABLES — ce qui est la seule chose qu'on puisse garantir.
+# ══════════════════════════════════════════════════════════════════════════
+
+#: Lire, chercher, calculer. Ne modifie RIEN. S'execute sans rien demander.
+LECTURE = 0
+
+#: Modifie quelque chose, mais le geste se defait : ouvrir une application,
+#: creer un dossier, monter le son. Si Nova se trompe, on ferme la fenetre.
+REVERSIBLE = 1
+
+#: Consequences durables ou visibles par d'autres : envoyer un message,
+#: publier, acheter, ecrire dans un fichier existant. Se defait mal, ou
+#: devant temoins.
+CONSEQUENT = 2
+
+#: Ne se defait pas : supprimer, formater, eteindre, payer, envoyer un
+#: courriel definitif. Une erreur ici ne se rattrape pas.
+IRREVERSIBLE = 3
+
+NIVEAUX: dict[int, str] = {
+    LECTURE: "lecture",
+    REVERSIBLE: "reversible",
+    CONSEQUENT: "consequent",
+    IRREVERSIBLE: "irreversible",
+}
+
+#: A partir d'ici, une confirmation explicite est exigee.
+#:
+#: Pourquoi 2 et pas 3 : « envoyer un message a la mauvaise personne » ne se
+#: defait pas davantage que « supprimer un fichier », et se remarque
+#: davantage. Reserver la confirmation a l'irreversible laisserait passer
+#: exactement la categorie d'erreurs qui coute le plus cher socialement.
+SEUIL_CONFIRMATION = CONSEQUENT
+
+
+def nom_du_niveau(niveau: int) -> str:
+    """Le niveau en toutes lettres. « inconnu » plutot qu'une exception :
+    un bareme etendu demain ne doit pas faire tomber un journal."""
+    return NIVEAUX.get(niveau, f"inconnu ({niveau})")
+
+
+def exige_confirmation(niveau: int) -> bool:
+    """Cette action doit-elle etre confirmee avant d'etre executee ?
+
+    Un niveau INCONNU exige la confirmation. C'est le seul defaut sur : si
+    quelqu'un ajoute un niveau 4 sans toucher a cette fonction, on demande
+    au lieu d'agir. L'inverse — agir sur un niveau qu'on ne comprend pas —
+    est precisement ce qu'on cherche a rendre impossible.
+    """
+    return niveau >= SEUIL_CONFIRMATION or niveau not in NIVEAUX
+
+
 @runtime_checkable
 class Outil(Protocol):
     """Une capacite concrete : lire un fichier, imprimer, ouvrir un navigateur.
@@ -151,11 +225,18 @@ class Outil(Protocol):
     Un outil est SYNCHRONE et RETOURNE UNE VALEUR. Il ne parle pas a
     l'utilisateur, il ne decide de rien : il fait une chose et rend le
     resultat. C'est ce qui le rend testable et remplacable.
+
+    `niveau` dit ce qu'il en coute si Nova se trompe d'outil ou d'argument.
+    Il n'y a PAS de valeur par defaut a l'usage : le registre refuse un outil
+    qui n'en declare pas. Un defaut a LECTURE ferait passer pour inoffensif
+    tout outil dont l'auteur a oublie d'y penser — c'est-a-dire exactement
+    ceux dont il faut se mefier.
     """
 
     nom: str
     description: str
     capacite: str
+    niveau: int
 
     def executer(self, **arguments: Any) -> Any:
         """Fait le travail. Leve une exception en cas d'echec."""

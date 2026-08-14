@@ -67,6 +67,7 @@ def test_un_fichier_trop_gros_renvoie_vers_l_ingestion(tmp_path):
 
 
 def test_ajouter_un_outil_ne_demande_de_toucher_a_rien():
+    from nova.core import contrats
     from nova.core.registre import Registre
 
     registre = Registre("outil")
@@ -76,6 +77,9 @@ def test_ajouter_un_outil_ne_demande_de_toucher_a_rien():
         nom = "imprimante"
         description = "Envoie un document a l'imprimante"
         capacite = "action"
+        # Obligatoire des lors qu'une brique s'execute : elle doit dire ce
+        # qu'il en coute si Nova se trompe d'outil ou d'argument.
+        niveau = contrats.REVERSIBLE
 
         def executer(self, chemin):
             return f"imprime {chemin}"
