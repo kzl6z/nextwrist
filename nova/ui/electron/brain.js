@@ -40,6 +40,28 @@ const CERVEAU_LOCAL = (process.env.NOVA_BRAIN || 'local') !== 'cloud';
 const NOVA_HOST = process.env.NOVA_HOST || '127.0.0.1';
 const NOVA_PORT = parseInt(process.env.NOVA_PORT || '8100', 10);
 
+// ── Délais, et la règle qui les ordonne ──────────────────────────────
+//
+//  ⚠️ UN APPELANT DOIT TOUJOURS ATTENDRE PLUS LONGTEMPS QUE SON APPELÉ.
+//
+//  Sinon il abandonne le premier, et rend SON diagnostic — qui est faux —
+//  à la place de celui que la couche du dessous connaissait déjà.
+//
+//  Relevé en conditions réelles, question « qu'est-ce qu'un trou noir » :
+//
+//      application  →  Nova Core   : 120 s
+//      Nova Core    →  Ollama      : 300 s      ← plus long que l'appelant
+//
+//  Ollama était éteint. Nova Core l'attendait sagement. L'application a
+//  abandonné à 120 s en concluant « Nova Core est-il lancé ? » — alors que
+//  Nova Core allait parfaitement bien. Puis elle a REESSAYÉ le même chemin
+//  mort : 2 × 120 s = 240 s. Quatre minutes pour une erreur que la couche
+//  du dessous constatait en deux secondes.
+//
+//  Ordre désormais tenu :  Ollama 90 s  <  Nova Core 120 s.
+const DELAI_LOCAL_MS = 120000;
+const DELAI_CLOUD_MS = 20000;
+
 let apiKey = null;
 // 110 jetons : deux phrases parlées dans leur enveloppe JSON tiennent
 // largement dedans. Le plafond n'est pas une réserve gratuite — sur un modèle
@@ -314,7 +336,7 @@ function optionsRequete(body) {
         },
         // Généreux volontairement : le tout premier appel après le démarrage
         // charge le modèle en mémoire (plusieurs dizaines de secondes).
-        timeout: 120000,
+        timeout: DELAI_LOCAL_MS,
       }
     : {
         hostname: 'api.anthropic.com',
@@ -326,7 +348,7 @@ function optionsRequete(body) {
           'content-type': 'application/json',
           'content-length': Buffer.byteLength(body),
         },
-        timeout: 20000,
+        timeout: DELAI_CLOUD_MS,
       };
 }
 
@@ -378,7 +400,9 @@ function recupererPhrases(objet) {
 // `appelIA` : avec l'analyse complète, mémoire comprise.
 function appelIAEnFlux(texte, adresse, surPhrase) {
   return new Promise((resolve, reject) => {
+    const TDEBUT = Date.now();
     const consigne = systemPrompt(adresse);
+    const msPrompt = Date.now() - TDEBUT;
     console.info('[NOVA] prompt envoyé : ' + consigne.length
       + ' caractères → environ ' + Math.round(consigne.length * 3.3 / 1000)
       + ' s de lecture avant le premier mot');
@@ -397,9 +421,11 @@ function appelIAEnFlux(texte, adresse, surPhrase) {
     let premiere = true;
     let lecture = 0;   // temps passé à lire la question
     let recus = 0;     // caractères produits par le modèle
+    let msPremierePhrase = 0;  // l'instant où Nova peut commencer à parler
     const decoupe = new DecoupePhrases((phrase) => {
       if (premiere) {
-        console.info('[NOVA] première phrase prononçable après ' + (Date.now() - T0)
+        msPremierePhrase = Date.now() - T0;
+        console.info('[NOVA] première phrase prononçable après ' + msPremierePhrase
           + ' ms — elle commence à parler pendant qu’elle finit d’écrire');
         premiere = false;
       }
@@ -452,6 +478,30 @@ function appelIAEnFlux(texte, adresse, surPhrase) {
           + recus + ' caractères — ' + (recus / 4 / (ecriture / 1000)).toFixed(1) + ' jetons/s');
         console.info('[NOVA] total ' + total + ' ms = lecture ' + lecture
           + ' + écriture ' + ecriture);
+
+        // ── Le récapitulatif ────────────────────────────────────────────
+        //
+        // Les mêmes chiffres existaient déjà, dispersés sur six lignes au
+        // milieu du reste du journal. Groupés, ils se lisent d'un coup
+        // d'œil et désignent le coupable sans qu'on ait à recoller.
+        //
+        // Ce qui compte n'est PAS le total : c'est « avant le premier mot ».
+        // Nova parle pendant qu'elle écrit — un total de 8 s dont 1 s avant
+        // le premier mot est vécu comme rapide, alors qu'un total de 4 s
+        // entièrement passé à lire est vécu comme figé.
+        const ms = (n) => String(n).padStart(6) + ' ms';
+        console.info('[PERFORMANCE]');
+        console.info('  construction du prompt  ' + ms(msPrompt)
+          + '   (' + consigne.length + ' car.)');
+        console.info('  lecture de la question  ' + ms(lecture)
+          + '   ← avant le premier mot');
+        console.info('  première phrase dite    ' + ms(msPremierePhrase)
+          + '   ← ce que tu ressens');
+        console.info('  écriture complète       ' + ms(ecriture)
+          + '   (' + recus + ' car., '
+          + (recus / 4 / (ecriture / 1000)).toFixed(1) + ' jetons/s)');
+        console.info('  ─────────────────────────────────');
+        console.info('  total                   ' + ms(total));
         // Ce que le modèle a VRAIMENT écrit. Sans cette ligne, une réponse
         // vide devient « Entendu. » — le garde-fou — et on cherche la cause
         // pendant deux tours en croyant que c'est le modèle qui répond ça.
@@ -531,7 +581,7 @@ function appelIA(texte, adresse) {
           // Généreux volontairement : le tout premier appel après le démarrage
           // charge le modèle en mémoire (plusieurs dizaines de secondes).
           // Les suivants répondent en quelques secondes.
-          timeout: 120000,
+          timeout: DELAI_LOCAL_MS,
         }
       : {
           hostname: 'api.anthropic.com',
@@ -543,7 +593,7 @@ function appelIA(texte, adresse) {
             'content-type': 'application/json',
             'content-length': Buffer.byteLength(body),
           },
-          timeout: 20000,
+          timeout: DELAI_CLOUD_MS,
         };
 
     const req = transport.request(options, (res) => {
@@ -800,8 +850,27 @@ function repondreImmediatement(texte) {
   return null;
 }
 
+// ── Un chemin mort ne se retente pas ─────────────────────────────────
+//
+// Distinguer « le serveur n'a pas répondu » de « le serveur a répondu
+// quelque chose d'illisible » n'est pas un détail de journalisation : le
+// second mérite une seconde tentative — le modèle peut mieux formuler —,
+// le premier n'en mérite aucune. Le serveur est au même endroit ; il sera
+// aussi absent la seconde fois, et il le sera aussi lentement.
+//
+// C'est la moitié des 240 secondes relevées : deux attentes de deux
+// minutes vers une adresse dont la première avait déjà prouvé le silence.
+const CODES_RESEAU = ['ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENOTFOUND', 'ETIMEDOUT', 'EPIPE'];
+
+function estInjoignable(err) {
+  if (!err) return false;
+  if (CODES_RESEAU.includes(err.code)) return true;
+  return /d[ée]lai d[ée]pass|injoignable|socket hang up|r[ée]pondu vide|ECONNREFUSED/i
+    .test(err.message || '');
+}
+
 // ── Point d'entrée ───────────────────────────────────────────────────
-async function analyser(texte, adresse = 'vous') {
+async function analyser(texte, adresse = 'vous', options = {}) {
   console.info('[NOVA] User Input Received');
   console.info('        « ' + texte + ' »');
   // Avant tout : la question a-t-elle une réponse exacte et immédiate ?
@@ -815,7 +884,9 @@ async function analyser(texte, adresse = 'vous') {
   console.info('[NOVA] Analysing Request');
 
   let res = null;
-  if (apiKey) {
+  // `sansReseau` : le flux vient d'échouer parce que le serveur ne répond
+  // pas. Le rappeler ici ferait attendre une seconde fois, pour rien.
+  if (apiKey && !options.sansReseau) {
     const t0 = Date.now();
     try {
       res = await appelIA(texte, adresse);
@@ -883,6 +954,21 @@ async function analyserEnFlux(texte, adresse = 'vous', surPhrase = () => {}) {
       return garde(res, texte);
     } catch (e) {
       console.error('[NOVA] Échec du flux :', e.message);
+      if (estInjoignable(e)) {
+        // Le serveur n'a pas répondu. Il ne répondra pas davantage à un
+        // second appel : on passe directement à l'analyse locale, et on le
+        // DIT — « je n'ai pas encore appris à traiter ça » serait un
+        // mensonge, et enverrait chercher la panne du mauvais côté.
+        console.warn('[NOVA] Cerveau injoignable — analyse locale directe, aucun second appel');
+        const res = garde(analyseLocale(texte, adresse), texte);
+        res._moteur = 'analyse locale (cerveau injoignable)';
+        res.response = 'Je n’arrive pas à joindre mon moteur de raisonnement. '
+          + 'Vérifie que Nova Core et Ollama sont bien lancés.';
+        console.info('[NOVA] Response Generated');
+        console.info('        « ' + res.response + ' »');
+        surPhrase(res.response);
+        return res;
+      }
       console.warn('[NOVA] Repli sur l’appel classique');
     }
   }
@@ -905,4 +991,9 @@ function garde(res, texte) {
   return res;
 }
 
-module.exports = { loadKey, setConfig, analyser, analyserEnFlux, WORKSPACES };
+module.exports = {
+  loadKey, setConfig, analyser, analyserEnFlux, WORKSPACES,
+  // Exportés pour le banc d'essai : la règle « un chemin mort ne se retente
+  // pas » vaut 120 secondes par erreur de jugement, elle mérite d'être testée.
+  estInjoignable, DELAI_LOCAL_MS, DELAI_CLOUD_MS,
+};

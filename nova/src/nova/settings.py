@@ -144,7 +144,23 @@ class Settings(BaseSettings):
     # llama3.2:3b. Une mesure fausse vaut mieux qu'une absence : elle se
     # corrige, alors qu'un champ vide oblige a deviner.
     vitesse_mesuree: float = 28.8
-    request_timeout: float = 300.0
+    # Delai de LECTURE accorde au moteur, en secondes.
+    #
+    # ⚠️ REGLE : CE DELAI DOIT RESTER PLUS COURT QUE CELUI DE L'APPELANT.
+    #
+    # L'application de bureau attend Nova Core pendant 120 s ; Nova Core
+    # attendait Ollama pendant 300 s. Un appelant qui abandonne AVANT son
+    # appele ne recoit jamais le vrai diagnostic : il rend le sien, qui est
+    # faux. Releve en conditions reelles — Ollama etait eteint, Nova Core
+    # l'attendait, et l'application a conclu « Nova Core est-il lance ? »
+    # alors que Nova Core allait parfaitement bien. Puis elle a REESSAYE le
+    # meme chemin mort : 2 x 120 s = quatre minutes pour une erreur que la
+    # couche du dessous connaissait au bout de deux secondes.
+    #
+    # 90 s couvre largement la generation la plus lente observee (~30 s) et
+    # le chargement d'un modele depuis le disque (~21 s), tout en laissant
+    # 30 s de marge sous le plafond de l'application.
+    request_timeout: float = 90.0
     log_level: str = "INFO"
 
     @property

@@ -110,6 +110,12 @@ async def lifespan(app: FastAPI):
     # Le prechauffage est lent et se fait DERRIERE : le demarrage ne doit
     # jamais attendre un modele.
     log.info("Machine : %s", plateforme.resume())
+    # Un modele trop lourd ne provoque aucune erreur : il pagine sur le
+    # disque, en silence, et fait passer la machine pour un mauvais choix.
+    # On le dit une fois, fort, plutot que de laisser chercher des heures.
+    if alerte := plateforme.modele_trop_lourd(settings.chat_model):
+        for ligne in alerte.splitlines():
+            log.warning("%s", ligne)
     try:
         from nova.outils import enregistrer_outils_standard, registre_outils
 

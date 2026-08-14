@@ -79,15 +79,87 @@ class Machine:
         return "large"
 
 
+#: Poids approximatif des modeles courants, en Go, quantification par defaut
+#: d'Ollama (Q4). Approximatif ET utile : il ne s'agit pas de facturer un
+#: octet pres, mais de distinguer « ca tient » de « ca va ramer une heure ».
+POIDS_CONNUS: dict[str, float] = {
+    "llama3.2:1b": 1.3, "llama3.2:3b": 2.0, "llama3.1:8b": 4.9,
+    "qwen2.5:3b": 1.9, "qwen2.5:7b": 4.7,
+    "qwen3:1.7b": 1.4, "qwen3:4b": 2.6, "qwen3:8b": 5.2,
+    "gemma2:2b": 1.6, "gemma3:4b": 3.3,
+    "mistral:7b": 4.1, "phi3:mini": 2.3,
+}
+
+
+def poids_modele_go(nom: str) -> float | None:
+    """Le poids probable d'un modele, ou `None` si inconnu.
+
+    On tolere les variantes de suffixe (`qwen3:8b-instruct-q4_K_M`) : ce qui
+    determine le poids est la famille et le nombre de parametres, pas la
+    declinaison.
+    """
+    if nom in POIDS_CONNUS:
+        return POIDS_CONNUS[nom]
+    for connu, poids in POIDS_CONNUS.items():
+        if nom.startswith(connu):
+            return poids
+    return None
+
+
+def modele_trop_lourd(nom: str) -> str | None:
+    """Un avertissement si ce modele ne tient pas dans le budget, sinon `None`.
+
+    POURQUOI CET AVERTISSEMENT EXISTE
+
+    Un modele plus gros que la memoire disponible ne refuse pas de tourner :
+    il tourne, en paginant sur le disque. La difference ne se voit nulle part
+    — ni erreur, ni journal — sauf sur le chronometre, ou elle se compte en
+    minutes. C'est la panne la plus couteuse a diagnostiquer, parce qu'elle
+    ressemble a « l'IA locale est lente », alors qu'elle veut dire « ce modele
+    n'est pas pour cette machine ».
+
+    Nova ne choisit pas a ta place : elle le DIT, une fois, au demarrage.
+    """
+    machine = detecter()
+    poids = poids_modele_go(nom)
+    if poids is None or machine.memoire_go == 0:
+        return None
+    if poids <= machine.budget_modele_go:
+        return None
+    return (
+        f"Le modele « {nom} » pese environ {poids} Go, pour un budget de "
+        f"{machine.budget_modele_go} Go sur cette machine ({machine.memoire_go} Go, "
+        f"profil {machine.profil}).\n"
+        f"Il fonctionnera, mais en paginant sur le disque — c'est-a-dire tres "
+        f"lentement, sans qu'aucune erreur ne le signale.\n"
+        f"Modeles qui tiennent dans ce budget : "
+        f"{', '.join(sorted(n for n, p in POIDS_CONNUS.items() if p <= machine.budget_modele_go))}"
+    )
+
+
 def _memoire_go() -> float:
     """Memoire totale, sans dependance externe.
 
     `os.sysconf` couvre macOS et Linux. Windows n'expose pas ces constantes :
     on rend 0, et l'appelant traite l'inconnu comme tel plutot que de recevoir
     un chiffre invente.
+
+    ⚠️ 2**30 ET NON 1e9, ET LA DIFFERENCE N'EST PAS COSMETIQUE
+
+    Quand un constructeur ecrit « 8 Go de memoire », il parle de 8 Gio, soit
+    8 589 934 592 octets. Divise par 1e9, cela donne 8,6 — et le seuil
+    `memoire_go <= 8` du profil ne se declenche JAMAIS sur une machine de
+    8 Go. Releve sur la machine de reference :
+
+        8.6 Go (confortable)     <- faux, c'est un Mac 8 Go, profil « etroit »
+
+    Consequence en chaine : le budget modele passait de 3,6 a 3,9 Go, et
+    surtout Nova annoncait « confortable » a une machine qui ne l'est pas —
+    donc n'incitait pas a choisir un modele plus leger. Une unite mal choisie
+    a fait mentir tout le diagnostic.
     """
     try:
-        return round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e9, 1)
+        return round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30, 1)
     except (ValueError, AttributeError, OSError):
         return 0.0
 

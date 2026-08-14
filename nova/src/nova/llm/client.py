@@ -160,6 +160,36 @@ def _explique(exc: httpx.HTTPError, modele: str) -> str:
     return str(exc)
 
 
+#: Delai d'ETABLISSEMENT de la connexion, en secondes.
+#:
+#: CONNECTER N'EST PAS REPONDRE, ET LES CONFONDRE COUTE CINQ MINUTES
+#:
+#: Un service local repond a la poignee de main en quelques millisecondes, ou
+#: n'est pas la. Il n'existe aucun cas ou etablir une connexion vers
+#: `localhost` demande trois secondes. En revanche, ECRIRE une reponse peut
+#: legitimement en demander soixante.
+#:
+#: Un delai unique pour les deux oblige a choisir le plus grand — et donc a
+#: attendre une minute entiere pour apprendre qu'un service est eteint. En les
+#: separant, l'absence se constate en deux secondes et la lenteur reste
+#: tolerée. C'est la meme distinction que « la porte est fermee » et « on met
+#: du temps a m'ouvrir » : le second demande de la patience, le premier non.
+CONNEXION_S = 2.0
+
+#: Delai d'ECRITURE de la requete. Court : le corps tient en quelques kilo-octets.
+ENVOI_S = 10.0
+
+
+def _delais(lecture: float) -> httpx.Timeout:
+    """Les quatre delais d'un appel, separes.
+
+    `lecture` est le seul qui doive etre genereux : c'est le temps que le
+    modele passe a produire. Les trois autres mesurent de la plomberie, et une
+    plomberie qui tarde est une plomberie cassee.
+    """
+    return httpx.Timeout(connect=CONNEXION_S, read=lecture, write=ENVOI_S, pool=CONNEXION_S)
+
+
 class LLMClient:
     def __init__(self, base_url: str | None = None, model: str | None = None) -> None:
         settings = get_settings()
@@ -214,7 +244,7 @@ class LLMClient:
         """Reponse complete, en un bloc. Pour la CLI et les traitements de fond."""
         payload = self._payload(messages, temperature, None, False) | {"stream": False}
         try:
-            with httpx.Client(timeout=self.timeout) as client:
+            with httpx.Client(timeout=_delais(self.timeout)) as client:
                 resp = client.post(f"{self.base_url}/chat/completions", json=payload)
                 resp.raise_for_status()
                 return resp.json()["choices"][0]["message"]["content"]
@@ -243,7 +273,7 @@ class LLMClient:
         # chaque appel rechargerait plusieurs Go depuis le disque.
         payload = self._payload(messages, temperature, max_tokens, json_mode) | {"stream": True}
         try:
-            with httpx.Client(timeout=self.timeout) as client:
+            with httpx.Client(timeout=_delais(self.timeout)) as client:
                 with client.stream(
                     "POST", f"{self.base_url}/chat/completions", json=payload
                 ) as resp:
@@ -299,7 +329,7 @@ class LLMClient:
         """
         depart = time.perf_counter()
         try:
-            with httpx.Client(timeout=180.0) as client:
+            with httpx.Client(timeout=_delais(180.0)) as client:
                 reponse = client.post(
                     f"{self.base_url}/chat/completions",
                     json={
@@ -318,7 +348,7 @@ class LLMClient:
     def health(self) -> bool:
         """Le moteur repond-il ? Utilise par /health."""
         try:
-            with httpx.Client(timeout=5.0) as client:
+            with httpx.Client(timeout=_delais(5.0)) as client:
                 return client.get(f"{self.base_url}/models").status_code == 200
         except httpx.HTTPError:
             return False
