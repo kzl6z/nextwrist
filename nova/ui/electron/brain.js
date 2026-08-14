@@ -188,6 +188,10 @@ Tu ${adresse === 'tu' ? 'le tutoies' : 'le vouvoies'}. Tu es calme, directe, jam
 Réponds en DEUX phrases courtes, jamais plus. Elles seront PRONONCÉES, pas lues.
 Termine chaque phrase par un point : c'est ce qui permet de la dire tout de suite.
 
+Commence DIRECTEMENT par la réponse. Aucun préambule : ni « merci », ni
+« bonne question », ni « je vais vérifier ». La première phrase est la
+première chose qu'Hugo entendra — elle doit déjà répondre.
+
 Renvoie UNIQUEMENT un objet JSON avec une seule clé, nommée exactement
 response. Ne traduis pas ce nom, ne le remplace pas, n'en ajoute aucun autre.
 
@@ -832,6 +836,33 @@ function immediat(texte, intent, response) {
   };
 }
 
+// Mots qui peuvent suivre un déclencheur sans rien y ajouter : conjugaison,
+// politesse, précisions de temps. Tout le reste est un SUJET, et un sujet
+// signifie que la phrase parle d'autre chose.
+const MOTS_VIDES = new Set([
+  'est', 'et', 'il', 'elle', 'on', 'nous', 'vous', 'tu', 'je', 'me', 'te', 'se',
+  's', 't', 'l', 'd', 'y', 'en', 'a', 'au', 'aux', 'du', 'de', 'des', 'le', 'la',
+  'les', 'un', 'une', 'ce', 'ca', 'cela', 'que', 'qu', 'qui', 'quoi', 'quel',
+  'quelle', 'quels', 'quelles', 'plait', 'plais', 'merci', 'stp', 'svp',
+  'maintenant', 'actuellement', 'la', 'exactement', 'environ', 'pile',
+  'dis', 'dit', 'dire', 'donne', 'sais', 'peux', 'pourrais', 'veux', 'stp',
+]);
+
+// Reste-t-il un sujet apres le declencheur ?
+//
+// C'est la garde qui separe « quelle heure est-il » de « quelle heure est a
+// planete les plus grandes du systeme solaire ». Le declencheur est le meme ;
+// ce qui le suit ne l'est pas.
+function sujetApres(t, motif) {
+  const morceaux = t.split(motif);
+  if (morceaux.length < 2) return false;
+  const reste = morceaux.slice(1).join(' ');
+  const significatifs = reste
+    .split(/[^a-z0-9]+/)
+    .filter(mot => mot.length > 1 && !MOTS_VIDES.has(mot));
+  return significatifs.length > 0;
+}
+
 function repondreImmediatement(texte) {
   const t = normalise(texte);
 
@@ -842,7 +873,23 @@ function repondreImmediatement(texte) {
   // d'une durée, pas d'une demande d'heure.
   const demandeHeure = /\bheure\b|\bheur\b|\bquelheure?\b/.test(t);
   const parleDeDuree = /\bheures?\s+(de|du|pour|avant|apres)\b|\b(dans|depuis|pendant)\b/.test(t);
-  if (demandeHeure && !parleDeDuree) {
+  // ⚠️ LE DÉCLENCHEUR NE SUFFIT PAS : CE QUI LE SUIT DÉCIDE.
+  //
+  // Cette condition cherchait « heure » N'IMPORTE OÙ dans la phrase. Relevé
+  // en conditions réelles, sur une transcription bancale :
+  //
+  //     « quelle heure est à planète les plus grandes du système solaire »
+  //         → réponse immédiate (aucun modèle appelé) — 0 ms
+  //         → « Il est 13 heures 10. »
+  //
+  // La question portait sur les planètes. Le mot « heure » venait d'une
+  // erreur de transcription, et le raccourci a répondu à côté EN ZÉRO
+  // MILLISECONDE — donc sans que rien ne paraisse anormal.
+  //
+  // Une vraie demande d'heure n'est suivie de rien de substantiel : « est-il »,
+  // « il est », « s'il te plaît ». Dès qu'il reste un sujet derrière, la
+  // phrase parle d'autre chose et le modèle doit s'en charger.
+  if (demandeHeure && !parleDeDuree && !sujetApres(t, /\bheures?\b|\bheur\b/)) {
     const maintenant = new Date();
     const h = maintenant.getHours();
     const m = maintenant.getMinutes();
@@ -1021,4 +1068,7 @@ module.exports = {
   // Une ligne mal placée lui a fait dire « je ne connais pas les planètes du
   // système solaire » : ça se teste.
   systemPrompt,
+  // Le raccourci répond en 0 ms, donc sans qu'aucune lenteur ne signale
+  // qu'il s'est trompé. Il doit être testé plus serré que le reste.
+  repondreImmediatement,
 };
