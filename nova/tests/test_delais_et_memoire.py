@@ -155,3 +155,55 @@ def test_les_variantes_de_suffixe_sont_reconnues(monkeypatch):
 def test_une_machine_large_accepte_le_gros_modele(monkeypatch):
     monkeypatch.setattr(plateforme, "detecter", lambda: machine(32.0))
     assert plateforme.modele_trop_lourd("qwen3:8b") is None
+
+
+# ── 4. Le defaut doit tenir sur la machine du projet ──────────────────────
+
+
+def test_le_modele_par_defaut_tient_sur_la_machine_de_reference():
+    """Un defaut qui ne fonctionne pas sur la machine du projet n'est pas un defaut.
+
+    Il valait « qwen3:8b » : 5,2 Go pour un budget de 3,6. Personne ne l'avait
+    vu parce qu'un modele trop gros ne produit aucune erreur — il pagine.
+    """
+    from nova.settings import Settings
+
+    defaut = Settings.model_fields["chat_model"].default
+    poids = plateforme.poids_modele_go(defaut)
+    assert poids is not None, f"poids de « {defaut} » inconnu : ajoute-le a POIDS_CONNUS"
+    assert poids <= machine(8.0).budget_modele_go, (
+        f"« {defaut} » pese {poids} Go pour un budget de "
+        f"{machine(8.0).budget_modele_go} Go sur l'iMac M1 de reference"
+    )
+
+
+#: Le modele avec lequel `vitesse_mesuree` a ete relevee, et sa mesure.
+#: Ces deux valeurs vont ENSEMBLE : changer l'une sans l'autre fait mentir
+#: le routeur, qui s'en sert pour juger si un modele est assez rapide.
+MODELE_MESURE = "llama3.2:3b"
+VITESSE_MESUREE = 28.8
+
+
+def test_la_vitesse_par_defaut_decrit_bien_le_modele_par_defaut():
+    """Les deux reglages par defaut doivent parler du MEME modele.
+
+    C'est un declencheur volontaire, pas une verification de logique : il
+    n'existe aucun moyen de deduire d'un chiffre le modele sur lequel il a
+    ete releve. Ce test echoue donc des qu'on touche a l'un des deux, et
+    rappelle de remesurer plutot que de laisser les valeurs diverger.
+
+    Ce qu'il a rattrape : `vitesse_mesuree` = 28,8 jetons/s relevee avec
+    llama3.2:3b, pendant que `chat_model` valait qwen3:8b. Le routeur croyait
+    donc qu'un modele de 5,2 Go ecrivait a la vitesse d'un modele de 2,0 Go.
+    """
+    from nova.settings import Settings
+
+    assert Settings.model_fields["chat_model"].default == MODELE_MESURE, (
+        "Le modele par defaut a change. Remesure la vitesse "
+        "(uv run python scripts/bench_models.py), reporte-la dans "
+        "`vitesse_mesuree`, puis mets ce test a jour."
+    )
+    assert Settings.model_fields["vitesse_mesuree"].default == VITESSE_MESUREE, (
+        "La vitesse par defaut a change sans que le modele change : "
+        "s'agit-il bien d'une nouvelle mesure sur " + MODELE_MESURE + " ?"
+    )

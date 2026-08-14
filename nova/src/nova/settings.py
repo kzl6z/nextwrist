@@ -42,7 +42,21 @@ class Settings(BaseSettings):
     # Ollama expose une API compatible OpenAI sur /v1. C'est notre frontiere
     # stable : changer de moteur d'inference = changer cette seule URL.
     ollama_url: str = "http://localhost:11434/v1"
-    chat_model: str = "qwen3:8b"
+    # ⚠️ CE DEFAUT DOIT TENIR SUR LA MACHINE DE REFERENCE (iMac M1, 8 Go).
+    #
+    # Il valait « qwen3:8b » — 5,2 Go pour un budget de 3,6. Un modele trop
+    # gros ne refuse pas de tourner : il pagine sur le disque, sans erreur ni
+    # journal. La seule trace est le chronometre, et on accuse la machine.
+    #
+    # Pire, il contredisait `vitesse_mesuree` plus bas, dont la valeur (28,8
+    # jetons/s) a ete relevee avec llama3.2:3b. Le routeur croyait donc que
+    # qwen3:8b ecrivait a la vitesse d'un modele deux fois plus leger, et le
+    # jugeait assez rapide pour tous les usages. Deux defauts qui se
+    # decrivaient mutuellement de travers.
+    #
+    # Un defaut doit fonctionner sur la machine du projet. Qui a mieux le
+    # declare dans .env — c'est ce que ce champ est fait pour.
+    chat_model: str = "llama3.2:3b"
     embedding_model: str = "bge-m3"
 
     # Doit correspondre a vector(N) dans migrations/002. Ne pas changer seul.
