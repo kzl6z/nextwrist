@@ -166,27 +166,46 @@ def echantillons() -> list[tuple[Path, str]]:
 
 
 def mesurer(modele: str, beam: int, paires: list[tuple[Path, str]], amorce: str) -> Resultat:
-    from faster_whisper import WhisperModel
+    """Mesure en passant par LA FONCTION QUE NOVA UTILISE VRAIMENT.
 
-    from nova.settings import get_settings
+    ⚠️ NE PAS REECRIRE L'APPEL A WHISPER ICI.
 
-    moteur = WhisperModel(modele, device="cpu", compute_type=get_settings().whisper_compute)
+    Ce banc appelait `WhisperModel.transcribe()` directement, avec sa propre
+    liste de parametres. Il en manquait trois, dont
+    `compression_ratio_threshold=2.4` — le garde-fou qui coupe les
+    repetitions en boucle. Resultat mesure :
+
+        dit      « Qu'est-ce qu'un trou noir ? »
+        entendu  « Qu'est-ce qu'un trou moire ? Qu'est-ce qu'un trou moire ? »
+
+    Nova en production aurait filtre cette repetition. Le banc mesurait donc
+    un systeme qui n'existe pas, et sur-estimait le taux d'erreur.
+
+    Un banc qui teste une configuration voisine de la vraie est pire qu'un
+    banc absent : il donne une raison chiffree de se tromper. On passe donc
+    par `transcribe.transcrire()`, exactement comme l'API — les deux ne
+    peuvent plus diverger, meme si quelqu'un ajoute un reglage demain.
+    """
+    from nova.voice import transcribe
+
     resultat = Resultat(modele=modele, beam=beam)
 
-    for audio, attendu in paires:
-        depart = time.perf_counter()
-        segments, info = moteur.transcribe(
-            str(audio),
-            language="fr",
-            beam_size=beam,
-            initial_prompt=amorce,
-            condition_on_previous_text=False,
-            temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-        )
-        obtenu = " ".join(s.text.strip() for s in segments).strip()
-        resultat.secondes += time.perf_counter() - depart
-        resultat.audio_secondes += info.duration
+    # Charger le modele AVANT de chronometrer. Sinon la premiere phrase de
+    # chaque configuration porte le cout du chargement, et un gros modele
+    # parait deux fois plus lent qu'il ne l'est reellement a l'usage — ou
+    # Nova le garde resident.
+    transcribe._modele(modele)
 
+    for audio, attendu in paires:
+        octets = audio.read_bytes()
+        depart = time.perf_counter()
+        transcription = transcribe.transcrire(
+            octets, langue="fr", modele=modele, amorce=amorce, beam=beam
+        )
+        resultat.secondes += time.perf_counter() - depart
+        resultat.audio_secondes += transcription.duree
+
+        obtenu = transcription.texte
         mots_attendus, mots_obtenus = _mots(attendu), _mots(obtenu)
         resultat.mots_totaux += len(mots_attendus)
         erreurs = distance_mots(mots_attendus, mots_obtenus)
@@ -376,9 +395,21 @@ def main() -> int:
             print(f"    dit      « {attendu} »")
             print(f"    entendu  « {obtenu} »\n")
 
-    print("Pour appliquer un choix, dans .env :")
-    print("    NOVA_WHISPER_MODEL=small")
-    print("    NOVA_WHISPER_BEAM=5\n")
+    # ⚠️ LE CONSEIL DOIT VENIR DE LA MESURE, PAS D'UN EXEMPLE.
+    #
+    # Ces deux lignes etaient ecrites en dur : « small, beam 5 ». La premiere
+    # mesure reelle a designe small beam 1 (68,7 %) et classe small beam 5
+    # DERNIER des deux (59,7 %) — le banc contredisait donc sa propre
+    # conclusion, dans la ligne la plus lue de sa sortie. Un outil qui mesure
+    # puis conseille autre chose est pire qu'un outil qui ne conseille rien.
+    gagnant = max(resultats, key=lambda r: (r.precision, -r.secondes))
+    print("CE QUE LA MESURE DESIGNE")
+    print(f"    {gagnant.modele} en beam {gagnant.beam} — {gagnant.precision:.1%} de mots justes,")
+    par_phrase = gagnant.secondes / max(len(paires), 1)
+    print(f"    soit {par_phrase:.1f} s par phrase.\n")
+    print("Pour l'appliquer, dans .env :")
+    print(f"    NOVA_WHISPER_MODEL={gagnant.modele}")
+    print(f"    NOVA_WHISPER_BEAM={gagnant.beam}\n")
     return 0
 
 
