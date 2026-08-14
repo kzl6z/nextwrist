@@ -8,6 +8,32 @@ sans que le mot apparaisse.
 AVERTISSEMENT : changer de modele d'embeddings rend inutilisables TOUS les
 vecteurs deja calcules. Il faut alors une nouvelle migration et une
 re-vectorisation complete. Ce choix se fait une fois.
+
+⚠️ NOVA UTILISE DEUX MODELES, ET OLLAMA DOIT POUVOIR LES GARDER TOUS LES DEUX
+
+Ce module appelle Ollama avec bge-m3 ; l'orchestrateur l'appelle avec le
+modele de conversation. Ce sont DEUX modeles, charges dans le meme serveur.
+
+    OLLAMA_MAX_LOADED_MODELS=1
+
+decharge donc le modele de conversation a chaque vectorisation, et le
+rechargement est paye au coup d'apres. Releve en conditions reelles sur
+l'iMac M1 :
+
+    Modele llama3.2:3b charge en 4.0 s
+    prompt 3376 car. -> premier mot 5,1 s
+    prompt 1812 car. -> premier mot 5,2 s     <- moitie moins de prompt,
+                                                 meme temps
+
+Le cout ne dependait pas de la taille du prompt parce que ce n'etait pas de
+la lecture : c'etait un rechargement complet, a chaque question. Un defaut
+de ce genre ne se voit dans aucun profil applicatif — il se passe dans un
+autre processus.
+
+Le reglage correct est 2 (ou plus). Sur 8 Go, les deux tiennent :
+llama3.2:3b 2,0 Go + bge-m3 1,2 Go = 3,2 Go, pour un budget de 3,6 Go.
+
+    launchctl setenv OLLAMA_MAX_LOADED_MODELS 2
 """
 
 from __future__ import annotations

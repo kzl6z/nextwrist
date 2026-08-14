@@ -471,7 +471,9 @@ def build_system_prompt(
     )
 
     hits: list[SearchHit] = []
+    ms_recherche = 0.0
     if len(user_message.strip()) >= MIN_QUERY_LENGTH:
+        debut_recherche = time.perf_counter()
         try:
             hits = document_search.search(user_message)
         except Exception as exc:  # noqa: BLE001
@@ -479,6 +481,7 @@ def build_system_prompt(
             # Chaque capacite est facultative : c'est ce qui rend le systeme
             # robuste quand on en ajoutera dix autres.
             log.warning("Recherche documentaire indisponible : %s", exc)
+        ms_recherche = (time.perf_counter() - debut_recherche) * 1000
 
     if hits:
         ajouter(
@@ -495,6 +498,24 @@ def build_system_prompt(
         "Prompt systeme : %s",
         " + ".join(f"{nom} {len(contenu)}" for nom, contenu in parts),
     )
+    # ── LE TEMPS PASSE AVANT MEME D'APPELER LE MODELE ────────────────────
+    #
+    # Ce chiffre manquait, et son absence a coute un tour entier. Le filtre
+    # de pertinence a divise le prompt par deux (3376 -> 1812) sans changer
+    # le temps avant le premier mot (5,1 -> 5,2 s) : la taille du prompt
+    # n'etait donc pas le goulot. Il fallait chercher AILLEURS, et rien ne
+    # disait ou.
+    #
+    # La recherche documentaire embarque un appel a bge-m3 pour vectoriser
+    # la question — un second modele, de 1,2 Go, sur une machine de 8 Go. Ce
+    # cout-la est paye meme quand AUCUN extrait n'est retenu.
+    if ms_recherche >= 50:
+        log.info(
+            "Assemblage du prompt : recherche documentaire %.0f ms "
+            "(vectorisation de la question comprise)%s",
+            ms_recherche,
+            "" if hits else " — pour zero extrait retenu",
+        )
     return "\n\n".join(contenu for _, contenu in parts), hits
 
 
