@@ -216,6 +216,20 @@ class Tuning:
         # Defaut si la config vient d'une version anterieure : une ancienne
         # config ne doit jamais empecher Nova de demarrer.
         self.extraits_budget: int = data["recherche"].get("budget_caracteres_extraits", 2000)
+        # ── DISTANCE COSINUS MAXIMALE POUR QU'UN EXTRAIT SOIT JUGE PERTINENT
+        #
+        # 0 = identique, 1 = sans rapport. Une recherche vectorielle rend
+        # TOUJOURS ses plus proches voisins : sans ce seuil, une question de
+        # culture generale reçoit les extraits les moins mauvais du corpus,
+        # et le prompt double de taille pour rien.
+        #
+        # 0,55 est un point de depart, pas une verite : le bon seuil depend
+        # du modele d'embeddings et de TES documents. Les distances sont
+        # journalisees a chaque recherche — regarde-les, et ajuste.
+        #
+        # Trop bas : Nova cesse d'utiliser tes documents quand il le faudrait.
+        # Trop haut : on revient au defaut d'origine.
+        self.distance_max: float = data["recherche"].get("distance_max", 0.55)
         self.chunk_size: int = data["decoupage"]["taille"]
         self.chunk_overlap: int = data["decoupage"]["recouvrement"]
         self.faits_max: int = data["memoire"]["faits_max_dans_prompt"]

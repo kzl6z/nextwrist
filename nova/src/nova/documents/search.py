@@ -22,24 +22,48 @@ from __future__ import annotations
 from nova.db import connection
 from nova.documents.ranking import reciprocal_rank_fusion
 from nova.llm.embeddings import embed_one
+from nova.logging_setup import get_logger
 from nova.memory.models import SearchHit
 from nova.settings import get_tuning
 
+log = get_logger(__name__)
 
-def _vector_ranking(conn, query: str, limit: int) -> list[int]:
-    """Classement par proximite semantique. `<=>` = distance cosinus (pgvector)."""
+
+def _vector_ranking(conn, query: str, limit: int) -> tuple[list[int], dict[int, float]]:
+    """Classement par proximite semantique, ET la distance de chacun.
+
+    ⚠️ LA DISTANCE ETAIT CALCULEE PUIS JETEE.
+
+    `<=>` est la distance cosinus de pgvector : 0 = identique, 1 = sans
+    rapport. On ne selectionnait que l'`id`, donc on perdait la seule mesure
+    ABSOLUE de pertinence du systeme.
+
+    Sans elle, une recherche rend toujours ses plus proches voisins — et
+    « le plus proche » ne veut pas dire « proche ». Releve en conditions
+    reelles, sur la question « qu'est-ce que la relativite », qui n'a aucun
+    rapport avec les documents personnels :
+
+        Prompt systeme : contrat 1337 + memoire 260 + instant 184
+                         + documents 1562
+        prompt 3376 car. -> premier mot 5,1 s
+
+    46 % du prompt, et environ deux secondes d'attente a chaque question,
+    pour des extraits sans rapport. Le score de fusion (RRF) ne pouvait pas
+    le detecter : il mesure un RANG. Le premier reste premier, meme quand il
+    est le moins mauvais d'un lot sans interet.
+    """
     vector = embed_one(query)
     rows = conn.execute(
         """
-        SELECT id
+        SELECT id, embedding <=> %s::vector AS distance
         FROM chunks
         WHERE embedding IS NOT NULL
         ORDER BY embedding <=> %s::vector
         LIMIT %s
         """,
-        (str(vector), limit),
+        (str(vector), str(vector), limit),
     ).fetchall()
-    return [r["id"] for r in rows]
+    return [r["id"] for r in rows], {r["id"]: float(r["distance"]) for r in rows}
 
 
 def _fulltext_ranking(conn, query: str, limit: int) -> list[int]:
@@ -71,15 +95,42 @@ def search(query: str, limit: int | None = None) -> list[SearchHit]:
         if conn.execute("SELECT 1 FROM chunks LIMIT 1").fetchone() is None:
             return []
 
-        rankings = [
-            _vector_ranking(conn, query, candidates),
-            _fulltext_ranking(conn, query, candidates),
-        ]
-        scores = reciprocal_rank_fusion(rankings)
+        par_vecteur, distances = _vector_ranking(conn, query, candidates)
+        par_mots = _fulltext_ranking(conn, query, candidates)
+        scores = reciprocal_rank_fusion([par_vecteur, par_mots])
         if not scores:
             return []
 
-        best = sorted(scores, key=lambda cid: scores[cid], reverse=True)[:limit]
+        # ── LE PLUS PROCHE N'EST PAS FORCEMENT PROCHE ─────────────────────
+        #
+        # Une recherche vectorielle rend TOUJOURS ses k plus proches
+        # voisins. Sur une question sans rapport avec le corpus, elle rend
+        # donc les moins mauvais — avec le meme rang, et le meme score de
+        # fusion, que sur une question parfaitement couverte.
+        #
+        # La distance cosinus, elle, est absolue : on peut lui opposer un
+        # seuil. Au-dela, on n'injecte RIEN, et le prompt retrouve un tiers
+        # de sa taille sur toutes les questions de culture generale.
+        #
+        # Un extrait trouve par les MOTS est garde sans condition : si la
+        # question contient litteralement les mots du document, la
+        # pertinence est etablie par construction, pas estimee.
+        mots_exacts = set(par_mots)
+        seuil = get_tuning().distance_max
+        retenus = [
+            cid for cid in scores
+            if cid in mots_exacts or distances.get(cid, 2.0) <= seuil
+        ]
+        if not retenus:
+            if distances:
+                log.info(
+                    "Aucun extrait pertinent (plus proche : distance %.2f > seuil %.2f) — "
+                    "prompt allege d'autant.",
+                    min(distances.values()), seuil,
+                )
+            return []
+
+        best = sorted(retenus, key=lambda cid: scores[cid], reverse=True)[:limit]
 
         # Un seul aller-retour pour recuperer le detail des morceaux retenus.
         rows = conn.execute(

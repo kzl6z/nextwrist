@@ -5,6 +5,30 @@
 # Nombre d'extraits injectes dans le contexte. 4-8 est la bonne zone :
 # en dessous Nova manque d'information, au dessus le signal se noie.
 extraits_max = 6
+# ── LE PLUS PROCHE N'EST PAS FORCEMENT PROCHE ────────────────────────────
+#
+# Distance cosinus maximale pour qu'un extrait soit juge pertinent.
+# 0 = identique, 1 = sans rapport.
+#
+# Une recherche vectorielle rend TOUJOURS ses plus proches voisins. Sur une
+# question sans rapport avec tes documents, elle rend donc les moins
+# mauvais — et rien dans le score de fusion ne permet de le voir, puisqu'il
+# mesure un RANG. Releve en conditions reelles sur « qu'est-ce que la
+# relativite » :
+#
+#     contrat 1337 + memoire 260 + instant 184 + documents 1562
+#     prompt 3376 car. -> premier mot 5,1 s
+#
+# 46 % du prompt, environ deux secondes d'attente, pour des extraits sans
+# aucun rapport avec la question.
+#
+# 0,55 est un POINT DE DEPART, pas une verite : le bon seuil depend du
+# modele d'embeddings et de tes documents. Les distances sont journalisees
+# a chaque recherche — regarde-les et ajuste.
+#
+#   trop bas  : Nova cesse d'utiliser tes documents quand il le faudrait
+#   trop haut : on revient au defaut d'origine
+distance_max = 0.55
 # ── Budget en CARACTERES des extraits injectes ───────────────────────────
 #
 # Meme defaut que la memoire avant correction (R13), meme cause : borner le
