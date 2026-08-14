@@ -153,6 +153,10 @@ Tape « p » puis Entree pour passer une phrase, « q » pour arreter la seance.
 
 Parle normalement, comme tu parles a Nova — ni plus fort, ni plus lentement.
 Une mesure faite en articulant exagerement ne dirait rien de l'usage reel.
+
+macOS affiche parfois des avertissements sur les cameras (« ContinuityCamera »)
+au moment d'ouvrir le micro : il enumere tous les peripheriques, y compris
+ceux dont on ne se sert pas. C'est sans consequence, l'enregistrement tourne.
 """)
 
     a_faire = PHRASES[numero - 1 :]
