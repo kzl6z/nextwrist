@@ -244,6 +244,11 @@ class Tuning:
         # Valeur par defaut si le fichier vient d'une version anterieure : une
         # config plus ancienne ne doit jamais empecher Nova de demarrer.
         self.faits_budget: int = data["memoire"].get("budget_caracteres_prompt", 1200)
+        # Budget du CONTEXTE conversationnel, en caracteres. Meme discipline
+        # que la memoire et les documents : borner le nombre de tours ne borne
+        # pas leur taille, et chaque caractere du passe se paie sur chaque
+        # question a venir (risque R13).
+        self.historique_budget: int = data["memoire"].get("budget_caracteres_historique", 1200)
 
 
 @lru_cache

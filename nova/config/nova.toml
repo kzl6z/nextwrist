@@ -92,3 +92,16 @@ faits_max_dans_prompt = 80
 # 1200 caracteres ~ 4 s de lecture. Au-dela, il faudra choisir les faits
 # pertinents plutot que tous les envoyer (V0.3).
 budget_caracteres_prompt = 1200
+# ── Budget du CONTEXTE conversationnel ───────────────────────────────────
+#
+# Ce qui permet a Nova de comprendre « Et on pourrait y vivre ? » apres
+# « Parle-moi de Mars ». Les echanges etaient enregistres depuis toujours et
+# n'etaient JAMAIS relus : elle avait la memoire, pas l'usage.
+#
+# En caracteres et non en nombre de tours, pour la meme raison que partout
+# ailleurs : huit reponses longues pesent plus qu'un document entier, et le
+# passe se paie sur chaque question a venir.
+#
+# 1200 ~ trois a quatre echanges. Au-dela, on gagne du contexte lointain et
+# on perd des seconde sur tout le reste.
+budget_caracteres_historique = 1200

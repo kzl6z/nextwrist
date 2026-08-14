@@ -65,3 +65,60 @@ def log_message(
             "UPDATE conversations SET last_message_at = now() WHERE id = %s",
             (conversation_id,),
         )
+
+
+def derniers_echanges(
+    conversation_id: int, *, budget_caracteres: int, tours_max: int = 8
+) -> list[dict[str, str]]:
+    """Les derniers messages de la conversation, prets a etre envoyes au modele.
+
+    POURQUOI CETTE FONCTION N'EXISTAIT PAS, ET CE QUE CA COUTAIT
+
+    Ce module savait ECRIRE et pas RELIRE. Chaque echange partait en base et
+    n'en revenait jamais. Nova avait donc une memoire parfaite de ce qui
+    s'etait dit, et aucun moyen de s'en servir :
+
+        — « Parle-moi de Mars. »        Nova repond.
+        — « Et on pourrait y vivre ? »  « y » ne renvoie a rien.
+
+    Ce n'etait pas un manque d'intelligence du modele : on ne lui avait
+    simplement pas donne la phrase precedente.
+
+    LE BUDGET EST EN CARACTERES, PAS EN NOMBRE DE MESSAGES
+
+    C'est le risque R13 du projet — « Nova ralentit a mesure qu'elle
+    apprend ». Borner le NOMBRE de tours ne borne pas leur TAILLE : huit
+    reponses longues pesent plus qu'un document entier, et chaque caractere
+    du prompt se paie sur CHAQUE question suivante.
+
+    On remonte donc du plus recent vers le plus ancien, et on s'arrete des
+    que le budget est atteint. Le present est toujours servi avant le passe.
+
+    `tours_max` est un second garde-fou, contre une conversation faite de
+    milliers de messages minuscules que le budget seul laisserait passer.
+    """
+    with connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT role, content
+            FROM messages
+            WHERE conversation_id = %s AND role IN ('user', 'assistant')
+            ORDER BY id DESC
+            LIMIT %s
+            """,
+            (conversation_id, tours_max * 2),
+        ).fetchall()
+
+    retenus: list[dict[str, str]] = []
+    total = 0
+    for row in rows:                     # du plus recent au plus ancien
+        contenu = (row["content"] or "").strip()
+        if not contenu:
+            continue
+        if total + len(contenu) > budget_caracteres and retenus:
+            break
+        retenus.append({"role": row["role"], "content": contenu})
+        total += len(contenu)
+
+    retenus.reverse()                    # le modele lit dans l'ordre du temps
+    return retenus

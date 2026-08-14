@@ -539,9 +539,47 @@ def answer_stream(
 
     system_prompt, hits = build_system_prompt(last_user, mode=mode, contrat=contrat)
     history = [m for m in messages if m.get("role") != "system"]
-    full: list[Message] = [{"role": "system", "content": system_prompt}, *history]
 
     conversation_id = conversations.get_or_create(conversation_external_id)
+
+    # ── LE CONTEXTE CONVERSATIONNEL ──────────────────────────────────────
+    #
+    # Les echanges partaient en base et n'en revenaient jamais : ce module
+    # savait ecrire, pas relire. Nova avait donc une memoire parfaite de ce
+    # qui s'etait dit, et aucun moyen de s'en servir.
+    #
+    #     — « Parle-moi de Mars. »        Nova repond.
+    #     — « Et on pourrait y vivre ? »  « y » ne renvoie a rien.
+    #
+    # On relit ICI, avant de journaliser la question en cours — sinon elle
+    # figurerait deux fois dans le prompt, une fois comme passe et une fois
+    # comme present.
+    #
+    # LA GARDE : un client qui envoie DEJA son historique fait foi.
+    #
+    # L'application de bureau n'envoie qu'un message ; un autre client
+    # pourrait envoyer toute la conversation. Injecter le notre par-dessus le
+    # sien donnerait deux versions du meme passe, dans le desordre — et le
+    # modele n'aurait aucun moyen de trancher.
+    passe: list[Message] = []
+    if len(history) <= 1:
+        try:
+            passe = conversations.derniers_echanges(
+                conversation_id, budget_caracteres=get_tuning().historique_budget
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Un contexte indisponible degrade la conversation ; il ne doit
+            # jamais empecher de repondre. Chaque capacite est facultative.
+            log.warning("Historique de conversation indisponible : %s", exc)
+
+    full: list[Message] = [{"role": "system", "content": system_prompt}, *passe, *history]
+    if passe:
+        log.info(
+            "Contexte : %d message(s) precedent(s) rappeles (%d caracteres).",
+            len(passe),
+            sum(len(m["content"]) for m in passe),
+        )
+
     conversations.log_message(conversation_id, "user", last_user)
 
     client = LLMClient()

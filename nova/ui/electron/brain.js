@@ -62,6 +62,22 @@ const NOVA_PORT = parseInt(process.env.NOVA_PORT || '8100', 10);
 const DELAI_LOCAL_MS = 120000;
 const DELAI_CLOUD_MS = 20000;
 
+// ── L'IDENTIFIANT DE CONVERSATION ────────────────────────────────────────
+//
+//  Il n'etait pas envoye. Nova Core creait donc une conversation NEUVE a
+//  chaque question — l'historique existait en base, fragmente en lignes d'un
+//  seul message, et aucune ne pouvait servir de contexte a la suivante.
+//
+//  C'est ce qui rendait « Et on pourrait y vivre ? » impossible apres
+//  « Parle-moi de Mars » : ce n'etait pas un manque d'intelligence du
+//  modele, on ne lui avait simplement pas donne la phrase precedente.
+//
+//  Volontairement STABLE et non aleatoire : le contexte doit survivre a un
+//  redemarrage de l'application. « Tu te souviens de ce dont on parlait ? »
+//  doit encore fonctionner demain matin. Le budget en caracteres, cote Nova
+//  Core, empeche cette conversation de grossir indefiniment dans le prompt.
+const CONVERSATION = process.env.NOVA_CONVERSATION || 'bureau';
+
 let apiKey = null;
 // 110 jetons : deux phrases parlées dans leur enveloppe JSON tiennent
 // largement dedans. Le plafond n'est pas une réserve gratuite — sur un modèle
@@ -470,6 +486,9 @@ function appelIAEnFlux(texte, adresse, surPhrase) {
       max_tokens: config.maxTokens,
       system: consigne,
       messages: [{ role: 'user', content: texte }],
+      // Sans ce champ, Nova Core ouvre une conversation neuve a chaque
+      // question et ne peut rappeler aucun contexte.
+      metadata: { user_id: CONVERSATION },
       stream: true,
     });
 
@@ -621,6 +640,9 @@ function appelIA(texte, adresse) {
       max_tokens: config.maxTokens,
       system: consigne,
       messages: [{ role: 'user', content: texte }],
+      // Sans ce champ, Nova Core ouvre une conversation neuve a chaque
+      // question et ne peut rappeler aucun contexte.
+      metadata: { user_id: CONVERSATION },
     });
 
     // Même requête, même format, même code de lecture ci-dessous.
