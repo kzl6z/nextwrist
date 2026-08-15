@@ -324,7 +324,8 @@ class ReglerLeSon:
     def __init__(self, nom: str, description: str, pas: int | None) -> None:
         self.nom = nom
         self.description = description
-        self.pas = pas          # None = sourdine
+        #: None = sourdine ; 0 = reglage absolu, qui EXIGE un niveau.
+        self.pas = pas
 
     def executer(self, niveau: str = "") -> str:
         """`niveau` est un pourcentage VISE, quand la phrase en contenait un.
@@ -338,10 +339,14 @@ class ReglerLeSon:
             commande = ["/usr/bin/osascript", "-e", _SCRIPT_SOURDINE]
         else:
             vise = _pourcentage(niveau)
-            if vise is None:
-                sens, valeur = ("plus" if self.pas > 0 else "moins"), abs(self.pas)
-            else:
+            if vise is not None:
                 sens, valeur = "absolu", vise
+            elif self.pas == 0:
+                # « mets le son » sans destination. Choisir un niveau a sa
+                # place serait deviner ; ne rien faire en silence serait pire.
+                raise ActionImpossible("À quel niveau veux-tu que je mette le son ?")
+            else:
+                sens, valeur = ("plus" if self.pas > 0 else "moins"), abs(self.pas)
             # Positifs tous les deux : voir le commentaire du script.
             commande = ["/usr/bin/osascript", "-e", _SCRIPT_VOLUME, sens, str(valeur)]
 
@@ -373,6 +378,7 @@ def _actions_du_son() -> tuple[ReglerLeSon, ...]:
     return (
         ReglerLeSon("monter_le_son", "Augmente le volume du systeme", PAS_VOLUME),
         ReglerLeSon("baisser_le_son", "Diminue le volume du systeme", -PAS_VOLUME),
+        ReglerLeSon("regler_le_son", "Met le volume a un pourcentage precis", 0),
         ReglerLeSon("couper_le_son", "Coupe le son du systeme", None),
     )
 

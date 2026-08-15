@@ -103,7 +103,8 @@ def test_aucun_argument_ne_commence_par_un_tiret(osascript):
     """
     for outil in systeme._actions_du_son():
         osascript.clear()
-        outil.executer()
+        # Le reglage absolu EXIGE un niveau ; les autres n'en veulent pas.
+        outil.executer(niveau="30") if outil.pas == 0 else outil.executer()
         for argument in osascript[0][3:]:
             assert not argument.startswith("-"), f"« {argument} » sera lu comme une option"
 
@@ -178,7 +179,7 @@ def outils_du_son(monkeypatch):
             faits.append((self.nom, arguments.get("niveau", "")))
             return "fait"
 
-    for nom in ("monter_le_son", "baisser_le_son", "couper_le_son"):
+    for nom in ("monter_le_son", "baisser_le_son", "regler_le_son", "couper_le_son"):
         registre.enregistrer(Faux(nom))
     monkeypatch.setattr(module, "registre_outils", registre)
     return faits
@@ -258,6 +259,54 @@ def test_un_pourcentage_absurde_est_borne_avant_de_partir(osascript):
     jusque-la pour etre rattrape au dernier moment."""
     systeme.ReglerLeSon("monter_le_son", "", 12).executer(niveau="2020")
     assert osascript[0][-2:] == ["absolu", "100"]
+
+
+# ── Regler, qui n'est ni monter ni baisser ────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("phrase", "attendu"),
+    [
+        ("mets le son à 30%", "30"),
+        ("met le son à 30 %", "30"),
+        ("règle le son à 45%", "45"),
+        ("mets le volume à 60 pour cent", "60"),
+        # RELEVE EN CONDITIONS REELLES : dit « mets », transcrit « me ».
+        ("me le son à 30 %", "30"),
+    ],
+)
+def test_regler_le_son_a_un_niveau_precis(phrase, attendu):
+    """« Nova, mets le son à 30 % » etait IGNOREE.
+
+    La table ne connaissait que deux directions, et cette phrase n'en donne
+    aucune : elle donne une DESTINATION. C'est pourtant la formulation la plus
+    naturelle quand on sait ou l'on veut aller.
+    """
+    intention = vi.reconnaitre(phrase)
+    assert intention.nom == "volume_absolu"
+    assert intention.cible == attendu
+
+
+def test_regler_sans_destination_demande_au_lieu_de_deviner(osascript):
+    """« mets le son » seul ne dit pas a combien.
+
+    Le ranger sous « monte » aurait monte le son — ce qui ne veut pas dire ca.
+    Choisir un niveau a sa place serait deviner ; ne rien faire en silence
+    serait pire.
+    """
+    with pytest.raises(systeme.ActionImpossible, match="quel niveau"):
+        systeme.ReglerLeSon("regler_le_son", "", 0).executer()
+    assert osascript == [], "une commande est partie sans destination"
+
+
+@pytest.mark.parametrize("phrase", ["mets la table", "mets de la musique", "met moi une photo"])
+def test_mettre_autre_chose_ne_touche_pas_au_volume(phrase):
+    assert vi.reconnaitre(phrase).nom == "aucune"
+
+
+def test_regler_le_son_arrive_jusqu_a_l_outil(outils_du_son):
+    orchestrator.executer_intention(comprise("mets le son à 30%"))
+    assert outils_du_son == [("regler_le_son", "30")]
 
 
 # ── « monte » entendu « montre » ──────────────────────────────────────────
@@ -353,6 +402,71 @@ def test_le_rapprochement_arrive_jusqu_au_volume(outils_du_son):
     assert outils_du_son == [("monter_le_son", "80")]
 
 
+# ── La forme d'une phrase ne dit pas qu'elle est ratee ────────────────────
+
+
+@pytest.mark.parametrize(
+    "ordre",
+    [
+        "me le son à 30 %", "mets le son à 30 %", "monte le son à 80 %",
+        "baisse le son à 50 %", "ferme le PC", "monte le son", "coupe le son",
+        "ouvre Discord", "éteins l'ordinateur", "il est quelle heure",
+    ],
+)
+def test_un_ordre_bref_n_est_pas_un_decoupage_rate(ordre):
+    """⚠️ LE CRITERE PUNISSAIT CE POUR QUOI NOVA EXISTE.
+
+    Releve en conditions reelles : « me le son à 30 % » notee 0,45 sur ce seul
+    critere, donc rejetee. Trois causes cumulees :
+
+      — « % » comptait comme un mot d'un caractere ;
+      — « 30 » comptait comme un mot suspect, alors qu'un nombre est souvent
+        le mot le plus utile de la phrase ;
+      — un ratio etait applique a trois mots, ou il ne veut rien dire :
+        « ferme le PC » y donne 2/3.
+
+    Les ordres sont brefs par nature. Un critere qui penalise la brievete
+    penalise la moitie de ce que Nova sait faire.
+    """
+    from nova.voice import comprehension as vc
+
+    note, raison = vc._confiance_structurelle(ordre)
+    assert note == 1.0, f"« {ordre} » penalise : {raison}"
+
+
+@pytest.mark.parametrize(
+    "bruit",
+    ["et de la de le a ce", "je ne l ai de a en", "a b c de le la",
+     "d un a la de", "le de la a en on"],
+)
+def test_un_vrai_decoupage_rate_est_toujours_attrape(bruit):
+    """Ce que le critere doit attraper reste attrape.
+
+    Whisper qui perd le fil produit une trainee de mots-outils — bavarde par
+    nature, ce qui est exactement ce qui la distingue d'un ordre bref.
+    """
+    from nova.voice import comprehension as vc
+
+    note, raison = vc._confiance_structurelle(bruit)
+    assert note < 1.0 and raison
+
+
+def test_la_chaine_complete_laisse_passer_l_ordre_mal_entendu():
+    """LE CAS DE BOUT EN BOUT, avec le logprob reellement releve (-0,56).
+
+    Trois corrections devaient se cumuler pour que cette phrase agisse :
+    l'intention `volume_absolu` qui n'existait pas, le rapprochement
+    « me » → « mets », et le critere de forme. Aucune des trois ne suffisait
+    seule — c'est pour ca qu'elle etait ignoree.
+    """
+    from nova.voice import comprehension as vc
+
+    comprise_ = vc.comprendre("me le son à 30 %", logprob=-0.56)
+    assert comprise_.intention.nom == "volume_absolu"
+    assert comprise_.intention.cible == "30"
+    assert comprise_.sure, f"confiance {comprise_.confiance} — l'ordre serait ignore"
+
+
 # ── La machine reste a son proprietaire ───────────────────────────────────
 
 
@@ -416,6 +530,24 @@ def test_un_demi_giga_de_swap_n_est_pas_une_pagination():
     apprendrait a ignorer l'alerte."""
     assert not plateforme.Pression(0.4, 2.0).pagine
     assert plateforme.Pression(1.5, 2.0).pagine
+
+
+def test_une_transcription_vide_n_accuse_pas_un_reglage_eteint():
+    """⚠️ UN DIAGNOSTIC FAUX COUTE PLUS CHER QUE PAS DE DIAGNOSTIC.
+
+    Le message disait « filtre VAD trop strict (NOVA_WHISPER_VAD) » a chaque
+    transcription vide. Or ce filtre est DESACTIVE par defaut : la piste
+    envoyait chercher la panne dans un reglage qui ne tournait pas — et elle
+    l'envoyait avec assurance, ce qui est le pire des deux.
+    """
+    from nova.voice import transcribe
+
+    eteint = transcribe.piste_du_silence(vad_actif=False)
+    assert "NOVA_WHISPER_VAD" not in eteint, "on accuse un reglage qui ne tourne pas"
+    assert "micro" in eteint
+
+    allume = transcribe.piste_du_silence(vad_actif=True)
+    assert "NOVA_WHISPER_VAD" in allume, "le VAD actif est une piste, et il faut la donner"
 
 
 def test_une_mesure_impossible_ne_declare_pas_la_paix():

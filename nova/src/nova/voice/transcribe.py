@@ -144,6 +144,27 @@ def _charger(nom: str):
     )
 
 
+def piste_du_silence(vad_actif: bool) -> str:
+    """Ou chercher quand l'audio arrive et que rien n'en sort.
+
+    ⚠️ CE MESSAGE ACCUSAIT UN REGLAGE QUI ETAIT ETEINT.
+
+    Il disait « filtre VAD trop strict (NOVA_WHISPER_VAD) » a chaque
+    transcription vide. Or `whisper_vad` vaut False par defaut : la piste
+    envoyait chercher la panne dans un reglage qui ne tournait pas.
+
+    Un diagnostic faux coute plus cher que pas de diagnostic — le premier
+    fait perdre du temps AVEC confiance. On ne cite donc le VAD que s'il est
+    reellement actif, et sinon on nomme les causes qui restent.
+    """
+    if vad_actif:
+        return (
+            "filtre VAD actif (NOVA_WHISPER_VAD=true) — il rejette parfois toute "
+            "la piste sur un enregistrement court"
+        )
+    return "micro trop loin, voix trop basse, ou silence apres le mot de reveil"
+
+
 def _fils_de_calcul() -> int:
     """Combien de coeurs la transcription a le droit de prendre.
 
@@ -264,9 +285,8 @@ def transcrire(
                 )
             else:
                 log.warning(
-                    "%.2f s d'audio mais aucune parole reconnue. "
-                    "Micro trop loin, ou filtre VAD trop strict (NOVA_WHISPER_VAD).",
-                    info.duration,
+                    "%.2f s d'audio mais aucune parole reconnue : %s.",
+                    info.duration, piste_du_silence(get_settings().whisper_vad),
                 )
         return Transcription(texte=texte, logprob=logprob, duree=info.duration)
     finally:

@@ -111,6 +111,18 @@ DECLENCHEURS: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("date", ("quel jour", "quelle date", "on est quel", "la date"), False),
     ("volume_haut", ("monte le son", "augmente le volume", "monte le volume", "plus fort"), False),
     ("volume_bas", ("baisse le son", "baisse le volume", "diminue le volume", "moins fort"), False),
+    # ⚠️ NI MONTER NI BAISSER : REGLER.
+    #
+    # Releve en conditions reelles : « Nova, mets le son à 30 % » — ignoree.
+    # La table ne connaissait que deux directions, et cette phrase n'en donne
+    # aucune : elle donne une DESTINATION. C'est d'ailleurs la formulation la
+    # plus naturelle quand on sait ou l'on veut aller.
+    #
+    # La ranger sous « monte » aurait marche tant qu'un pourcentage suit, et
+    # aurait monte le son sur un « mets le son » seul — ce qui ne veut pas
+    # dire ca.
+    ("volume_absolu", ("mets le son", "met le son", "mets le volume",
+                       "met le volume", "regle le son", "regle le volume"), False),
     # ⚠️ DEUX SILENCES QUI N'ONT RIEN A VOIR, ET QUI ETAIENT CONFONDUS
     #
     # « coupe le son » parle du HAUT-PARLEUR. « tais-toi » parle de NOVA.
@@ -252,7 +264,7 @@ def _nettoyer_cible(brut: str) -> str:
 
 
 #: Les intentions dont la phrase peut porter une valeur visee.
-AVEC_POURCENTAGE = frozenset({"volume_haut", "volume_bas"})
+AVEC_POURCENTAGE = frozenset({"volume_haut", "volume_bas", "volume_absolu"})
 
 #: « 20 % », « 20 pour cent », « à 20 ». Cherche dans le texte ORIGINAL : la
 #: normalisation supprime le signe %, et « 20% » y devient « 20 » — donc

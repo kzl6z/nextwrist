@@ -132,12 +132,41 @@ def _confiance_structurelle(texte: str) -> tuple[float, str | None]:
     de trois lettres n'est generalement pas du francais mais un decoupage
     rate — c'est exactement ce que produit Whisper quand il perd le fil.
     """
-    mots = texte.split()
+    # ⚠️ DEUX CHOSES NE SONT PAS DES MOTS COURTS, ET ELLES FAUSSAIENT TOUT.
+    #
+    # Releve en conditions reelles : « me le son à 30 % » notee 0,45 sur ce
+    # seul critere, donc rejetee. En comptant « % » comme un mot d'un
+    # caractere et « 30 » comme un mot suspect, quatre jetons sur six
+    # passaient pour du decoupage rate — alors que la phrase est parfaitement
+    # formee.
+    #
+    #   — la PONCTUATION n'est pas un mot. « % », « ! », « … » sortent du
+    #     calcul des deux cotes, numerateur comme denominateur ;
+    #   — un NOMBRE n'est jamais du bruit. « 30 » fait deux caracteres et dit
+    #     quelque chose de precis ; c'est meme souvent le mot le plus utile
+    #     de la phrase.
+    #
+    # Ce que le critere doit attraper reste attrape : « et de la de le a ce »
+    # est toujours a 100 % de mots courts. Ce qu'il attrapait a tort — les
+    # ordres brefs, c'est-a-dire precisement ce pour quoi Nova existe — ne
+    # l'est plus.
+    mots = [m for m in texte.split() if any(c.isalnum() for c in m)]
     if not mots:
         return 0.0, "aucun mot"
     if len(mots) == 1:
         return 0.85, None   # « oui », « stop » sont des demandes valides
-    courts = sum(1 for m in mots if len(m.strip(" ,.!?;:")) <= 2)
+    # Un ratio n'a aucun sens sur trois mots. « ferme le PC » y donne 2/3, et
+    # c'est un ordre parfaitement clair — de meme que « monte le son » ou
+    # « coupe le son », c'est-a-dire la moitie de ce que Nova sait faire. Le
+    # decoupage rate que ce critere vise est bavard par nature : Whisper qui
+    # perd le fil produit une trainee de mots-outils, pas trois mots.
+    if len(mots) < 4:
+        return 1.0, None
+
+    courts = sum(
+        1 for m in mots
+        if len(m.strip(" ,.!?;:%")) <= 2 and not any(c.isdigit() for c in m)
+    )
     if courts / len(mots) > 0.6:
         return 0.45, "beaucoup de mots tres courts : decoupage probablement rate"
     return 1.0, None

@@ -71,6 +71,7 @@ ACTIONS: dict[str, Action] = {
     # confronte a rien.
     "volume_haut": Action("monter_le_son", "niveau"),
     "volume_bas": Action("baisser_le_son", "niveau"),
+    "volume_absolu": Action("regler_le_son", "niveau"),
     "silence": Action("couper_le_son"),
     "arret_pc": Action("eteindre_ordinateur"),
 }
