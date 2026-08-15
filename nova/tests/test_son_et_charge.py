@@ -260,6 +260,99 @@ def test_un_pourcentage_absurde_est_borne_avant_de_partir(osascript):
     assert osascript[0][-2:] == ["absolu", "100"]
 
 
+# ── « monte » entendu « montre » ──────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("entendu", "attendu", "niveau"),
+    [
+        # RELEVE EN CONDITIONS REELLES, deux fois de suite.
+        ("montre le son à 80%", "volume_haut", "80"),
+        ("montre le son du PC à 80%", "volume_haut", "80"),
+        ("Nova montre le son du PC à 80%", "volume_haut", "80"),
+        ("montre le sont", "volume_haut", ""),
+        ("éteint l'ordinateur", "arret_pc", ""),
+    ],
+)
+def test_un_declencheur_mal_transcrit_est_rapproche(entendu, attendu, niveau):
+    """« monte » et « montre » ne different que d'une lettre, et « montre »
+    est bien plus frequent en francais : Whisper choisit le mot courant.
+
+    Ajouter « montre le son » a la table aurait marche pour cette phrase-la.
+    Il aurait fallu y ajouter « mont le son », « montent le son », « monte le
+    sont » — une famille ouverte dont chaque membre manquant ressemble a une
+    panne. Rapprocher par le SON les traite tous.
+    """
+    intention = vi.reconnaitre(entendu)
+    assert intention.nom == attendu
+    assert intention.cible == niveau
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "montre-moi une photo de Mars",
+        "montre moi Discord",
+        "je te montre le son",
+        "donne moi le son juste",
+        "raconte moi une histoire",
+        "quelle est la masse du Soleil",
+        "parle moi de la Lune",
+    ],
+)
+def test_le_rapprochement_ne_devient_pas_un_pari(phrase):
+    """LES TESTS QUI COMPTENT LE PLUS ICI.
+
+    Mesure sur les declencheurs reels : « montre le son » ~ « monte le son »
+    donne 0,875, tandis que « quelle » ~ « kill » plafonne a 0,667 et
+    « donne moi le son » ~ « monte le son » a 0,500. C'est ce TROU, et non le
+    seuil lui-meme, qui rend la regle defendable.
+
+    « montre-moi une photo » est la phrase qu'on prononcerait naturellement et
+    que la moindre imprudence transformerait en reglage de volume.
+    """
+    assert vi.reconnaitre(phrase).nom == "aucune"
+
+
+def test_un_declencheur_exact_n_est_jamais_reinterprete():
+    """Le rapprochement est un DERNIER recours. Tant qu'un declencheur est
+    ecrit exactement, une phrase juste ne doit pas etre relue."""
+    intention = vi.reconnaitre("coupe le son")
+    assert intention.nom == "silence"
+    assert intention.arguments == {}
+
+
+def test_un_rapprochement_recoit_la_confiance_minimale_qui_agit():
+    """Deliberement au seuil : le jour ou `SEUIL_INTENTION` monte, les
+    rapprochements sont les premiers exclus, avant toute reconnaissance
+    exacte."""
+    from nova.core import actions
+
+    rapproche = vi.reconnaitre("montre le son à 80%")
+    exact = vi.reconnaitre("monte le son à 80%")
+    assert rapproche.confiance == actions.SEUIL_INTENTION
+    assert exact.confiance > rapproche.confiance
+
+
+def test_seuls_les_declencheurs_sans_cible_sont_rapproches():
+    """Pour « ouvre » ou « ferme », la cible est ensuite retrouvee dans le
+    texte ORIGINAL. Reparer le declencheur d'un cote et pas de l'autre ferait
+    perdre la cible en silence — un echec bien pire que l'absence de
+    rapprochement."""
+    for nom, declencheurs, exige_cible in vi.DECLENCHEURS:
+        if not exige_cible:
+            continue
+        for declencheur in declencheurs:
+            repare, trace = vi._rapprocher_le_declencheur(declencheur + " machin")
+            assert trace == "", f"« {nom} » a une cible et a ete rapproche : {trace}"
+
+
+def test_le_rapprochement_arrive_jusqu_au_volume(outils_du_son):
+    """Le chemin complet : Whisper se trompe, et le son monte quand meme."""
+    assert orchestrator.executer_intention(comprise("montre le son à 80%")).agie
+    assert outils_du_son == [("monter_le_son", "80")]
+
+
 # ── La machine reste a son proprietaire ───────────────────────────────────
 
 

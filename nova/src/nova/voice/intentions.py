@@ -43,6 +43,8 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 
+from nova.voice import phonetique
+
 #: Enrobage de politesse et de tournure. Retire avant toute reconnaissance.
 #: L'ordre compte : les plus longues d'abord, sinon « tu peux » consommerait
 #: le debut de « est-ce que tu peux ».
@@ -273,6 +275,83 @@ def pourcentage(texte: str) -> str:
     return trouve.group(1) or trouve.group(2) or ""
 
 
+#: Ressemblance minimale pour reparer un declencheur mal transcrit.
+#:
+#: MESURE, PAS CHOISI. Sur les declencheurs reels :
+#:
+#:     « montre le son »  ~ « monte le son »     0,875   a reparer
+#:     « quelle »         ~ « kill »             0,667   surtout pas
+#:     « donne moi le son » ~ « monte le son »   0,500   surtout pas
+#:     « parle »          ~ « demarre »          0,500   surtout pas
+#:
+#: Le trou entre 0,875 et 0,667 est large. C'est lui qui rend ce seuil
+#: defendable, pas le chiffre lui-meme.
+SEUIL_DECLENCHEUR = 0.85
+
+#: En dessous, un declencheur est trop court pour etre rapproche sans risque :
+#: sur quatre lettres, deux mots sans rapport se ressemblent facilement.
+LONGUEUR_MIN_DECLENCHEUR = 8
+
+
+def _rapprocher_le_declencheur(reduit: str) -> tuple[str, str]:
+    """Repare un declencheur que la transcription a mal ecrit.
+
+    LE CAS RELEVE EN CONDITIONS REELLES
+
+        dit      « Nova, monte le son à 80 % »
+        ecrit    « Nova montre le son à 80 % »
+        compris  rien du tout
+
+    « monte » et « montre » ne different que d'une lettre, et « montre » est
+    bien plus frequent en francais : Whisper choisit le mot courant. Aucun
+    reglage de transcription n'y peut rien de fiable.
+
+    POURQUOI REPARER LE TEXTE PLUTOT QUE D'ELARGIR LA RECONNAISSANCE
+
+    Ajouter « montre le son » a la table aurait marche pour cette phrase-la.
+    Il aurait fallu y ajouter ensuite « mont le son », « montent le son »,
+    « monte le sont » — une famille ouverte, dont chaque membre manquant
+    ressemble a une panne. Rapprocher par le SON les traite tous.
+
+    Et le faire AVANT la reconnaissance plutot que dedans laisse tout ce qui
+    suit inchange : positions, extraction de cible, confiances.
+
+    DEUX GARDES, ET ELLES COMPTENT PLUS QUE LA REGLE
+
+      — uniquement les declencheurs SANS cible. Pour « ouvre » ou « ferme »,
+        la cible est ensuite retrouvee dans le texte ORIGINAL ; la reparer
+        d'un cote et pas de l'autre ferait perdre la cible en silence.
+      — uniquement en TETE de phrase. « je te montre le son » n'est pas un
+        ordre, et ne doit pas le devenir parce qu'il sonne comme un.
+    """
+    mots = reduit.split()
+    if not mots:
+        return reduit, ""
+
+    # Depart 0 ou 1 : le mot de reveil survit parfois a l'application, et
+    # « Nova monte le son » decalerait tout d'un mot. Meme tolerance que la
+    # reconnaissance exacte, qui accepte un declencheur jusqu'au 12e caractere.
+    departs = [0] + ([1] if mots and len(mots[0]) <= 12 else [])
+
+    for _nom, declencheurs, exige_cible in DECLENCHEURS:
+        if exige_cible:
+            continue
+        for declencheur in declencheurs:
+            if len(declencheur) < LONGUEUR_MIN_DECLENCHEUR:
+                continue
+            taille = len(declencheur.split())
+            for depart in departs:
+                if depart + taille > len(mots):
+                    continue
+                tete = " ".join(mots[depart : depart + taille])
+                if tete == declencheur:
+                    return reduit, ""      # deja juste : rien a reparer
+                if phonetique.ressemblance(tete, declencheur) >= SEUIL_DECLENCHEUR:
+                    repare = [*mots[:depart], declencheur, *mots[depart + taille :]]
+                    return " ".join(repare), f"{tete} → {declencheur}"
+    return reduit, ""
+
+
 def _candidats(reduit: str) -> list[tuple[str, str, bool, re.Match]]:
     """Les declencheurs presents dans la phrase, DU PLUS PRECIS AU PLUS VAGUE.
 
@@ -335,7 +414,17 @@ def reconnaitre(texte: str) -> Intention:
     if not reduit:
         return AUCUNE
 
-    for nom, declencheur, exige_cible, trouve in _candidats(reduit):
+    candidats = _candidats(reduit)
+    rapproche = ""
+    if not candidats:
+        # UNIQUEMENT en dernier recours. Tant qu'un declencheur est ecrit
+        # exactement, on ne va pas chercher ce qui lui ressemble : une phrase
+        # juste ne doit jamais etre reinterpretee.
+        reduit, rapproche = _rapprocher_le_declencheur(reduit)
+        if rapproche:
+            candidats = _candidats(reduit)
+
+    for nom, declencheur, exige_cible, trouve in candidats:
         if not exige_cible:
             # Le declencheur doit occuper l'essentiel de la phrase :
             # « quelle heure est-il » oui, « je me souviens de l'heure ou
@@ -343,7 +432,14 @@ def reconnaitre(texte: str) -> Intention:
             if trouve.start() > 12:
                 continue
             return Intention(
-                nom=nom, confiance=0.95, declencheur=declencheur,
+                nom=nom,
+                # Un declencheur RAPPROCHE recoit la confiance minimale qui
+                # agit encore (`SEUIL_INTENTION`). Deliberement : le jour ou
+                # ce seuil monte, les rapprochements sont les premiers exclus,
+                # avant toute reconnaissance exacte.
+                confiance=0.90 if rapproche else 0.95,
+                declencheur=declencheur,
+                arguments={"rapproche": rapproche} if rapproche else {},
                 # « baisse le son à 20 % » porte une valeur VISEE. Sans elle,
                 # Nova appliquait son pas et il fallait redemander jusqu'a
                 # tomber juste — releve en conditions reelles.

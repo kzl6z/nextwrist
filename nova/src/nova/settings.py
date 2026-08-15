@@ -163,9 +163,21 @@ class Settings(BaseSettings):
     # questions bien formees — parce que Whisper imite ce qu'on lui montre.
     # Sans elle il produit du texte sans accents ni ponctuation, que le modele
     # de langue comprend nettement moins bien.
+    # Les ORDRES y figurent maintenant, et pas par decoration.
+    #
+    # Releve en conditions reelles : « monte le son à 80 % » transcrit
+    # « MONTRE le son à 80 % ». Les deux mots ne different que d'une lettre et
+    # « montre » est bien plus frequent en francais — Whisper choisit le mot
+    # courant. Le rapprochement phonetique des declencheurs rattrape le cas
+    # apres coup ; l'amorce s'attaque a la cause, en montrant a Whisper que
+    # « monte le son » est une phrase attendue ici.
+    #
+    # Les deux valent mieux qu'un seul : l'amorce deplace une probabilite, le
+    # rapprochement garantit le resultat.
     whisper_amorce_dictee: str = (
         "Nova, quelle heure est-il ? Nova, que sais-tu de moi ? "
         "Nova, ouvre un nouveau projet. Nova, resume-moi ce document. "
+        "Nova, monte le son a 80 %. Nova, baisse le son. Nova, ferme Discord. "
         "Quel jour sommes-nous aujourd'hui ?"
     )
     # Vocabulaire declare a la main, separe par des virgules. Sert aux noms
