@@ -84,6 +84,41 @@ def test_une_ligne_illisible_ne_fait_pas_tomber_le_diagnostic(diagnostic, monkey
     assert diagnostic.voisins() == []
 
 
+def test_ollama_est_lu_chez_lui_plutot_que_devine(diagnostic, monkeypatch):
+    """⚠️ MA TABLE DE POIDS SOUS-ESTIMAIT LE POSTE LE PLUS LOURD.
+
+    `POIDS_CONNUS` donne le poids du FICHIER. `ollama ps` donne ce qui est
+    reellement resident, contexte compris, et l'ecart approche souvent le
+    double. Tout ce que j'ai annonce sur l'empreinte de Nova etait donc une
+    sous-estimation — et systematiquement du plus gros poste.
+    """
+    monkeypatch.setattr(diagnostic.shutil, "which", lambda _: "/usr/local/bin/ollama")
+    monkeypatch.setattr(
+        diagnostic, "_sortie",
+        lambda _: "NAME         ID      SIZE     PROCESSOR   UNTIL\n"
+                  "llama3.2:3b  a80c    3.5 GB   100% GPU    4 minutes from now\n",
+    )
+    lignes = diagnostic.ollama_resident()
+    assert lignes is not None
+    assert any("3.5 GB" in ligne for ligne in lignes)
+    assert any("GPU" in ligne for ligne in lignes), "le processeur utilise doit apparaitre"
+
+
+def test_aucun_modele_charge_se_distingue_d_ollama_absent(diagnostic, monkeypatch):
+    """Deux situations opposees qu'une liste vide confondrait.
+
+    « rien de charge » veut dire que la prochaine reponse paiera la lecture
+    du disque. « Ollama absent » veut dire qu'il n'y aura pas de reponse du
+    tout. Les rendre identiques enverrait chercher la mauvaise panne.
+    """
+    monkeypatch.setattr(diagnostic.shutil, "which", lambda _: "/usr/local/bin/ollama")
+    monkeypatch.setattr(diagnostic, "_sortie", lambda _: "NAME  ID  SIZE  PROCESSOR  UNTIL\n")
+    assert diagnostic.ollama_resident() == []
+
+    monkeypatch.setattr(diagnostic.shutil, "which", lambda _: None)
+    assert diagnostic.ollama_resident() is None
+
+
 def test_une_commande_absente_ne_fait_pas_tomber_le_diagnostic(diagnostic):
     """`ps` et `pgrep` n'existent pas partout. Le diagnostic doit rendre une
     reponse vide, pas une trace d'erreur."""

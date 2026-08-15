@@ -29,6 +29,7 @@ proprietaire.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -90,6 +91,30 @@ def voisins(combien: int = 12) -> list[tuple[float, str]]:
     return sorted(((go, nom) for nom, go in total.items()), reverse=True)[:combien]
 
 
+def ollama_resident() -> list[str] | None:
+    """Ce qu'Ollama tient EN CE MOMENT, lu chez lui. `None` s'il est absent.
+
+    ⚠️ POURQUOI CETTE MESURE VAUT MIEUX QUE MA TABLE DE POIDS.
+
+    `POIDS_CONNUS` donne le poids du FICHIER — 2,00 Go pour llama3.2:3b.
+    `ollama ps` donne ce qui est reellement resident, contexte compris, et
+    l'ecart n'est pas un detail : il approche souvent le double.
+
+    Autrement dit, tout ce que j'ai annonce a l'utilisateur sur l'empreinte
+    de Nova etait une sous-estimation, et une sous-estimation systematique du
+    poste le plus lourd. Une table de constantes ne remplace pas une lecture.
+
+    La colonne PROCESSOR compte tout autant sur Apple Silicon : « 100% GPU »
+    et « 100% CPU » ne se corrigent pas de la meme facon.
+    """
+    if not shutil.which("ollama"):
+        return None
+    lignes = [ligne for ligne in _sortie(["ollama", "ps"]).splitlines() if ligne.strip()]
+    if len(lignes) <= 1:      # l'entete seule = rien de charge
+        return []
+    return lignes
+
+
 def tourne(motif: str) -> bool:
     return bool(_sortie(["pgrep", "-f", motif]).strip())
 
@@ -118,6 +143,19 @@ def main() -> None:
             reglages.chat_model, [reglages.whisper_model, reglages.whisper_wake_model]
         )
     )
+
+    titre("Ce qu'Ollama tient VRAIMENT")
+    charges = ollama_resident()
+    if charges is None:
+        print("  Commande `ollama` introuvable — impossible de verifier.")
+    elif not charges:
+        print("  Aucun modele charge en ce moment.")
+        print("  (le premier mot d'une reponse paiera donc la lecture du disque)")
+    else:
+        for ligne in charges:
+            print(f"  {ligne}")
+        print("  ⚠️ Cette taille INCLUT le contexte, et depasse le poids du fichier.")
+        print("  C'est elle qui compte pour la memoire, pas celle annoncee plus haut.")
 
     titre("Les voisins — ce qui occupe la machine a cote")
     liste = voisins()
