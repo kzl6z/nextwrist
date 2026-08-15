@@ -278,11 +278,17 @@ le plus fort quand le modèle travaille :
 | INTRO, PRESENTING | 30 | mise en scène, aucun modèle ne tourne |
 | LISTENING | 20 | elle réagit à la voix, ça doit rester vivant |
 | IDLE | 12 | une respiration de 7,5 s n'a pas besoin de plus |
-| SPEAKING | 12 | il écrit peut-être encore la phrase suivante |
+| SPEAKING | **4** | ⚡ état de génération, le GPU appartient au modèle |
 | **THINKING** | **4** | ⚡ le GPU appartient au modèle |
 
 Soixante images par seconde pour une respiration de 7,5 secondes est de toute
 façon du gaspillage : l'œil ne voit rien en dessous de 15, la machine si.
+
+**Note sur SPEAKING :** La première version la cadençait à 12 images/s avec un 
+« peut-être encore la phrase suivante ». Depuis `parole-en-flux.js`, ce n'est 
+plus un peut-être — elle parle pendant qu'elle écrit. SPEAKING est donc un état 
+de génération, exactement comme THINKING, et mérite le même traitement : 4 img/s 
+rend le GPU au modèle, même quand l'utilisateur entend la voix.
 
 ```bash
 node test-rendu.cjs
