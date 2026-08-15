@@ -713,11 +713,26 @@ SEUIL_APPLICATION = 0.60
 MARGE_APPLICATION = 0.15
 
 
-def _resoudre_application(cible: str) -> tuple[str, str]:
-    """Confronte une cible entendue au catalogue reel. Rend (nom, etat).
+@dataclass(frozen=True)
+class _Cible:
+    """Ce qu'on a pu faire d'une cible entendue.
+
+    `candidats` existe pour le seul etat qui en a besoin : « Adobe » designe
+    Photoshop ET Illustrator, et rendre le premier trouve reviendrait a tirer
+    au sort. Une ambiguite doit se POSER, pas se trancher en silence.
+    """
+
+    nom: str
+    etat: str                       # exact | propose | ambigu | inconnu
+    candidats: tuple[str, ...] = ()
+
+
+def _resoudre_application(cible: str) -> _Cible:
+    """Confronte une cible entendue au catalogue reel.
 
         exact     on sait de quelle application il s'agit
         propose   on a un candidat, pas une certitude — il faut demander
+        ambigu    plusieurs applications portent ce mot
         inconnu   rien de ressemblant n'est installe
 
     ⚠️ POURQUOI UNE RESSEMBLANCE ELEVEE NE SUFFIT PAS A AGIR
@@ -763,35 +778,90 @@ def _resoudre_application(cible: str) -> tuple[str, str]:
 
     catalogue = applications.installees()
     if not catalogue:
-        return cible, "exact"
+        return _Cible(cible, "exact")
 
     if reel := applications.resoudre(cible):
-        return reel, "exact"
+        return _Cible(reel, "exact")
+
+    # ── LE SOUS-NOM ──────────────────────────────────────────────────────
+    #
+    # Personne ne dit « ouvre Adobe Photoshop 2025 » : on dit « Photoshop ».
+    # La forme longue est sur le disque, la forme courte est prononcee, et
+    # l'ecart est la regle. Un mot ECRIT pareil est une correspondance aussi
+    # sure qu'un nom entier — a condition qu'il n'en designe qu'une.
+    if sous_noms := applications.par_sous_nom(cible):
+        if len(sous_noms) == 1:
+            log.info("Application « %s » reconnue comme « %s ».", cible, sous_noms[0])
+            return _Cible(sous_noms[0], "exact")
+        log.info("Application « %s » : %d candidates.", cible, len(sous_noms))
+        return _Cible(cible, "ambigu", sous_noms)
 
     # Rien d'ecrit pareil : reste l'oreille. On classe TOUT le catalogue —
     # et rien d'autre. La memoire et le vocabulaire declare n'ont pas a
     # concourir ici, ou « Adam » finirait par designer « Adobe ».
-    classement = sorted(
-        ((phonetique.ressemblance(cible, nom), nom) for nom in catalogue),
-        reverse=True,
-    )
+    #
+    # Chaque application est jugee sur son MEILLEUR angle : son nom entier ou
+    # l'un de ses mots. « Crome » ne ressemble pas a « Google Chrome » (0,43)
+    # et sonne exactement comme son mot « Chrome » (1,00).
+    def note(nom: str) -> float:
+        angles = (nom, *applications.jetons(nom))
+        return max(phonetique.ressemblance(cible, angle) for angle in angles)
+
+    classement = sorted(((note(nom), nom) for nom in catalogue), reverse=True)
     meilleur, nom = classement[0]
-    suivant = classement[1][0] if len(classement) > 1 else 0.0
 
     if meilleur < SEUIL_APPLICATION:
-        return cible, "inconnu"
+        return _Cible(cible, "inconnu")
 
-    if meilleur >= 1.0 and meilleur - suivant >= MARGE_APPLICATION:
-        # Meme son exactement, et un seul candidat : « Écoledirecte » pour
-        # « EcoleDirecte ». Demander ici n'apprendrait rien a personne.
+    # Les candidats que rien ne separe du premier.
+    #
+    # « Fotochop » sonne EXACTEMENT autant comme « Photo Booth » que comme
+    # « Adobe Photoshop 2025 » — 0,667 des deux cotes. J'ai cherche un
+    # departage : longueur du fragment retenu, position du mot. Aucun ne
+    # separait ces deux-la sans en melanger d'autres. La conclusion honnete
+    # est qu'il n'y a pas de signal, et proposer le premier par ordre
+    # alphabetique aurait maquille un tirage au sort en decision.
+    ex_aequo = tuple(n for score, n in classement if meilleur - score < MARGE_APPLICATION)
+    if len(ex_aequo) > 1:
+        log.info("Application « %s » : %d lectures aussi vraisemblables.", cible, len(ex_aequo))
+        return _Cible(cible, "ambigu", ex_aequo)
+
+    if meilleur >= 1.0:
+        # Meme son exactement, et un seul candidat : « Saffari » pour
+        # « Safari », « Crome » pour « Google Chrome ». Demander ici
+        # n'apprendrait rien a personne.
         log.info("Application « %s » reconnue comme « %s ».", cible, nom)
-        return nom, "exact"
+        return _Cible(nom, "exact")
 
     log.info(
         "Application « %s » : « %s » ressemble (%.2f) sans certitude — je demande.",
         cible, nom, meilleur,
     )
-    return nom, "propose"
+    return _Cible(nom, "propose")
+
+
+#: Au-dela, une liste dite a voix haute ne s'ecoute plus. Trois noms tiennent
+#: dans une phrase ; huit ne sont plus une question mais un inventaire.
+CANDIDATS_CITES = 3
+
+
+def _enumerer(noms: tuple[str, ...]) -> str:
+    """« A, B ou C », et « A, B ou 4 autres » au-dela.
+
+    Ecrit pour l'OREILLE : cette phrase sera prononcee, pas lue. Une liste a
+    puces ne s'entend pas, et une enumeration sans « ou » final laisse croire
+    que Nova s'est interrompue.
+    """
+    cites = list(noms[:CANDIDATS_CITES])
+    reste = len(noms) - len(cites)
+    if reste > 0:
+        cites.append(f"{reste} autre{'s' if reste > 1 else ''}")
+    if len(cites) == 1:
+        return f"« {cites[0]} »"
+    debut = ", ".join(f"« {n} »" for n in cites[:-1])
+    dernier = cites[-1]
+    fin = dernier if dernier[0].isdigit() else f"« {dernier} »"
+    return f"{debut} ou {fin}"
 
 
 def _confronter_au_reel(
@@ -806,7 +876,19 @@ def _confronter_au_reel(
     if action.catalogue != actions.CATALOGUE_APPLICATIONS or not action.argument:
         return {action.argument: cible} if action.argument else {}, None
 
-    retenu, etat = _resoudre_application(cible)
+    trouvee = _resoudre_application(cible)
+    retenu, etat = trouvee.nom, trouvee.etat
+
+    if etat == "ambigu":
+        # On NE tranche PAS a la place de l'utilisateur. La question est posee
+        # en `echouee` et non en `a_confirmer` a dessein : « oui » ne saurait
+        # pas designer laquelle. Elle se repond en nommant l'application, ce
+        # qui repart comme une demande neuve — sans etat a garder.
+        return None, Resultat(
+            "echouee",
+            f"« {cible} » peut désigner {_enumerer(trouvee.candidats)}. Laquelle ?",
+            outil=action.outil, arguments={action.argument: cible},
+        )
 
     if etat == "inconnu":
         # Dire ce qu'on ne trouve pas vaut mieux que laisser `open` echouer

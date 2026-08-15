@@ -296,6 +296,124 @@ def test_jamais_deux_questions_dans_un_seul_oui(monkeypatch, installe):
     assert faits == []
 
 
+# ── Le sous-nom : la forme longue est sur le disque, la courte est dite ───
+
+
+def test_les_jetons_ecartent_le_millesime_et_les_mots_courts():
+    """« 2025 » est un millesime, « App » se retrouve partout."""
+    assert applications.jetons("Adobe Photoshop 2025") == ("Adobe", "Photoshop")
+    assert applications.jetons("App Store") == ("Store",)
+    assert applications.jetons("Visual Studio Code") == ("Visual", "Studio", "Code")
+
+
+@pytest.mark.parametrize(
+    ("dit", "attendu"),
+    [
+        ("Chrome", "Google Chrome"),
+        ("Photoshop", "Adobe Photoshop 2025"),
+        ("Word", "Microsoft Word"),
+        ("Code", "Visual Studio Code"),
+    ],
+)
+def test_un_mot_du_nom_suffit_quand_il_ne_designe_qu_une_application(
+    outils, installe, dit, attendu
+):
+    """Personne ne dit « ouvre Adobe Photoshop 2025 »."""
+    installe("Google Chrome", "Adobe Photoshop 2025", "Microsoft Word",
+             "Visual Studio Code", "Safari")
+    assert orchestrator.executer_intention(comprise(f"ouvre {dit}")).agie
+    assert outils == [attendu]
+
+
+def test_un_mot_partage_par_deux_applications_se_demande(outils, installe):
+    """« Adobe » designe Photoshop ET Illustrator.
+
+    Rendre le premier trouve reviendrait a tirer au sort. Nova nomme les deux
+    et laisse choisir.
+    """
+    installe("Adobe Photoshop 2025", "Adobe Illustrator 2025", "Safari")
+    resultat = orchestrator.executer_intention(comprise("ouvre Adobe"))
+    assert resultat.etat == "echouee"
+    assert "Photoshop" in resultat.message and "Illustrator" in resultat.message
+    assert outils == [], "une des deux a ete ouverte au hasard"
+
+
+def test_l_ambiguite_se_repond_en_nommant_pas_en_disant_oui(outils, installe):
+    """POURQUOI CET ETAT N'EST PAS `a_confirmer`.
+
+    La boucle de confirmation ne transporte qu'un booleen. « oui » ne saurait
+    pas designer LAQUELLE des deux. La question se repond donc en nommant
+    l'application, ce qui repart comme une demande neuve — sans etat a garder
+    entre les deux tours.
+    """
+    installe("Adobe Photoshop 2025", "Adobe Illustrator 2025")
+    assert orchestrator.executer_intention(comprise("ouvre Adobe")).etat != "a_confirmer"
+
+    resultat = orchestrator.executer_intention(comprise("ouvre Illustrator"))
+    assert resultat.agie
+    assert outils == ["Adobe Illustrator 2025"]
+
+
+def test_un_mot_entendu_de_travers_retrouve_son_application(outils, installe):
+    """« Crome » ne ressemble pas a « Google Chrome » (0,43) et sonne
+    exactement comme son mot « Chrome » (1,00). Chaque application est jugee
+    sur son MEILLEUR angle."""
+    installe("Google Chrome", "Safari", "Keynote")
+    assert orchestrator.executer_intention(comprise("ouvre Crome")).agie
+    assert outils == ["Google Chrome"]
+
+
+def test_le_sous_nom_n_ouvre_pas_la_porte_a_n_importe_quoi(outils, installe):
+    """LA REGRESSION QUE CETTE ETAPE POUVAIT INTRODUIRE.
+
+    Juger chaque application sur son meilleur mot AUGMENTE mecaniquement tous
+    les scores. Le risque etait qu'un nom absent finisse par ressembler assez
+    a un mot quelconque pour declencher une ouverture.
+    """
+    installe("Google Chrome", "Adobe Photoshop 2025", "Visual Studio Code",
+             "Photo Booth", "App Store", "Calendrier", "Finder")
+    for absent in ("Blender", "Figma", "Steam", "Slack", "Zoom"):
+        etat = orchestrator.executer_intention(comprise(f"ouvre {absent}")).etat
+        assert etat == "echouee", f"« {absent} » a produit « {etat} »"
+    assert outils == []
+
+
+def test_deux_lectures_aussi_vraisemblables_ne_se_tranchent_pas(outils, installe):
+    """« Fotochop » sonne EXACTEMENT autant comme « Photo Booth » que comme
+    « Adobe Photoshop 2025 » — 0,667 des deux cotes.
+
+    J'ai cherche un departage : longueur du fragment retenu, position du mot.
+    Aucun ne separait ces deux-la sans en melanger d'autres. Proposer le
+    premier par ordre alphabetique aurait maquille un tirage au sort en
+    decision ; Nova nomme les deux.
+    """
+    installe("Photo Booth", "Adobe Photoshop 2025", "Safari")
+    resultat = orchestrator.executer_intention(comprise("ouvre Fotochop"))
+    assert resultat.etat == "echouee"
+    assert "Photo Booth" in resultat.message
+    assert "Adobe Photoshop 2025" in resultat.message
+    assert outils == []
+
+
+def test_un_candidat_nettement_devant_reste_une_proposition(outils, installe):
+    """L'egalite ne doit pas devenir la reponse a tout : « Discorde » designe
+    « Discord » a 0,857 contre 0,43 au suivant. Ca se propose, ca se
+    confirme d'un « oui », et ca n'a pas a devenir une liste."""
+    installe("Discord", "App Store", "Safari")
+    resultat = orchestrator.executer_intention(comprise("ouvre Discorde"))
+    assert resultat.etat == "a_confirmer"
+    assert "Discord" in resultat.message
+
+
+def test_une_liste_trop_longue_reste_une_phrase(outils, installe):
+    """Cette phrase sera PRONONCEE. Huit noms ne sont plus une question."""
+    installe(*[f"Adobe {n} 2025" for n in
+               ("Photoshop", "Illustrator", "InDesign", "Premiere", "Audition")])
+    message = orchestrator.executer_intention(comprise("ouvre Adobe")).message
+    assert message.count("«") <= 4, message
+    assert "2 autres" in message, message
+
+
 # ── Le catalogue reste une donnee, pas un cas particulier ─────────────────
 
 

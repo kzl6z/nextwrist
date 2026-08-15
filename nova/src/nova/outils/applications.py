@@ -31,6 +31,7 @@ l'ambiguite, et nulle part ailleurs.
 from __future__ import annotations
 
 import os
+import re
 import threading
 import unicodedata
 from collections.abc import Iterator
@@ -171,3 +172,40 @@ def resoudre(nom: str) -> str | None:
         if _clef(reel) == cherche:
             return reel
     return None
+
+
+#: En dessous, un mot du nom ne designe rien : « App » de « App Store »,
+#: « Go » ou « Mac » se retrouvent partout. Meme raison qu'ailleurs dans le
+#: projet : sur trois lettres, une erreur suffit a en faire un autre mot.
+LONGUEUR_MIN_JETON = 4
+
+
+def jetons(nom: str) -> tuple[str, ...]:
+    """Les mots d'un nom d'application susceptibles d'etre dits seuls.
+
+    Personne ne dit « ouvre Adobe Photoshop 2025 » : on dit « ouvre
+    Photoshop ». C'est la forme longue qui est sur le disque et la forme
+    courte qui est prononcee — l'ecart est la regle, pas l'exception.
+
+    Les nombres sont ecartes : « 2025 » est un millesime, pas un nom. Les
+    mots de moins de quatre lettres aussi, pour la meme raison qu'ailleurs.
+    """
+    bruts = re.split(r"[^0-9A-Za-zÀ-ÿ]+", nom)
+    return tuple(j for j in bruts if len(j) >= LONGUEUR_MIN_JETON and not j.isdigit())
+
+
+def par_sous_nom(nom: str) -> tuple[str, ...]:
+    """Les applications dont UN MOT du nom s'ecrit comme `nom`.
+
+    Rend une LISTE, et c'est tout l'interet : « Adobe » designe Photoshop et
+    Illustrator a la fois, « Studio » designe Visual Studio Code et Android
+    Studio. Rendre le premier trouve reviendrait a tirer au sort. L'appelant
+    doit voir l'ambiguite pour pouvoir la poser.
+    """
+    cherche = _clef(nom or "")
+    if not cherche:
+        return ()
+    return tuple(
+        app for app in installees()
+        if any(_clef(jeton) == cherche for jeton in jetons(app))
+    )
