@@ -38,6 +38,23 @@ class Action(NamedTuple):
     outil: str
     #: Nom de l'argument qui recoit la cible. `None` = l'outil n'en prend pas.
     argument: str | None = None
+    #: Catalogue contre lequel la cible doit etre confrontee au reel avant
+    #: d'atteindre l'outil. `None` = on passe la cible telle quelle.
+    #:
+    #: POURQUOI UNE DONNEE PLUTOT QU'UN `if` DANS L'ORCHESTRATEUR
+    #:
+    #: « ouvre X » attend un nom d'application, « cherche X » attend une
+    #: question, « envoie a X » attendra un contact. Ecrire `if outil ==
+    #: "ouvrir_application"` marcherait aujourd'hui et se dupliquerait a
+    #: chaque nouveau catalogue. Le declarer ici garde la connaissance a
+    #: l'endroit ou elle se lit.
+    catalogue: str | None = None
+
+
+#: Le seul catalogue existant a ce jour. Nomme plutot qu'ecrit en clair : le
+#: jour ou un deuxieme arrive (contacts, fichiers), la faute de frappe se voit
+#: au chargement du module et non a l'execution de l'action.
+CATALOGUE_APPLICATIONS = "applications"
 
 
 #: Intention reconnue -> outil a executer.
@@ -46,7 +63,7 @@ class Action(NamedTuple):
 #: intention qu'on sait reconnaitre mais pas encore executer. Nova en parle
 #: alors normalement, au lieu de refuser ou d'inventer.
 ACTIONS: dict[str, Action] = {
-    "ouvrir_application": Action("ouvrir_application", "cible"),
+    "ouvrir_application": Action("ouvrir_application", "cible", catalogue=CATALOGUE_APPLICATIONS),
     "arret_pc": Action("eteindre_ordinateur"),
 }
 

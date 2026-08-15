@@ -687,6 +687,164 @@ class Resultat:
         return self.etat == "executee"
 
 
+def _niveau_de(nom_outil: str) -> int | None:
+    """Le niveau de risque declare par un outil, ou `None` s'il est illisible."""
+    from nova.outils import registre_outils
+
+    niveau = getattr(registre_outils.get(nom_outil), "niveau", None)
+    if isinstance(niveau, bool) or not isinstance(niveau, int):
+        return None
+    return niveau
+
+
+#: En dessous, un nom n'evoque rien d'installe et il vaut mieux le dire.
+#:
+#: CE CHIFFRE EST MESURE, PAS CHOISI. Sur un catalogue macOS realiste :
+#:
+#:     Fineur      -> Finder        0,600   a proposer
+#:     Messagerie  -> Messages      0,625   a proposer
+#:     Blender     -> Calendrier    0,556   rien d'installe, on le dit
+#:     Slack       -> Plans         0,500   rien d'installe, on le dit
+#:     Excel       -> TextEdit      0,500   rien d'installe, on le dit
+SEUIL_APPLICATION = 0.60
+
+#: Ecart minimal avec le deuxieme candidat pour parler de certitude. Une
+#: ressemblance parfaite avec DEUX applications a la fois n'en designe aucune.
+MARGE_APPLICATION = 0.15
+
+
+def _resoudre_application(cible: str) -> tuple[str, str]:
+    """Confronte une cible entendue au catalogue reel. Rend (nom, etat).
+
+        exact     on sait de quelle application il s'agit
+        propose   on a un candidat, pas une certitude — il faut demander
+        inconnu   rien de ressemblant n'est installe
+
+    ⚠️ POURQUOI UNE RESSEMBLANCE ELEVEE NE SUFFIT PAS A AGIR
+
+    Mesure sur un catalogue macOS realiste, cas devant passer et cas devant
+    echouer melanges :
+
+        Écoledirecte -> EcoleDirecte  1,000   il fallait ouvrir
+        Gogol Chrome -> Google Chrome 0,875   il fallait ouvrir
+        Discorde     -> Discord       0,857   il fallait ouvrir
+        Photoshop    -> Photo Booth   0,833   IL NE FALLAIT PAS
+        Photo bousse -> Photo Booth   0,714   il fallait ouvrir
+        Fineur       -> Finder        0,600   il fallait ouvrir
+
+    « Photoshop » n'est pas installe et ressemble davantage a « Photo Booth »
+    que « Fineur » ne ressemble a « Finder ». AUCUN seuil ne separe donc les
+    deux colonnes — le chercher aurait produit un chiffre arbitraire et une
+    application ouverte a tort un jour sur dix.
+
+    La regle qui en decoule est plus simple et plus honnete : on n'agit sans
+    demander que sur une correspondance ECRITE (`resoudre`, qui ignore casse
+    et accents) ou sur un son IDENTIQUE et sans rival. Tout le reste se
+    PROPOSE. Le cout est une question de temps en temps ; le cout de l'autre
+    choix etait d'ouvrir la mauvaise application en silence.
+
+    C'EST ICI PAR RESPECT DE LA REGLE DE DEPENDANCE
+
+    `outils/applications.py` sait lire un disque, `voice/phonetique.py` sait
+    comparer des sons, et aucun des deux ne connait l'autre. L'orchestrateur
+    est le seul module autorise a les faire se rencontrer.
+
+    LE CAS QUI DECIDE DE TOUT : UN CATALOGUE VIDE
+
+    Sur une machine qui n'est pas un Mac, ou si les dossiers sont illisibles,
+    `installees()` rend un tuple vide. Il serait tentant d'en conclure
+    « aucune application n'existe » et de tout refuser. Ce serait remplacer
+    une capacite imparfaite par une panne franche. On laisse passer la cible
+    telle quelle : le comportement redevient celui d'avant ce fichier, ce qui
+    est le pire acceptable.
+    """
+    from nova.outils import applications
+    from nova.voice import phonetique
+
+    catalogue = applications.installees()
+    if not catalogue:
+        return cible, "exact"
+
+    if reel := applications.resoudre(cible):
+        return reel, "exact"
+
+    # Rien d'ecrit pareil : reste l'oreille. On classe TOUT le catalogue —
+    # et rien d'autre. La memoire et le vocabulaire declare n'ont pas a
+    # concourir ici, ou « Adam » finirait par designer « Adobe ».
+    classement = sorted(
+        ((phonetique.ressemblance(cible, nom), nom) for nom in catalogue),
+        reverse=True,
+    )
+    meilleur, nom = classement[0]
+    suivant = classement[1][0] if len(classement) > 1 else 0.0
+
+    if meilleur < SEUIL_APPLICATION:
+        return cible, "inconnu"
+
+    if meilleur >= 1.0 and meilleur - suivant >= MARGE_APPLICATION:
+        # Meme son exactement, et un seul candidat : « Écoledirecte » pour
+        # « EcoleDirecte ». Demander ici n'apprendrait rien a personne.
+        log.info("Application « %s » reconnue comme « %s ».", cible, nom)
+        return nom, "exact"
+
+    log.info(
+        "Application « %s » : « %s » ressemble (%.2f) sans certitude — je demande.",
+        cible, nom, meilleur,
+    )
+    return nom, "propose"
+
+
+def _confronter_au_reel(
+    action, cible: str, *, confirme: bool
+) -> tuple[dict | None, Resultat | None]:
+    """Valide la cible avant qu'elle n'atteigne l'outil.
+
+    Rend soit les arguments a utiliser, soit le `Resultat` qui interrompt.
+    """
+    from nova.core import actions, contrats
+
+    if action.catalogue != actions.CATALOGUE_APPLICATIONS or not action.argument:
+        return {action.argument: cible} if action.argument else {}, None
+
+    retenu, etat = _resoudre_application(cible)
+
+    if etat == "inconnu":
+        # Dire ce qu'on ne trouve pas vaut mieux que laisser `open` echouer
+        # avec un message en anglais sur un nom que Nova a peut-etre mal
+        # entendu.
+        return None, Resultat(
+            "echouee",
+            f"Je ne trouve pas d'application « {cible} » sur cette machine.",
+            outil=action.outil, arguments={action.argument: cible},
+        )
+
+    if etat == "propose":
+        # ⚠️ DEUX QUESTIONS NE PEUVENT PAS TENIR DANS UN SEUL « OUI ».
+        #
+        # La confirmation remonte par un unique champ booleen. Si un outil
+        # dangereux avait AUSSI une cible incertaine, le « oui » de
+        # l'utilisateur repondrait aux deux a la fois — il croirait valider un
+        # nom et validerait une action irreversible. On refuse plutot que de
+        # confondre : aujourd'hui aucun outil n'est dans ce cas, et le jour ou
+        # l'un le sera, il trouvera cette garde au lieu du piege.
+        if contrats.exige_confirmation(_niveau_de(action.outil) or contrats.IRREVERSIBLE):
+            return None, Resultat(
+                "echouee",
+                f"Je ne suis pas sûre de « {cible} » — je ne devine pas sur une "
+                "action de cette importance.",
+                outil=action.outil, arguments={action.argument: cible},
+            )
+        if not confirme:
+            return None, Resultat(
+                "a_confirmer",
+                f"Je ne connais pas « {cible} ». Tu veux dire « {retenu} » ?",
+                outil=action.outil, niveau=_niveau_de(action.outil),
+                arguments={action.argument: retenu},
+            )
+
+    return {action.argument: retenu}, None
+
+
 def executer_intention(comprise, *, confirme: bool = False) -> Resultat:
     """Passe a l'acte, si et seulement si tout concorde. Ne leve jamais.
 
@@ -723,7 +881,19 @@ def executer_intention(comprise, *, confirme: bool = False) -> Resultat:
         return Resultat("ignoree", f"Intention reconnue mais non executee : {raison}.")
 
     action = actions.action_pour(intention.nom)
-    arguments = {action.argument: intention.cible} if action.argument else {}
+
+    # La cible est confrontee au reel AVANT d'atteindre l'outil. Un nom
+    # d'application mal entendu doit se rattraper ici, ou il deviendra un
+    # echec de `open` sur lequel personne ne peut rien.
+    arguments, interruption = _confronter_au_reel(
+        action, intention.cible, confirme=confirme
+    )
+    if interruption is not None:
+        log.info(
+            "Cible « %s » non retenue pour « %s » : %s",
+            intention.cible, action.outil, interruption.etat,
+        )
+        return interruption
 
     try:
         message = executer_outil(action.outil, confirme=confirme, **arguments)

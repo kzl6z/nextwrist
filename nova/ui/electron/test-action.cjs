@@ -84,6 +84,26 @@ serveur.listen(0, '127.0.0.1', async () => {
     recu[0].texte.includes('éteins'));
   verifier('Nova annonce le résultat', dit.includes('éteindre'));
 
+  console.log('\nUn nom d’application incertain se demande, il ne se devine pas');
+  // La MEME boucle sert une question d’une autre nature : « quelle
+  // application ? » au lieu de « es-tu sûr ? ». Aucune ligne de JavaScript
+  // n’a eu à changer pour ça — c’est le signe que le protocole en deux temps
+  // était le bon découpage, et ce banc est là pour qu’il le reste.
+  recu.length = 0;
+  reponse = { etat: 'a_confirmer',
+              message: 'Je ne connais pas « Discorde ». Tu veux dire « Discord » ?',
+              outil: 'ouvrir_application', niveau: 1 };
+  dit = await dire('ouvre Discorde');
+  verifier('Nova propose le vrai nom', dit.includes('Tu veux dire'));
+  verifier('rien n’a été ouvert', recu.length === 1 && recu[0].confirme === false);
+
+  reponse = { etat: 'executee', message: 'Discord est ouverte.',
+              outil: 'ouvrir_application', intention: 'ouvrir_application' };
+  recu.length = 0;
+  dit = await dire('oui');
+  verifier('« oui » rejoue la phrase avec confirme=true',
+    recu.length === 1 && recu[0].confirme === true && recu[0].texte.includes('Discorde'));
+
   console.log('\n« non » annule, et rien ne part au serveur');
   reponse = { etat: 'a_confirmer', message: 'Je m’apprête à eteindre_ordinateur. Je confirme ?',
               outil: 'eteindre_ordinateur', niveau: 3 };

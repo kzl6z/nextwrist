@@ -104,7 +104,7 @@ def catalogue() -> dict:
     afficher la liste sans la coder en dur.
     """
     from nova.core import actions, contrats
-    from nova.outils import registre_outils
+    from nova.outils import applications, registre_outils
 
     connues = []
     for nom_intention, action in actions.ACTIONS.items():
@@ -118,10 +118,16 @@ def catalogue() -> dict:
                 "niveau": niveau,
                 "niveau_nom": contrats.nom_du_niveau(niveau) if niveau is not None else None,
                 "confirmation": contrats.exige_confirmation(niveau) if niveau is not None else True,
+                "catalogue": action.catalogue,
             }
         )
+    # Le nombre d'applications connues est la premiere chose a regarder quand
+    # « ouvre X » repond « je ne trouve pas » : zero veut dire que le
+    # catalogue n'a pas ete lu, pas que l'application manque.
+    installees = applications.installees()
     return {
         "actions": connues,
         "seuil_intention": actions.SEUIL_INTENTION,
         "intentions_reconnues": list(voice_intentions.intentions_connues()),
+        "applications": len(installees),
     }

@@ -68,6 +68,14 @@ def outils(monkeypatch):
     registre.enregistrer(Ouvrir)
     registre.enregistrer(Eteindre)
     monkeypatch.setattr(module, "registre_outils", registre)
+
+    # Un catalogue d'applications FIXE. Sans ca, ces tests diraient des choses
+    # differentes selon la machine qui les execute : sur un Mac ou Discord
+    # n'est pas installe, « ouvre Discord » echouerait — et l'echec porterait
+    # sur l'environnement, pas sur le code.
+    from nova.outils import applications
+
+    monkeypatch.setattr(applications, "installees", lambda **_: ("Discord", "EcoleDirecte"))
     return faits
 
 
