@@ -95,13 +95,20 @@ def _entretenir(arret: threading.Event) -> None:
         # modele plus leger. Le dire ici evite d'y passer une journee du
         # mauvais cote.
         pression = plateforme.pression_memoire()
-        if pression.pagine:
+        if pression.pagine and premiere:
+            reglages = get_settings()
             log.warning(
                 "La machine pagine (%s). Tout ralentit, Nova comprise, et aucun "
-                "reglage d'interface n'y peut rien : c'est un modele plus leger "
-                "qu'il faut. Modele actuel : %s.",
-                pression, get_settings().chat_model,
+                "reglage d'interface n'y peut rien.",
+                pression,
             )
+            # Nova ne sait pas ce que pesent le navigateur ou la base. Elle
+            # sait exactement ce qu'elle tient, elle — la seule part sur
+            # laquelle quelqu'un peut agir en une ligne.
+            for ligne in plateforme.empreinte_nova(
+                reglages.chat_model, [reglages.whisper_model, reglages.whisper_wake_model]
+            ).splitlines():
+                log.warning("%s", ligne)
         elif premiere:
             log.info("Memoire : %s — pas de pagination.", pression)
 

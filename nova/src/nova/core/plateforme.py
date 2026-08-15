@@ -138,6 +138,74 @@ def modele_trop_lourd(nom: str) -> str | None:
     )
 
 
+#: Poids approximatif des modeles de transcription, en Go, quantifies int8.
+POIDS_WHISPER: dict[str, float] = {
+    "tiny": 0.08, "base": 0.15, "small": 0.5, "medium": 1.5,
+    "large-v2": 3.1, "large-v3": 3.1, "turbo": 1.6,
+}
+
+
+def empreinte_nova(chat_model: str, modeles_voix: list[str]) -> str:
+    """Ce que NOVA elle-meme retient en memoire, et comment l'alleger.
+
+    POURQUOI CE DETAIL PLUTOT QU'UN AVERTISSEMENT GENERAL
+
+    « La machine pagine, prends un modele plus leger » est vrai et inutile :
+    il ne dit ni de combien, ni lequel, ni qu'il y en a peut-etre plusieurs.
+    Sur la machine de reference, le journal montrait DEUX modeles de
+    transcription charges en meme temps — `small` pour la dictee, `base` pour
+    le mot de reveil — sans que rien ne le presente comme un cout.
+
+    Nova ne peut pas savoir ce que pesent le navigateur ou la base. Elle sait
+    exactement ce qu'elle tient, elle, et c'est la seule part sur laquelle
+    quelqu'un peut agir en une ligne.
+    """
+    lignes: list[str] = []
+    total = 0.0
+
+    if poids := poids_modele_go(chat_model):
+        total += poids
+        lignes.append(f"    modele de langue   {chat_model:<22} {poids:>5.2f} Go")
+
+    distincts = list(dict.fromkeys(modeles_voix))
+    for nom in distincts:
+        poids = POIDS_WHISPER.get(nom, 0.0)
+        total += poids
+        lignes.append(f"    transcription      {nom:<22} {poids:>5.2f} Go")
+
+    rapport = [
+        "Ce que Nova retient elle-meme :",
+        *lignes,
+        f"    {'total':<41} {total:>5.2f} Go",
+    ]
+
+    if len(distincts) > 1:
+        # Le plus leger suffit au mot de reveil, qui ne cherche qu'un mot. Les
+        # unifier ne charge qu'UN modele : le cache est indexe par le nom.
+        garde = min(distincts, key=lambda n: POIDS_WHISPER.get(n, 0.0))
+        libere = sum(POIDS_WHISPER.get(n, 0.0) for n in distincts if n != garde)
+        rapport += [
+            "Deux modeles de transcription sont charges. Un seul suffit :",
+            f"    NOVA_WHISPER_MODEL={garde}   (libere {libere:.2f} Go)",
+        ]
+
+    # ON NE PRESCRIT PAS UN MODELE, ON MONTRE LE CHOIX.
+    #
+    # « Prends le plus leger » libererait le plus de memoire et rendrait Nova
+    # plus bete — ce qui est precisement le compromis que personne d'autre que
+    # toi n'a le droit de trancher. Les candidats sont donc listes du moins
+    # degradant au plus leger, avec ce que chacun libere.
+    actuel = poids_modele_go(chat_model) or 0.0
+    candidats = sorted(((p, n) for n, p in POIDS_CONNUS.items() if p < actuel), reverse=True)
+    if candidats:
+        rapport.append(f"Modeles plus legers que {chat_model} ({actuel:.2f} Go) :")
+        rapport += [
+            f"    NOVA_CHAT_MODEL={nom:<18} {poids:.2f} Go   (libere {actuel - poids:.2f} Go)"
+            for poids, nom in candidats[:3]
+        ]
+    return "\n".join(rapport)
+
+
 def _memoire_go() -> float:
     """Memoire totale, sans dependance externe.
 

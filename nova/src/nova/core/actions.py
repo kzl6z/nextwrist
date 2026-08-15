@@ -65,8 +65,12 @@ CATALOGUE_APPLICATIONS = "applications"
 ACTIONS: dict[str, Action] = {
     "ouvrir_application": Action("ouvrir_application", "cible", catalogue=CATALOGUE_APPLICATIONS),
     "fermer_application": Action("fermer_application", "cible", catalogue=CATALOGUE_APPLICATIONS),
-    "volume_haut": Action("monter_le_son"),
-    "volume_bas": Action("baisser_le_son"),
+    # `niveau` transporte le pourcentage vise quand la phrase en contient un
+    # (« baisse le son à 20 % »), et une chaine vide sinon — auquel cas
+    # l'outil applique son pas. Pas de catalogue : un pourcentage ne se
+    # confronte a rien.
+    "volume_haut": Action("monter_le_son", "niveau"),
+    "volume_bas": Action("baisser_le_son", "niveau"),
     "silence": Action("couper_le_son"),
     "arret_pc": Action("eteindre_ordinateur"),
 }

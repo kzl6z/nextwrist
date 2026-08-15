@@ -292,17 +292,41 @@ def test_l_index_suit_les_ajouts_tardifs():
 
 
 def test_charger_un_gros_lexique_reste_lineaire():
-    # Reindexer a chaque ajout rendait le chargement quadratique, paye a
-    # chaque phrase dictee. On verifie l'ordre de grandeur, pas la vitesse
-    # absolue : un test de duree qui mesure la machine est un test instable.
+    """Reindexer a chaque ajout rendait le chargement quadratique, paye a
+    chaque phrase dictee. On verifie l'ordre de grandeur, jamais la vitesse
+    absolue : un test de duree qui mesure la machine est un test instable.
+
+    ⚠️ CE TEST MESURAIT LE RAMASSE-MIETTES, PAS LA COMPLEXITE.
+
+    Sa premiere version comparait 100 termes a 800. Les 100 prenaient 0,16
+    milliseconde — trop peu pour mesurer quoi que ce soit. Le rapport ne
+    dependait donc plus de l'algorithme mais du hasard : lance seul il
+    passait, lance apres d'autres fichiers de tests il echouait, parce qu'un
+    tas plus charge declenche une collection au milieu de la mesure.
+
+    Il n'est tombe que le jour ou un fichier s'est ajoute AVANT lui dans
+    l'ordre alphabetique. Autrement dit il attendait, comme les autres
+    defauts de cette semaine, et il serait retombe sur le prochain venu.
+
+    Deux corrections, et les deux sont necessaires :
+      — des tailles au-dessus du bruit (1000 et 8000, ~1 ms et ~9 ms) ;
+      — le MINIMUM de trois passages : une mesure de duree n'est jamais
+        trop rapide par accident, seulement trop lente.
+    """
     import time
 
     def duree(nombre: int) -> float:
         mots = [f"Terme{n:05d}" for n in range(nombre)]
-        debut = time.perf_counter()
-        Lexique().ajouter_tous(mots, "declare")
-        return time.perf_counter() - debut
 
-    petit, grand = duree(100), duree(800)
-    # 8x plus de termes : lineaire donne ~8x, quadratique ~64x.
+        def une_fois() -> float:
+            debut = time.perf_counter()
+            Lexique().ajouter_tous(mots, "declare")
+            return time.perf_counter() - debut
+
+        return min(une_fois() for _ in range(3))
+
+    petit, grand = duree(1000), duree(8000)
+    # 8x plus de termes : lineaire donne ~8x, quadratique ~64x. Mesure avec un
+    # tas volontairement charge : 8,7. La marge a 25 laisse passer une machine
+    # lente sans laisser passer un retour au quadratique.
     assert grand < petit * 25, f"chargement non lineaire : {petit:.4f} -> {grand:.4f}"

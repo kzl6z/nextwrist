@@ -239,16 +239,37 @@ class FermerApplication:
 #: action ratee. Au-dessus, « monte le son » fait sursauter.
 PAS_VOLUME = 12
 
-#: Le nom arrive en ARGUMENT, comme partout ailleurs dans ce fichier.
+#: ⚠️ LE SENS ET LA VALEUR SONT DEUX ARGUMENTS, ET C'EST UN CORRECTIF.
+#:
+#: La premiere version passait le pas signe : `str(-12)`. `osascript` a lu
+#: « -12 » comme une OPTION et a refuse la commande :
+#:
+#:     /usr/bin/osascript: illegal option -- 1
+#:
+#: Baisser le son n'a donc jamais fonctionne une seule fois. Le meme piege
+#: etait deja identifie et bloque pour les noms d'applications, dans ce
+#: fichier, quinze lignes plus haut — et je ne l'ai pas applique ici. Une
+#: garde qui ne protege qu'un appel sur deux ne protege rien.
+#:
+#: Tous les arguments sont desormais des mots ou des nombres POSITIFS. Le
+#: signe vit dans le premier argument, la ou il ne peut pas etre confondu.
+#:
 #: `output volume` peut valoir `missing value` sur certaines sorties audio
 #: (casque Bluetooth qui gere son propre volume) : on le dit au lieu de
 #: planter sur une soustraction impossible.
 _SCRIPT_VOLUME = """
 on run argv
-    set pas to (item 1 of argv) as integer
+    set sens to item 1 of argv
+    set valeur to (item 2 of argv) as integer
     set actuel to output volume of (get volume settings)
     if actuel is missing value then return "inconnu"
-    set vise to actuel + pas
+    if sens is "absolu" then
+        set vise to valeur
+    else if sens is "plus" then
+        set vise to actuel + valeur
+    else
+        set vise to actuel - valeur
+    end if
     if vise > 100 then set vise to 100
     if vise < 0 then set vise to 0
     set volume output volume vise
@@ -263,6 +284,20 @@ on run argv
     return "coupe"
 end run
 """
+
+
+def _pourcentage(niveau: str) -> int | None:
+    """Le pourcentage demande, borne a 0-100, ou `None` s'il n'y en a pas.
+
+    On borne ICI et pas seulement dans le script : un nombre venu d'une
+    transcription peut valoir 2000 parce que Whisper a colle deux chiffres.
+    Le script le bornerait aussi, mais on ne veut pas qu'un argument absurde
+    voyage jusque-la pour etre rattrape au dernier moment.
+    """
+    chiffres = (niveau or "").strip()
+    if not chiffres.isdigit():
+        return None
+    return max(0, min(100, int(chiffres)))
 
 
 class ReglerLeSon:
@@ -291,12 +326,24 @@ class ReglerLeSon:
         self.description = description
         self.pas = pas          # None = sourdine
 
-    def executer(self) -> str:
+    def executer(self, niveau: str = "") -> str:
+        """`niveau` est un pourcentage VISE, quand la phrase en contenait un.
+
+        « monte le son » deplace d'un pas ; « monte le son à 80 % » vise 80.
+        La deuxieme forme est celle qu'on emploie quand on sait ce qu'on veut,
+        et l'ignorer obligeait a repeter la premiere jusqu'a tomber juste.
+        """
         _verifier_macos(self.nom)
         if self.pas is None:
             commande = ["/usr/bin/osascript", "-e", _SCRIPT_SOURDINE]
         else:
-            commande = ["/usr/bin/osascript", "-e", _SCRIPT_VOLUME, str(self.pas)]
+            vise = _pourcentage(niveau)
+            if vise is None:
+                sens, valeur = ("plus" if self.pas > 0 else "moins"), abs(self.pas)
+            else:
+                sens, valeur = "absolu", vise
+            # Positifs tous les deux : voir le commentaire du script.
+            commande = ["/usr/bin/osascript", "-e", _SCRIPT_VOLUME, sens, str(valeur)]
 
         resultat = subprocess.run(          # noqa: S603
             commande, capture_output=True, text=True, timeout=DELAI_S

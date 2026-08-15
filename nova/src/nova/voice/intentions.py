@@ -249,6 +249,30 @@ def _nettoyer_cible(brut: str) -> str:
     return cible.strip(" ?!.,")
 
 
+#: Les intentions dont la phrase peut porter une valeur visee.
+AVEC_POURCENTAGE = frozenset({"volume_haut", "volume_bas"})
+
+#: « 20 % », « 20 pour cent », « à 20 ». Cherche dans le texte ORIGINAL : la
+#: normalisation supprime le signe %, et « 20% » y devient « 20 » — donc
+#: indiscernable d'un nombre quelconque.
+_POURCENTAGE = re.compile(
+    r"(\d{1,3})\s*(?:%|pour\s?cents?)|(?:\bà|\ba)\s+(\d{1,3})\b", re.IGNORECASE
+)
+
+
+def pourcentage(texte: str) -> str:
+    """Le pourcentage vise dans la phrase, ou une chaine vide.
+
+    Une CHAINE et non un entier : c'est ce que transporte `Intention.cible`,
+    et lui faire porter deux types selon l'intention aurait oblige chaque
+    lecteur a savoir laquelle il regarde.
+    """
+    trouve = _POURCENTAGE.search(texte or "")
+    if not trouve:
+        return ""
+    return trouve.group(1) or trouve.group(2) or ""
+
+
 def _candidats(reduit: str) -> list[tuple[str, str, bool, re.Match]]:
     """Les declencheurs presents dans la phrase, DU PLUS PRECIS AU PLUS VAGUE.
 
@@ -318,7 +342,13 @@ def reconnaitre(texte: str) -> Intention:
             # nous nous sommes rencontres » non.
             if trouve.start() > 12:
                 continue
-            return Intention(nom=nom, confiance=0.95, declencheur=declencheur)
+            return Intention(
+                nom=nom, confiance=0.95, declencheur=declencheur,
+                # « baisse le son à 20 % » porte une valeur VISEE. Sans elle,
+                # Nova appliquait son pas et il fallait redemander jusqu'a
+                # tomber juste — releve en conditions reelles.
+                cible=pourcentage(texte) if nom in AVEC_POURCENTAGE else "",
+            )
 
         cible = _nettoyer_cible(texte[len(texte) - len(reduit) :][trouve.end() :]) \
             if len(reduit) <= len(texte) else ""

@@ -87,14 +87,35 @@ def test_se_taire_ne_declenche_aucune_action(outils_du_son):
 # ── Le volume ─────────────────────────────────────────────────────────────
 
 
-def test_monter_le_son_passe_un_pas_positif(osascript):
+def test_aucun_argument_ne_commence_par_un_tiret(osascript):
+    """⚠️ LE BUG QUI A RENDU « baisse le son » INUTILISABLE, ET QUI ETAIT DEJA
+    CONNU QUINZE LIGNES PLUS HAUT.
+
+    La premiere version passait le pas signe : `str(-12)`. Releve dans les
+    journaux de la vraie machine :
+
+        /usr/bin/osascript: illegal option -- 1
+
+    `osascript` a lu « -12 » comme une option. Baisser le son n'a donc jamais
+    fonctionne une seule fois. Le meme piege etait deja identifie et bloque
+    pour les noms d'applications, dans le meme fichier — et il ne l'etait pas
+    ici. Une garde qui ne protege qu'un appel sur deux ne protege rien.
+    """
+    for outil in systeme._actions_du_son():
+        osascript.clear()
+        outil.executer()
+        for argument in osascript[0][3:]:
+            assert not argument.startswith("-"), f"« {argument} » sera lu comme une option"
+
+
+def test_monter_le_son_demande_plus(osascript):
     systeme.ReglerLeSon("monter_le_son", "", systeme.PAS_VOLUME).executer()
-    assert osascript[0][-1] == str(systeme.PAS_VOLUME)
+    assert osascript[0][-2:] == ["plus", str(systeme.PAS_VOLUME)]
 
 
-def test_baisser_le_son_passe_un_pas_negatif(osascript):
+def test_baisser_le_son_demande_moins(osascript):
     systeme.ReglerLeSon("baisser_le_son", "", -systeme.PAS_VOLUME).executer()
-    assert osascript[0][-1] == f"-{systeme.PAS_VOLUME}"
+    assert osascript[0][-2:] == ["moins", str(systeme.PAS_VOLUME)]
 
 
 def test_le_niveau_atteint_est_annonce(osascript):
@@ -153,8 +174,8 @@ def outils_du_son(monkeypatch):
         def __init__(self, nom):
             self.nom, self.description = nom, nom
 
-        def executer(self):
-            faits.append(self.nom)
+        def executer(self, **arguments):
+            faits.append((self.nom, arguments.get("niveau", "")))
             return "fait"
 
     for nom in ("monter_le_son", "baisser_le_son", "couper_le_son"):
@@ -166,11 +187,11 @@ def outils_du_son(monkeypatch):
 @pytest.mark.parametrize(
     ("phrase", "attendu"),
     [
-        ("monte le son", "monter_le_son"),
-        ("plus fort", "monter_le_son"),
-        ("baisse le volume", "baisser_le_son"),
-        ("moins fort", "baisser_le_son"),
-        ("coupe le son", "couper_le_son"),
+        ("monte le son", ("monter_le_son", "")),
+        ("plus fort", ("monter_le_son", "")),
+        ("baisse le volume", ("baisser_le_son", "")),
+        ("moins fort", ("baisser_le_son", "")),
+        ("coupe le son", ("couper_le_son", "")),
     ],
 )
 def test_de_la_phrase_a_l_action(outils_du_son, phrase, attendu):
@@ -181,6 +202,62 @@ def test_de_la_phrase_a_l_action(outils_du_son, phrase, attendu):
 def test_une_parole_douteuse_ne_touche_pas_au_volume(outils_du_son):
     assert orchestrator.executer_intention(comprise("monte le son", sure=False)).etat == "ignoree"
     assert outils_du_son == []
+
+
+# ── Le pourcentage visé ───────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("phrase", "attendu"),
+    [
+        ("baisse le son à 20%", "20"),
+        ("baisse le son à 20 %", "20"),
+        ("monte le son à 80 pour cent", "80"),
+        ("monte le son à 80", "80"),
+        ("Nova, baisse le son à 20%.", "20"),
+        ("monte le son", ""),
+        ("plus fort", ""),
+    ],
+)
+def test_le_pourcentage_se_lit_dans_la_phrase(phrase, attendu):
+    """RELEVE EN CONDITIONS REELLES : « Nova, baisse le son à 20%. »
+
+    Nova appliquait son pas de 12 et ignorait le 20. Il fallait redemander
+    jusqu'a tomber juste — c'est-a-dire ne jamais tomber juste.
+    """
+    assert vi.reconnaitre(phrase).cible == attendu
+
+
+def test_le_pourcentage_se_cherche_dans_le_texte_original():
+    """La normalisation supprime le signe « % » : « 20% » y devient « 20 »,
+    indiscernable d'un nombre quelconque. Chercher dans le texte reduit
+    aurait donc marche par accident, et casse au premier « ouvre 20 »."""
+    assert vi.pourcentage("baisse le son à 20%") == "20"
+    assert vi.pourcentage("ouvre Photoshop") == ""
+
+
+def test_le_pourcentage_arrive_jusqu_a_l_outil(outils_du_son):
+    orchestrator.executer_intention(comprise("baisse le son à 20%"))
+    assert outils_du_son == [("baisser_le_son", "20")]
+
+
+def test_un_pourcentage_vise_devient_une_valeur_absolue(osascript):
+    """« baisse le son à 20 % » ne baisse pas DE 20, il vise 20."""
+    systeme.ReglerLeSon("baisser_le_son", "", -12).executer(niveau="20")
+    assert osascript[0][-2:] == ["absolu", "20"]
+
+
+def test_sans_pourcentage_on_applique_le_pas(osascript):
+    systeme.ReglerLeSon("baisser_le_son", "", -12).executer()
+    assert osascript[0][-2:] == ["moins", "12"]
+
+
+def test_un_pourcentage_absurde_est_borne_avant_de_partir(osascript):
+    """Whisper colle parfois deux chiffres : « 20 » devient « 2020 ». Le
+    script bornerait aussi, mais un argument absurde ne doit pas voyager
+    jusque-la pour etre rattrape au dernier moment."""
+    systeme.ReglerLeSon("monter_le_son", "", 12).executer(niveau="2020")
+    assert osascript[0][-2:] == ["absolu", "100"]
 
 
 # ── La machine reste a son proprietaire ───────────────────────────────────
