@@ -82,6 +82,12 @@ def _nom_propre(nom: str) -> str:
     propre = (nom or "").strip()
     if not propre:
         raise ActionImpossible("Aucune application indiquee.")
+    if propre.startswith("-"):
+        # Aucune application ne s'appelle ainsi, et un argument commencant par
+        # un tiret se fait prendre pour une OPTION par la commande qui le
+        # recoit. Le refuser coute une ligne ; le laisser passer laisserait un
+        # nom d'application piloter `osascript`.
+        raise ActionImpossible(f"« {propre} » ne peut pas etre un nom d'application.")
     if not _NOM_VALIDE.match(propre):
         raise ActionImpossible(
             f"« {propre} » n'est pas un nom d'application valide. "
@@ -122,6 +128,110 @@ class OuvrirApplication:
         return f"{application} est ouverte."
 
 
+#: Le script de fermeture. Le nom de l'application arrive en ARGUMENT, il
+#: n'est jamais recolle dans le texte du script.
+#:
+#: C'est la meme regle que pour le shell, appliquee a AppleScript : construire
+#: `tell application "…" to quit` par concatenation rouvrirait exactement la
+#: porte que la liste d'arguments avait fermee. `on run argv` est a
+#: AppleScript ce qu'une requete parametree est au SQL.
+#:
+#: LE PIEGE APPLESCRIPT QUE LE PREMIER TEST EVITE
+#:
+#: `tell application "Machin" to quit` LANCE Machin s'il ne tourne pas. Une
+#: demande de fermeture ouvrirait donc l'application — le contraire exact de
+#: ce qui a ete dit. On teste avant, et on ne dit `quit` qu'a ce qui tourne.
+#:
+#: POURQUOI `is running` ET NON `System Events`
+#:
+#: La verification evidente — « ce nom figure-t-il dans la liste des
+#: processus ? » — se trompe sur les applications dont le processus ne porte
+#: pas le nom du dossier. Le processus de « Visual Studio Code » s'appelle
+#: « Code » : Nova aurait repondu « elle n'est pas ouverte » a une fenetre
+#: bien visible a l'ecran.
+#:
+#: `application X is running` raisonne sur l'APPLICATION, pas sur le nom du
+#: processus, et c'est l'une des rares proprietes qu'on peut lire sans la
+#: lancer. Elle evite au passage de dependre de System Events, donc de
+#: l'autorisation d'Accessibilite — une permission de trop pour fermer une
+#: fenetre.
+_SCRIPT_FERMER = """
+on run argv
+    set nomApp to item 1 of argv
+    if not (application nomApp is running) then return "absente"
+    tell application nomApp to quit
+    repeat 10 times
+        delay 0.2
+        if not (application nomApp is running) then return "fermee"
+    end repeat
+    return "refusee"
+end run
+"""
+
+
+class FermerApplication:
+    """Ferme une application, proprement.
+
+    POURQUOI REVERSIBLE ET NON CONSEQUENT — LE PREMIER NIVEAU QUI SE DISCUTE
+
+    « Fermer » evoque une perte : le travail non enregistre. C'est ce qui a
+    fait classer `eteindre_ordinateur` en IRREVERSIBLE, et le raisonnement
+    semblait devoir se repeter ici.
+
+    Il ne se repete pas, et la difference est mecanique. Une extinction
+    s'impose aux applications ; un `quit` leur est PROPOSE. Une application
+    qui a du travail non enregistre refuse de partir et affiche sa propre
+    demande d'enregistrement. Le veto sur la partie irreversible appartient
+    donc a macOS et a l'application, pas a Nova — qui n'a pas les moyens de
+    passer outre par ce chemin.
+
+    Ce qui reste du cote de Nova est un devoir d'honnetete : annoncer « c'est
+    ferme » alors qu'une fenetre de sauvegarde attend serait un mensonge, et
+    un mensonge sur ce sujet precis vaut mieux ne pas exister. On verifie donc
+    que le processus a bel et bien disparu avant de le dire.
+
+    CE QUI FERAIT CHANGER LE NIVEAU
+
+    Une fermeture FORCEE — `kill -9`, ou `osascript` avec « force quit » —
+    detruirait le travail non enregistre sans rien demander a personne. Elle
+    serait IRREVERSIBLE, et elle n'est pas implementee. Le declencheur vocal
+    « kill » aboutit ici, sur la fermeture douce : le mot est brutal, l'action
+    ne l'est pas.
+    """
+
+    nom = "fermer_application"
+    description = "Ferme une application par son nom (macOS)"
+    capacite = "action"
+    niveau = contrats.REVERSIBLE
+
+    def executer(self, cible: str) -> str:
+        _verifier_macos(self.nom)
+        application = _nom_propre(cible)
+        resultat = subprocess.run(          # noqa: S603
+            ["/usr/bin/osascript", "-e", _SCRIPT_FERMER, application],
+            capture_output=True, text=True, timeout=DELAI_S,
+        )
+        if resultat.returncode != 0:
+            detail = (resultat.stderr or "").strip()
+            raise ActionImpossible(
+                f"Impossible de fermer « {application} »." + (f" {detail}" if detail else "")
+            )
+
+        etat = (resultat.stdout or "").strip()
+        if etat == "absente":
+            return f"{application} n'est pas ouverte."
+        if etat == "refusee":
+            # Le seul cas ou l'application a le dernier mot, et le seul ou
+            # Nova pourrait mentir sans s'en apercevoir.
+            log.info("« %s » n'a pas quitte : elle attend probablement une reponse.", application)
+            return (
+                f"{application} ne s'est pas fermée — elle attend probablement "
+                "que tu enregistres quelque chose. Je la laisse."
+            )
+        log.info("Application fermee : %s", application)
+        return f"{application} est fermée."
+
+
 class EteindreOrdinateur:
     """Eteint la machine.
 
@@ -155,6 +265,6 @@ def enregistrer_actions_systeme(registre) -> None:
     pouvoir construire un registre isole, et l'application doit pouvoir
     choisir de ne pas les activer du tout.
     """
-    for outil in (OuvrirApplication(), EteindreOrdinateur()):
+    for outil in (OuvrirApplication(), FermerApplication(), EteindreOrdinateur()):
         if outil.nom not in registre:
             registre.enregistrer(outil)

@@ -239,6 +239,51 @@ def _nettoyer_cible(brut: str) -> str:
     return cible.strip(" ?!.,")
 
 
+def _candidats(reduit: str) -> list[tuple[str, str, bool, re.Match]]:
+    """Les declencheurs presents dans la phrase, DU PLUS PRECIS AU PLUS VAGUE.
+
+    ⚠️ LE BUG QUE CET ORDRE EMPECHE, ET QUI ETAIT DEJA LA
+
+    « arrête l'ordinateur » contient « arrete », declencheur de
+    `fermer_application`, ET « arrete l ordinateur », declencheur d'`arret_pc`.
+    En parcourant la table dans l'ordre d'ecriture, le premier trouve gagnait —
+    c'est-a-dire le plus vague. « arrête l'ordinateur » etait donc compris
+    comme « ferme l'application ordinateur ».
+
+    C'etait sans consequence tant qu'aucun outil ne repondait a
+    `fermer_application` : Nova en parlait, sans agir. Le jour ou l'outil
+    arrive, la meme phrase devient une action sur une cible inventee. Le
+    defaut n'a pas ete cree par l'outil ; il attendait.
+
+    Trier par LONGUEUR du declencheur regle la classe entiere plutot que ce
+    cas : « arrete l ordinateur » (19 caracteres) l'emporte sur « arrete »
+    (6), et il en ira de meme pour tous les declencheurs qu'on ajoutera. Se
+    contenter de deplacer une ligne dans la table aurait marche aujourd'hui et
+    se serait redefait au prochain ajout, en silence.
+
+    A longueur egale, l'ordre de la table decide : il reste le dernier mot.
+    """
+    trouves: list[tuple[int, int, int, str, str, bool, re.Match]] = []
+    for rang, (nom, declencheurs, exige_cible) in enumerate(DECLENCHEURS):
+        for declencheur in declencheurs:
+            # `[sz]?` tolere la conjugaison : « lance », « lances », « lancez ».
+            # Enumerer les formes conjuguees aurait triple la table pour rien —
+            # et en aurait rate autant. Uniquement sur les declencheurs d'UN
+            # mot : « quel temps » n'a pas de forme en -s.
+            fin = "[sz]?" if " " not in declencheur else ""
+            motif = re.compile(rf"(?:^|\b)({re.escape(declencheur)}{fin})\b")
+            # En tete, ou precede uniquement d'un mot outil deja retire par
+            # `depolitesser`. Chercher n'importe ou produirait des faux
+            # positifs — « je me demande si tu peux ouvrir » n'est pas un ordre.
+            if trouve := motif.search(reduit):
+                trouves.append(
+                    (-len(declencheur), trouve.start(), rang, nom, declencheur, exige_cible, trouve)
+                )
+
+    trouves.sort(key=lambda c: c[:3])
+    return [(nom, decl, exige, m) for *_, nom, decl, exige, m in trouves]
+
+
 def reconnaitre(texte: str) -> Intention:
     """L'intention de la phrase, ou `AUCUNE`.
 
@@ -256,42 +301,28 @@ def reconnaitre(texte: str) -> Intention:
     if not reduit:
         return AUCUNE
 
-    for nom, declencheurs, exige_cible in DECLENCHEURS:
-        for declencheur in declencheurs:
-            # En tete, ou precede uniquement d'un mot outil deja retire par
-            # `depolitesser`. Chercher n'importe ou produirait des faux
-            # positifs — « je me demande si tu peux ouvrir » n'est pas un ordre.
-            # `[sz]?` tolere la conjugaison : « lance », « lances »,
-            # « lancez ». Enumerer les formes conjuguees aurait triple la
-            # table pour rien — et en aurait rate autant. Uniquement sur les
-            # declencheurs d'UN mot : « quel temps » n'a pas de forme en -s.
-            fin = "[sz]?" if " " not in declencheur else ""
-            motif = re.compile(rf"(?:^|\b)({re.escape(declencheur)}{fin})\b")
-            trouve = motif.search(reduit)
-            if not trouve:
+    for nom, declencheur, exige_cible, trouve in _candidats(reduit):
+        if not exige_cible:
+            # Le declencheur doit occuper l'essentiel de la phrase :
+            # « quelle heure est-il » oui, « je me souviens de l'heure ou
+            # nous nous sommes rencontres » non.
+            if trouve.start() > 12:
                 continue
+            return Intention(nom=nom, confiance=0.95, declencheur=declencheur)
 
-            if not exige_cible:
-                # Le declencheur doit occuper l'essentiel de la phrase :
-                # « quelle heure est-il » oui, « je me souviens de l'heure ou
-                # nous nous sommes rencontres » non.
-                if trouve.start() > 12:
-                    continue
-                return Intention(nom=nom, confiance=0.95, declencheur=declencheur)
-
-            cible = _nettoyer_cible(texte[len(texte) - len(reduit) :][trouve.end() :]) \
-                if len(reduit) <= len(texte) else ""
-            # On prefere retrouver la cible dans le texte ORIGINAL : c'est la
-            # que « Discord » garde sa majuscule et son orthographe.
-            cible = _cible_dans_original(texte, declencheur) or cible
-            if not cible:
-                continue
-            return Intention(
-                nom=nom,
-                cible=cible,
-                confiance=0.9 if trouve.start() <= 12 else 0.7,
-                declencheur=declencheur,
-            )
+        cible = _nettoyer_cible(texte[len(texte) - len(reduit) :][trouve.end() :]) \
+            if len(reduit) <= len(texte) else ""
+        # On prefere retrouver la cible dans le texte ORIGINAL : c'est la
+        # que « Discord » garde sa majuscule et son orthographe.
+        cible = _cible_dans_original(texte, declencheur) or cible
+        if not cible:
+            continue
+        return Intention(
+            nom=nom,
+            cible=cible,
+            confiance=0.9 if trouve.start() <= 12 else 0.7,
+            declencheur=declencheur,
+        )
 
     return AUCUNE
 

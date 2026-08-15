@@ -64,6 +64,7 @@ CATALOGUE_APPLICATIONS = "applications"
 #: alors normalement, au lieu de refuser ou d'inventer.
 ACTIONS: dict[str, Action] = {
     "ouvrir_application": Action("ouvrir_application", "cible", catalogue=CATALOGUE_APPLICATIONS),
+    "fermer_application": Action("fermer_application", "cible", catalogue=CATALOGUE_APPLICATIONS),
     "arret_pc": Action("eteindre_ordinateur"),
 }
 
