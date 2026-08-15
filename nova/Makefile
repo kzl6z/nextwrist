@@ -1,7 +1,10 @@
-.PHONY: install migrate serve up down logs test lint ingest
+.PHONY: install migrate serve up down logs test lint ingest ui
 
 install:          ## Installe les dependances dans un environnement local
 	uv sync --extra dev
+
+ui:               ## Installe les modules Nova dans l'application de bureau
+	./scripts/installer-ui.sh $(if $(CIBLE),$(CIBLE),$(HOME)/Desktop/nova-project)
 
 migrate:          ## Applique les migrations SQL
 	uv run nova db migrate

@@ -78,6 +78,7 @@ def capacites() -> dict:
     from nova.vision import disponible as vision_disponible
 
     machine = plateforme.detecter()
+    pression = plateforme.pression_memoire()
     return {
         "machine": {
             "systeme": machine.systeme,
@@ -86,6 +87,15 @@ def capacites() -> dict:
             "profil": machine.profil,
             "budget_modele_go": machine.budget_modele_go,
             "menager_le_gpu": machine.menager_le_gpu,
+        },
+        # Mesure d'INSTANT, contrairement au bloc ci-dessus. C'est la premiere
+        # chose a regarder quand la machine se fige : une pagination ne se
+        # corrige par aucun reglage d'interface.
+        "memoire": {
+            "swap_utilise_go": pression.swap_utilise_go,
+            "swap_total_go": pression.swap_total_go,
+            "pagine": pression.pagine,
+            "mesurable": pression.disponible,
         },
         "outils": [
             {"nom": o.nom, "description": o.description} for o in registre_outils.tout()

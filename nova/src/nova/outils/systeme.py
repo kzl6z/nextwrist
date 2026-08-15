@@ -232,6 +232,104 @@ class FermerApplication:
         return f"{application} est fermée."
 
 
+#: De combien on bouge le volume a chaque demande.
+#:
+#: Douze pour cent, et non cinq ou vingt-cinq. En dessous, il faut le
+#: redemander trois fois — et une action qu'on doit repeter trois fois est une
+#: action ratee. Au-dessus, « monte le son » fait sursauter.
+PAS_VOLUME = 12
+
+#: Le nom arrive en ARGUMENT, comme partout ailleurs dans ce fichier.
+#: `output volume` peut valoir `missing value` sur certaines sorties audio
+#: (casque Bluetooth qui gere son propre volume) : on le dit au lieu de
+#: planter sur une soustraction impossible.
+_SCRIPT_VOLUME = """
+on run argv
+    set pas to (item 1 of argv) as integer
+    set actuel to output volume of (get volume settings)
+    if actuel is missing value then return "inconnu"
+    set vise to actuel + pas
+    if vise > 100 then set vise to 100
+    if vise < 0 then set vise to 0
+    set volume output volume vise
+    if vise > 0 then set volume without output muted
+    return vise as text
+end run
+"""
+
+_SCRIPT_SOURDINE = """
+on run argv
+    set volume output muted true
+    return "coupe"
+end run
+"""
+
+
+class ReglerLeSon:
+    """Monter, baisser ou couper le son du systeme.
+
+    UNE CLASSE POUR TROIS OUTILS
+
+    Trois classes quasi identiques auraient triple la surface a relire pour
+    une seule difference : le pas. On enregistre donc trois INSTANCES de la
+    meme classe. Le registre travaille sur des objets, pas sur des types :
+    rien a changer ailleurs.
+
+    NIVEAU REVERSIBLE, ET CETTE FOIS SANS DEBAT
+
+    Le son se remonte. C'est meme l'exemple canonique d'une action dont
+    l'erreur se corrige en la redemandant — et l'interrompre par une
+    confirmation serait absurde : on demande a monter le son parce qu'on
+    n'entend pas, pas pour engager une conversation a ce sujet.
+    """
+
+    capacite = "action"
+    niveau = contrats.REVERSIBLE
+
+    def __init__(self, nom: str, description: str, pas: int | None) -> None:
+        self.nom = nom
+        self.description = description
+        self.pas = pas          # None = sourdine
+
+    def executer(self) -> str:
+        _verifier_macos(self.nom)
+        if self.pas is None:
+            commande = ["/usr/bin/osascript", "-e", _SCRIPT_SOURDINE]
+        else:
+            commande = ["/usr/bin/osascript", "-e", _SCRIPT_VOLUME, str(self.pas)]
+
+        resultat = subprocess.run(          # noqa: S603
+            commande, capture_output=True, text=True, timeout=DELAI_S
+        )
+        if resultat.returncode != 0:
+            detail = (resultat.stderr or "").strip()
+            raise ActionImpossible(f"Le volume n'a pas pu etre change. {detail}".strip())
+
+        # On decide du message d'apres ce qu'on a DEMANDE, pas d'apres ce que
+        # le script repond. Faire dependre « le son est coupé » d'une chaine
+        # renvoyee par AppleScript, c'etait accepter qu'un jour un script
+        # modifie fasse annoncer un niveau de volume pour une sourdine.
+        if self.pas is None:
+            return "Le son est coupé."
+
+        sortie = (resultat.stdout or "").strip()
+        if sortie == "inconnu":
+            # Un casque qui gere son propre volume. Le dire vaut mieux que
+            # d'annoncer un reglage qui n'a pas eu lieu.
+            raise ActionImpossible(
+                "La sortie audio actuelle gère son volume elle-même — je ne peux pas la régler."
+            )
+        return f"Volume à {sortie} %."
+
+
+def _actions_du_son() -> tuple[ReglerLeSon, ...]:
+    return (
+        ReglerLeSon("monter_le_son", "Augmente le volume du systeme", PAS_VOLUME),
+        ReglerLeSon("baisser_le_son", "Diminue le volume du systeme", -PAS_VOLUME),
+        ReglerLeSon("couper_le_son", "Coupe le son du systeme", None),
+    )
+
+
 class EteindreOrdinateur:
     """Eteint la machine.
 
@@ -265,6 +363,8 @@ def enregistrer_actions_systeme(registre) -> None:
     pouvoir construire un registre isole, et l'application doit pouvoir
     choisir de ne pas les activer du tout.
     """
-    for outil in (OuvrirApplication(), FermerApplication(), EteindreOrdinateur()):
+    for outil in (
+        OuvrirApplication(), FermerApplication(), *_actions_du_son(), EteindreOrdinateur()
+    ):
         if outil.nom not in registre:
             registre.enregistrer(outil)

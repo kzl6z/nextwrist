@@ -65,6 +65,9 @@ CATALOGUE_APPLICATIONS = "applications"
 ACTIONS: dict[str, Action] = {
     "ouvrir_application": Action("ouvrir_application", "cible", catalogue=CATALOGUE_APPLICATIONS),
     "fermer_application": Action("fermer_application", "cible", catalogue=CATALOGUE_APPLICATIONS),
+    "volume_haut": Action("monter_le_son"),
+    "volume_bas": Action("baisser_le_son"),
+    "silence": Action("couper_le_son"),
     "arret_pc": Action("eteindre_ordinateur"),
 }
 

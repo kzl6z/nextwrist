@@ -5,7 +5,33 @@ Nova : c'est du code métier, pas de l'habillage. Ils sont versionnés ici pour
 qu'un `git pull` suffise à les récupérer, et pour qu'ils aient des bancs
 d'essai — ce qui serait impossible s'ils ne vivaient que dans l'application.
 
-| Fichier | Où le déposer | Banc d'essai |
+## Installation
+
+```bash
+make ui                              # ~/Desktop/nova-project
+make ui CIBLE=/autre/chemin
+```
+
+**Ne les copie pas à la main.** Ce tableau a existé seul pendant des semaines,
+et il ne suffisait pas : `brain.js` était rappelé à chaque `git pull`, les
+trois autres non. `rendu-econome.js` — le correctif de la contention GPU,
+mesuré et testé — est resté sur l'étagère pendant que la machine se figeait à
+chaque réponse. Une instruction qu'il faut *penser* à appliquer n'est pas une
+instruction.
+
+`make ui` est idempotent (bloc délimité, réécrit à chaque fois), sauvegarde
+`script.js` avant d'écrire, et **relit** le résultat : il se termine en erreur
+si un module manque.
+
+Pour vérifier côté application, dans la console :
+
+```
+[NOVA/rendu] cadence adaptative — 4 images/s pendant qu’elle réfléchit
+```
+
+Si cette ligne est absente, le rendu économe ne tourne pas.
+
+| Fichier | Où il va | Banc d'essai |
 |---|---|---|
 | `brain.js` | `nova-project/electron/` | `test-flux.cjs`, `test-recuperation.cjs` |
 | `reveil-vocal.js` | fin de `nova-project/script.js` | `test-reveil.cjs` |

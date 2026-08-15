@@ -86,6 +86,25 @@ def _entretenir(arret: threading.Event) -> None:
         except Exception as exc:  # noqa: BLE001
             log.warning("Vocabulaire non rafraichi : %s", exc)
 
+        # ── LA MESURE QUI DEPARTAGE DEUX PANNES OPPOSEES ─────────────────
+        #
+        # « Tout se fige pendant qu'elle repond, sauf la souris » a deux
+        # causes possibles sur une puce a memoire unifiee, et elles se
+        # corrigent a l'inverse l'une de l'autre : la contention GPU se regle
+        # en ralentissant l'affichage, la pagination ne se regle QUE par un
+        # modele plus leger. Le dire ici evite d'y passer une journee du
+        # mauvais cote.
+        pression = plateforme.pression_memoire()
+        if pression.pagine:
+            log.warning(
+                "La machine pagine (%s). Tout ralentit, Nova comprise, et aucun "
+                "reglage d'interface n'y peut rien : c'est un modele plus leger "
+                "qu'il faut. Modele actuel : %s.",
+                pression, get_settings().chat_model,
+            )
+        elif premiere:
+            log.info("Memoire : %s — pas de pagination.", pression)
+
         duree = client.chauffer()
         if duree is not None and (premiere or duree > 5.0):
             # Au-dela de cinq secondes, ce n'etait pas un simple aller-retour :

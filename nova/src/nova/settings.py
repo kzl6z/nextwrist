@@ -120,6 +120,20 @@ class Settings(BaseSettings):
     # qu'il evite (Whisper qui invente du texte sur du silence) concerne
     # surtout l'ecoute continue, qu'on ne fait pas encore.
     whisper_vad: bool = False
+    # ── Coeurs laisses a la machine pendant que Nova transcrit ────────────
+    #
+    # ⚠️ ZERO N'EST PAS UN DEFAUT NEUTRE ICI.
+    #
+    # `faster-whisper` interprete `cpu_threads=0` comme « prends tous les
+    # coeurs », et c'etait le comportement — jamais choisi, simplement herite
+    # de l'absence d'argument. Pendant une transcription, la machine entiere
+    # se retrouvait donc sans un seul coeur disponible pour l'interface.
+    #
+    # 0 signifie ici « decide pour moi » : tous les coeurs sauf deux. Deux,
+    # parce qu'il en faut un pour le systeme et un pour ce que la personne est
+    # en train de faire — c'est le minimum pour que la machine reste a elle
+    # pendant que Nova travaille. Une valeur explicite l'emporte toujours.
+    whisper_threads: int = 0
     # ── Deux modeles, deux metiers ────────────────────────────────────────
     #
     # Celui-ci tourne EN BOUCLE des que le micro depasse un seuil, et ne

@@ -109,7 +109,17 @@ DECLENCHEURS: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("date", ("quel jour", "quelle date", "on est quel", "la date"), False),
     ("volume_haut", ("monte le son", "augmente le volume", "monte le volume", "plus fort"), False),
     ("volume_bas", ("baisse le son", "baisse le volume", "diminue le volume", "moins fort"), False),
-    ("silence", ("coupe le son", "mets en sourdine", "silence", "tais toi", "stop"), False),
+    # ⚠️ DEUX SILENCES QUI N'ONT RIEN A VOIR, ET QUI ETAIENT CONFONDUS
+    #
+    # « coupe le son » parle du HAUT-PARLEUR. « tais-toi » parle de NOVA.
+    # Les reunir sous une seule intention n'avait aucune consequence tant
+    # qu'aucun outil n'y repondait ; brancher la sourdine systeme aurait
+    # rendu le Mac muet chaque fois qu'on demande a Nova de se taire.
+    #
+    # Meme lecon que « arrête l'ordinateur » : le defaut n'est pas cree par
+    # l'outil, il l'attend.
+    ("silence", ("coupe le son", "coupe le volume", "mets en sourdine", "sourdine"), False),
+    ("stop_parole", ("tais toi", "arrete de parler", "chut", "silence", "stop"), False),
     ("recherche_web", ("cherche", "chercher", "recherche sur", "google", "trouve moi"), True),
     ("memoire", ("que sais tu de moi", "retiens", "souviens toi", "rappelle toi",
                  "note que", "mes projets"), False),

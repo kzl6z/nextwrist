@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
 from dataclasses import dataclass
 from functools import lru_cache
@@ -177,6 +178,102 @@ def detecter() -> Machine:
         memoire_go=_memoire_go(),
         disque_libre_go=round(shutil.disk_usage(os.getcwd()).free / 1e9, 1),
     )
+
+
+@dataclass(frozen=True)
+class Pression:
+    """L'etat de la memoire MAINTENANT, pas ce que la machine contient.
+
+    POURQUOI CETTE MESURE EXISTE, ET POURQUOI ELLE ARRIVE SI TARD
+
+    « Tout se fige pendant qu'elle repond, sauf la souris » a exactement deux
+    explications sur une puce a memoire unifiee, et elles demandent des
+    corrections opposees :
+
+        contention GPU   le modele et l'affichage se disputent la meme puce
+        pagination       la machine ecrit sur le disque pour faire de la place
+
+    La premiere se corrige en ralentissant l'animation. La seconde ne se
+    corrige QUE par un modele plus leger — aucun reglage d'interface n'y peut
+    rien. Choisir sans mesurer, c'est une chance sur deux de passer une
+    journee du mauvais cote.
+
+    Le curseur qui continue de bouger ne departage pas : il est dessine par un
+    chemin prioritaire dans les deux cas.
+    """
+
+    swap_utilise_go: float
+    swap_total_go: float
+    disponible: bool = True
+
+    @property
+    def pagine(self) -> bool:
+        """La machine ecrit-elle de la memoire sur le disque ?
+
+        Un demi-gigaoctet de swap sur macOS est normal et sans effet ressenti
+        — le systeme y depose des pages froides. Au-dela, ce sont des pages
+        chaudes qui partent, et chacune revient au prix d'une lecture disque.
+        """
+        return self.disponible and self.swap_utilise_go >= 1.0
+
+    def __str__(self) -> str:
+        if not self.disponible:
+            return "pagination inconnue"
+        return f"swap {self.swap_utilise_go} Go / {self.swap_total_go} Go"
+
+
+def pression_memoire() -> Pression:
+    """Combien de memoire est actuellement repoussee sur le disque.
+
+    N'est PAS mise en cache, contrairement a `detecter()` : c'est une mesure
+    d'instant, et la garder reviendrait a mesurer autre chose.
+    """
+    try:
+        if platform.system() == "Darwin":
+            return _swap_macos()
+        if platform.system() == "Linux":
+            return _swap_linux()
+    except Exception:  # noqa: BLE001
+        pass
+    return Pression(0.0, 0.0, disponible=False)
+
+
+def _swap_macos() -> Pression:
+    """`sysctl vm.swapusage` — sans dependance, et deja installe partout.
+
+    Sortie : « total = 2048,00M  used = 1234,50M  free = 813,50M ».
+    Le separateur decimal SUIT LA LANGUE DU SYSTEME : sur un Mac francais
+    c'est une virgule, et `float("1234,50")` leve. C'est le genre de detail
+    qui ne se voit jamais en test et toujours chez l'utilisateur.
+    """
+    import subprocess
+
+    sortie = subprocess.run(
+        ["/usr/sbin/sysctl", "-n", "vm.swapusage"],
+        capture_output=True, text=True, timeout=2.0, check=False,
+    ).stdout
+    return Pression(_octets(sortie, "used"), _octets(sortie, "total"))
+
+
+def _octets(sortie: str, champ: str) -> float:
+    """Le champ demande, en Go, quelle que soit l'unite et la langue."""
+    trouve = re.search(rf"{champ}\s*=\s*([\d.,]+)([KMG])", sortie)
+    if not trouve:
+        return 0.0
+    valeur = float(trouve.group(1).replace(",", "."))
+    facteur = {"K": 1 / 2**20, "M": 1 / 2**10, "G": 1.0}[trouve.group(2)]
+    return round(valeur * facteur, 2)
+
+
+def _swap_linux() -> Pression:
+    valeurs: dict[str, float] = {}
+    with open("/proc/meminfo") as meminfo:
+        for ligne in meminfo:
+            if ligne.startswith(("SwapTotal:", "SwapFree:")):
+                clef, valeur, *_ = ligne.replace(":", "").split()
+                valeurs[clef] = float(valeur) / 2**20      # kio -> Gio
+    total = valeurs.get("SwapTotal", 0.0)
+    return Pression(round(total - valeurs.get("SwapFree", 0.0), 2), round(total, 2))
 
 
 def resume() -> str:

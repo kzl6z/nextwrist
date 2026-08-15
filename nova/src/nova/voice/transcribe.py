@@ -19,6 +19,7 @@ capacite est facultative, et son absence n'empeche jamais le reste.
 
 from __future__ import annotations
 
+import os
 import re
 import tempfile
 import unicodedata
@@ -133,11 +134,35 @@ def _charger(nom: str):
         ) from exc
 
     settings = get_settings()
-    log.info("Chargement du modele de transcription %s…", nom)
+    fils = _fils_de_calcul()
+    log.info("Chargement du modele de transcription %s (%d fil(s))…", nom, fils)
     # int8 : quantification. Sur un Mac 8 Go c'est le seul reglage raisonnable —
     # trois fois plus leger que float16, pour une perte de precision inaudible
     # sur de la dictee courte.
-    return WhisperModel(nom, device="cpu", compute_type=settings.whisper_compute)
+    return WhisperModel(
+        nom, device="cpu", compute_type=settings.whisper_compute, cpu_threads=fils
+    )
+
+
+def _fils_de_calcul() -> int:
+    """Combien de coeurs la transcription a le droit de prendre.
+
+    ⚠️ L'ARGUMENT ABSENT ETAIT UN CHOIX, SANS QUE PERSONNE NE L'AIT FAIT.
+
+    `WhisperModel` etait construit sans `cpu_threads`. La valeur par defaut de
+    la bibliotheque est 0, et 0 y signifie « tous les coeurs ». Pendant chaque
+    transcription, la machine entiere se retrouvait donc sans un seul coeur
+    libre — pas seulement Nova : le systeme, le navigateur, le traitement de
+    texte ouvert a cote.
+
+    Un assistant qui prend toute la machine pour ecouter une phrase de trois
+    secondes n'est pas un assistant. On lui en laisse deux : un pour le
+    systeme, un pour ce que la personne est en train de faire.
+    """
+    demandes = get_settings().whisper_threads
+    if demandes > 0:
+        return demandes
+    return max(1, (os.cpu_count() or 1) - 2)
 
 
 def transcrire(
