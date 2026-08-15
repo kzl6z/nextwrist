@@ -56,6 +56,38 @@ fi
 
 cp "$SCRIPT" "$SCRIPT.avant-nova"
 
+# ── 2b. Les copies collées A LA MAIN, avant que ce script n'existe ───────
+#
+# ⚠️ C'EST LE DÉFAUT QUI A COÛTÉ LE PLUS CHER, ET IL ÉTAIT DANS CE FICHIER.
+#
+# Les marqueurs protégeaient ce script de LUI-MÊME : réinstaller n'empilait
+# pas. Ils ne protégeaient de rien d'autre. Sur la machine réelle, les
+# modules avaient été collés à la main avant que `make ui` n'existe ; le
+# script a ajouté sa copie à côté, et tout s'est mis à tourner en double :
+#
+#     deux « cadence adaptative »  -> rAF enveloppé deux fois
+#     deux « parole en flux »      -> deux requêtes de synthèse par phrase,
+#                                     lectures concurrentes, AbortError,
+#                                     repli sur la voix du système
+#
+# Les modules portent désormais un garde-fou interne, donc un doublon ne
+# casse plus rien. On le signale quand même : du code mort dans script.js
+# reste du code qui se lit, se modifie par erreur, et trompe.
+avertis=0
+for module in reveil-vocal.js parole-en-flux.js rendu-econome.js; do
+  empreinte=$(case "$module" in
+    reveil-vocal.js)   echo "function reveilLocal" ;;
+    parole-en-flux.js) echo "function paroleEnFlux" ;;
+    rendu-econome.js)  echo "function renduEconome" ;;
+  esac)
+  # On compte AVANT d'ajouter notre bloc : tout ce qui est là vient d'ailleurs.
+  copies=$(grep -c "$empreinte" "$SCRIPT" || true)
+  if [ "${copies:-0}" -gt 0 ]; then
+    echo "  ⚠ $module est déjà présent ($copies copie(s) collée(s) à la main)"
+    avertis=1
+  fi
+done
+
 python3 - "$SCRIPT" "$DEBUT" "$FIN" <<'PY'
 import sys, pathlib
 chemin, debut, fin = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
@@ -99,6 +131,17 @@ if [ "$manquants" -ne 0 ]; then
 fi
 
 echo ""
+if [ "$avertis" -ne 0 ]; then
+  echo "⚠ D'anciennes copies collées à la main subsistent dans script.js."
+  echo "  Elles ne cassent plus rien — chaque module refuse de s'activer deux"
+  echo "  fois — mais ce sont des centaines de lignes mortes. Pour les retirer :"
+  echo "    1. ouvre $SCRIPT"
+  echo "    2. supprime tout ce qui est AVANT « $DEBUT »"
+  echo "       et qui contient reveilLocal, paroleEnFlux ou renduEconome"
+  echo "    3. relance : make ui"
+  echo "  La sauvegarde d'origine est dans $SCRIPT.avant-nova"
+  echo ""
+fi
 echo "✓ Les quatre modules sont en place."
 echo "  Relance l'application, puis cherche cette ligne dans la console :"
 echo "    [NOVA/rendu] cadence adaptative — 4 images/s pendant qu'elle réfléchit"

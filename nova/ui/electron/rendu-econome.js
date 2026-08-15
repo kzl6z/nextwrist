@@ -46,6 +46,27 @@
 (function renduEconome() {
   if (typeof window === 'undefined' || !window.requestAnimationFrame) return;
 
+  // ⚠️ CHARGÉ DEUX FOIS = PIRE QUE PAS CHARGÉ DU TOUT.
+  //
+  // Relevé sur la machine réelle : deux lignes « cadence adaptative » dans la
+  // console. Le module avait été collé à la main dans script.js, puis
+  // réinstallé par `make ui` qui a ajouté sa propre copie.
+  //
+  // Deux copies enveloppent `requestAnimationFrame` DEUX FOIS. Le second
+  // emballage voit le premier comme « le vrai rAF » : chaque image traverse
+  // deux minuteurs, deux calculs de cadence, deux Map. On paie donc le
+  // double du travail qu'on cherchait précisément à supprimer, et la sphère
+  // se met à saccader au lieu de s'apaiser.
+  //
+  // Un drapeau global rend l'ordre de collage indifférent. C'est la seule
+  // défense qui tienne : on ne peut pas empêcher quelqu'un de coller deux
+  // fois, on peut faire que ça ne coûte rien.
+  if (window.__novaRenduEconome) {
+    console.info('[NOVA/rendu] déjà actif — cette seconde copie ne fait rien');
+    return;
+  }
+  window.__novaRenduEconome = true;
+
   // Cadence visée, par état. Le fond de l'affaire tient dans la ligne
   // THINKING : c'est le seul moment où le modèle a vraiment besoin du GPU,
   // et le seul où personne ne regarde la sphère.

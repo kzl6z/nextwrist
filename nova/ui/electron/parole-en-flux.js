@@ -18,6 +18,26 @@
 (function paroleEnFlux() {
   if (typeof traiterDemande !== 'function') return;
 
+  // ⚠️ LA DEUXIÈME VOIX VENAIT D'ICI.
+  //
+  // Relevé sur la machine réelle : deux requêtes ElevenLabs pour le MÊME
+  // texte, deux lectures démarrées, puis
+  //
+  //     PLAYBACK BLOCKED: AbortError — play() interrupted by pause()
+  //     [VOIX] lecture échouée -> repli voix système
+  //
+  // Deux copies du module enveloppent `traiterDemande` deux fois : chaque
+  // phrase part donc en double. Les deux lectures se disputent le même
+  // élément audio, l'une annule l'autre, et l'application se rabat sur la
+  // voix du système — d'où une voix étrangère par-dessus celle de Nova.
+  //
+  // Ce n'était pas un bug de synthèse : c'était deux fois le même module.
+  if (typeof window !== 'undefined' && window.__novaParoleEnFlux) {
+    console.info('[NOVA/flux] déjà actif — cette seconde copie ne fait rien');
+    return;
+  }
+  if (typeof window !== 'undefined') window.__novaParoleEnFlux = true;
+
   // ── Les nombres, tels qu'ils doivent être ENTENDUS ──────────────────
   //
   //  Le modèle écrit les grands nombres avec un séparateur de milliers,

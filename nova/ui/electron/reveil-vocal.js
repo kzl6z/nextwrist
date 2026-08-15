@@ -28,6 +28,18 @@
 //  coupure au milieu d'un mot.
 // ══════════════════════════════════════════════════════════════════════════
 (function reveilLocal() {
+  // ⚠️ DEUX ÉCOUTES = DEUX MICROS OUVERTS.
+  //
+  // Le plus coûteux des trois doublons : chaque phrase serait transcrite
+  // deux fois, donc deux fois le calcul, sur la machine où le calcul est
+  // justement la ressource rare. Et les deux écoutes déclencheraient sur le
+  // même « Nova », envoyant deux demandes pour une seule question.
+  if (typeof window !== 'undefined' && window.__novaReveilVocal) {
+    console.info('[NOVA/réveil] déjà actif — cette seconde copie ne fait rien');
+    return;
+  }
+  if (typeof window !== 'undefined') window.__novaReveilVocal = true;
+
   const NOVA_CORE = 'http://127.0.0.1:8100';
 
   // ── Réglages d'écoute ──

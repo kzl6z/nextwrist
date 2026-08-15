@@ -23,6 +23,28 @@ instruction.
 `script.js` avant d'écrire, et **relit** le résultat : il se termine en erreur
 si un module manque.
 
+### Un module chargé deux fois
+
+Les marqueurs protégeaient `make ui` de lui-même, et de rien d'autre. Sur la
+machine de référence, les modules avaient été collés à la main *avant* que ce
+script n'existe ; il a ajouté sa copie à côté, et tout s'est mis à tourner en
+double :
+
+```
+[NOVA/rendu] cadence adaptative…      ← deux fois
+[NOVA/flux]  parole en flux active…   ← deux fois
+Request sent to ElevenLabs (88 car.)  ← deux fois, MÊME texte
+PLAYBACK BLOCKED: AbortError — play() interrupted by pause()
+[VOIX] lecture échouée -> repli voix système
+```
+
+Ce qui s'entendait comme « une deuxième voix par-dessus celle de Nova »
+n'était pas un défaut de synthèse : c'était deux fois le même module.
+
+Chaque module refuse désormais de s'activer deux fois (`test-doublon.cjs`), et
+`make ui` signale les copies manuelles qu'il trouve. Un doublon ne casse plus
+rien — mais ce sont des lignes mortes, et il vaut mieux les retirer.
+
 Pour vérifier côté application, dans la console :
 
 ```
