@@ -56,6 +56,16 @@ fi
 
 cp "$SCRIPT" "$SCRIPT.avant-nova"
 
+python3 - "$SCRIPT" "$DEBUT" "$FIN" <<'PY'
+import sys, pathlib
+chemin, debut, fin = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+texte = chemin.read_text(encoding="utf-8")
+if debut in texte and fin in texte:
+    avant = texte.split(debut)[0]
+    apres = texte.split(fin, 1)[1]
+    chemin.write_text(avant.rstrip() + "\n" + apres.lstrip("\n"), encoding="utf-8")
+PY
+
 # ── 2b. Les copies collées A LA MAIN, avant que ce script n'existe ───────
 #
 # ⚠️ C'EST LE DÉFAUT QUI A COÛTÉ LE PLUS CHER, ET IL ÉTAIT DANS CE FICHIER.
@@ -73,30 +83,37 @@ cp "$SCRIPT" "$SCRIPT.avant-nova"
 # Les modules portent désormais un garde-fou interne, donc un doublon ne
 # casse plus rien. On le signale quand même : du code mort dans script.js
 # reste du code qui se lit, se modifie par erreur, et trompe.
+#
+# ⚠️ ON COMPTE ICI, ET PAS PLUS HAUT. Notre propre bloc vient d'être retiré
+# par le python ci-dessus ; compter avant l'aurait fait dénoncer comme une
+# copie manuelle dès la deuxième installation — un avertissement qui accuse
+# celui qui le lit ne sert qu'à le faire ignorer.
+#
+# ⚠️ PAS DE `case` DANS UN `$( )`. macOS LIVRE BASH 3.2.
+#
+# La première version écrivait `empreinte=$(case "$module" in …)`. Bash 3.2
+# prend la parenthèse fermante d'un motif de `case` pour la fin de la
+# substitution :
+#
+#     installer-ui.sh: line 79: syntax error near unexpected token ';;'
+#
+# Ça passait ici (bash 5) et échouait chez l'utilisateur — c'est-à-dire au
+# seul endroit qui compte. Deux listes parallèles évitent la construction au
+# lieu de la contourner.
+MODULES="reveil-vocal.js parole-en-flux.js rendu-econome.js"
+EMPREINTES="reveilLocal paroleEnFlux renduEconome"
+
 avertis=0
-for module in reveil-vocal.js parole-en-flux.js rendu-econome.js; do
-  empreinte=$(case "$module" in
-    reveil-vocal.js)   echo "function reveilLocal" ;;
-    parole-en-flux.js) echo "function paroleEnFlux" ;;
-    rendu-econome.js)  echo "function renduEconome" ;;
-  esac)
-  # On compte AVANT d'ajouter notre bloc : tout ce qui est là vient d'ailleurs.
-  copies=$(grep -c "$empreinte" "$SCRIPT" || true)
+rang=1
+for module in $MODULES; do
+  empreinte=$(echo "$EMPREINTES" | cut -d' ' -f"$rang")
+  rang=$((rang + 1))
+  copies=$(grep -c "function $empreinte" "$SCRIPT" || true)
   if [ "${copies:-0}" -gt 0 ]; then
     echo "  ⚠ $module est déjà présent ($copies copie(s) collée(s) à la main)"
     avertis=1
   fi
 done
-
-python3 - "$SCRIPT" "$DEBUT" "$FIN" <<'PY'
-import sys, pathlib
-chemin, debut, fin = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
-texte = chemin.read_text(encoding="utf-8")
-if debut in texte and fin in texte:
-    avant = texte.split(debut)[0]
-    apres = texte.split(fin, 1)[1]
-    chemin.write_text(avant.rstrip() + "\n" + apres.lstrip("\n"), encoding="utf-8")
-PY
 
 {
   echo ""

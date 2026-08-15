@@ -63,7 +63,7 @@ function mesurer(etat, secondes) {
 }
 
 console.log('\n── Images par seconde, par état ───────────────');
-const attendus = { IDLE: 12, LISTENING: 20, THINKING: 4, SPEAKING: 12, INTRO: 30 };
+const attendus = { IDLE: 12, LISTENING: 20, THINKING: 4, SPEAKING: 4, INTRO: 30 };
 for (const [etat, vise] of Object.entries(attendus)) {
   const obtenu = mesurer(etat, 4);
   console.log('  ' + etat.padEnd(11) + Math.round(obtenu) + ' img/s   (visé ' + vise + ')');

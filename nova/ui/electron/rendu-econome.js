@@ -76,7 +76,25 @@
     IDLE:       12,   // respiration de 7,5 s : 12 images suffisent
     LISTENING:  20,   // elle réagit à ta voix, ça doit rester vivant
     THINKING:    4,   // ⚡ le GPU appartient au modèle
-    SPEAKING:   12,   // il écrit peut-être encore la phrase suivante
+    // ⚠️ SPEAKING EST PASSÉ DE 12 À 4, ET LE COMMENTAIRE D'ORIGINE DISAIT
+    // DÉJÀ POURQUOI SANS EN TIRER LA CONSÉQUENCE.
+    //
+    // « il écrit peut-être encore la phrase suivante » : depuis
+    // `parole-en-flux.js`, ce n'est plus un peut-être. Relevé sur la machine
+    // réelle, dans le même tour :
+    //
+    //     première phrase prononçable après 4314 ms
+    //       — elle commence à parler pendant qu'elle finit d'écrire
+    //     ÉCRITURE de la réponse : 1313 ms
+    //
+    // SPEAKING est donc un état de GÉNÉRATION, exactement comme THINKING, et
+    // il n'y a aucune raison de lui accorder trois fois plus d'images.
+    //
+    // C'est aussi l'état où l'application agrandit le plus la sphère
+    // (`echelle:1.3`, le maximum de tous les états) — donc le plus de pixels
+    // à recalculer, au moment précis où l'utilisateur essaie de se servir de
+    // sa machine et n'écoute que la voix.
+    SPEAKING:    4,
   };
   const PAR_DEFAUT = 20;
 
