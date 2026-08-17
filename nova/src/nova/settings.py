@@ -174,11 +174,37 @@ class Settings(BaseSettings):
     #
     # Les deux valent mieux qu'un seul : l'amorce deplace une probabilite, le
     # rapprochement garantit le resultat.
+    #
+    # ⚠️ ELLE NE MONTRAIT QUE DES ORDRES — ET NOVA REPOND AUSSI A DES QUESTIONS.
+    #
+    # Huit exemples, huit commandes ou demandes sur l'utilisateur. Pas une
+    # seule question de connaissance. Whisper IMITE ce qu'on lui montre : on
+    # lui avait donc appris que les phrases attendues ici sont des ordres, et
+    # une question de culture generale arrivait hors registre.
+    #
+    # Releve en conditions reelles, la MEME question posee deux fois :
+    #
+    #     dit      « Nova, qu'est-ce qu'un trou noir ? »
+    #     entendu  « Nova, qu'est-ce qu'en trois noirs ? »
+    #     entendu  « Nova, qu'est-ce qu'apprends moi ? »  -> « qu'est-ce qu'un pro-noir »
+    #
+    # Le mot massacre change a chaque fois, mais la CHARNIERE est toujours la
+    # meme : « qu'est-ce qu'un ». C'est la construction interrogative la plus
+    # courante du francais parle, et elle ne figurait nulle part ici — l'amorce
+    # ne contenait que « quelle heure est-il », « que sais-tu », « quel jour ».
+    #
+    # On ajoute donc la CONSTRUCTION, pas les mots. Ecrire « trou noir » dans
+    # l'amorce corrigerait les trous noirs et rien d'autre ; montrer trois
+    # « qu'est-ce qu'un X » de domaines differents apprend a Whisper que cette
+    # charniere est attendue, quel que soit le X qui suit.
     whisper_amorce_dictee: str = (
         "Nova, quelle heure est-il ? Nova, que sais-tu de moi ? "
         "Nova, ouvre un nouveau projet. Nova, resume-moi ce document. "
         "Nova, monte le son a 80 %. Nova, baisse le son. Nova, ferme Discord. "
-        "Quel jour sommes-nous aujourd'hui ?"
+        "Quel jour sommes-nous aujourd'hui ? "
+        "Nova, qu'est-ce qu'un trou noir ? Nova, qu'est-ce qu'une eclipse ? "
+        "Nova, qu'est-ce que la relativite ? Nova, explique-moi la photosynthese. "
+        "Nova, pourquoi le ciel est-il bleu ?"
     )
     # Vocabulaire declare a la main, separe par des virgules. Sert aux noms
     # que Nova ne peut pas deviner : marques, personnes, jargon de metier.

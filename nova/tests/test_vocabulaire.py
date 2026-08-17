@@ -72,3 +72,34 @@ def test_un_terme_trop_long_ne_bloque_pas_les_suivants():
 
 def test_sans_terme_l_amorce_reste_intacte():
     assert construire_amorce("Nova, quelle heure est-il ?", []) == "Nova, quelle heure est-il ?"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  L'AMORCE DE DICTEE DOIT MONTRER LES QUESTIONS, PAS SEULEMENT LES ORDRES
+#
+#  Releve en conditions reelles, la MEME question posee deux fois de suite :
+#
+#      dit      « Nova, qu'est-ce qu'un trou noir ? »
+#      entendu  « Nova, qu'est-ce qu'en trois noirs ? »
+#      entendu  « Nova, qu'est-ce qu'apprends moi ? »
+#
+#  L'amorce ne contenait que des ordres — ouvre, monte le son, ferme Discord.
+#  Whisper imite ce qu'on lui montre : une question de connaissance arrivait
+#  hors registre.
+#
+#  Ce test verifie la CHARNIERE, pas les mots. Ecrire « trou noir » dans
+#  l'amorce corrigerait les trous noirs et rien d'autre ; c'est la
+#  construction « qu'est-ce qu'un X » qui etait absente, et elle est la plus
+#  courante du francais parle.
+# ══════════════════════════════════════════════════════════════════════════
+def test_l_amorce_de_dictee_montre_des_questions_de_connaissance():
+    from nova.settings import Settings
+
+    amorce = Settings().whisper_amorce_dictee
+
+    assert amorce.count("qu'est-ce qu") >= 3, (
+        "la charniere interrogative doit etre montree plusieurs fois, et sur "
+        "des domaines differents — sinon Whisper apprend le mot, pas la forme"
+    )
+    # Les ordres restent : ils corrigeaient « montre le son » -> « monte le son ».
+    assert "monte le son" in amorce
