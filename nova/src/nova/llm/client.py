@@ -141,12 +141,26 @@ def _explique(exc: httpx.HTTPError, modele: str) -> str:
     Un message d'erreur doit dire QUOI FAIRE, pas seulement ce qui a echoue.
     `Client error '404 Not Found'` est exact et inutile : il n'indique ni la
     cause (le modele n'est pas installe) ni le remede (`ollama pull`).
+
+    ⚠️ ET LE REMEDE AFFICHE POUVAIT ETRE FAUX — SUR LE MODELE DU PROJET.
+
+    Il disait « ollama pull {modele} », toujours. Or `nova` ne se pull pas :
+    il se CONSTRUIT depuis un Modelfile. `ollama pull nova` echoue avec une
+    erreur de depot introuvable, c'est-a-dire qu'on envoyait quelqu'un dont
+    le modele manquait vers une commande qui ne pouvait pas le lui rendre.
+
+    Un remede faux coute plus cher qu'une absence de remede : on le suit, il
+    echoue, et on cherche desormais deux pannes au lieu d'une. Les modeles
+    construits localement n'ont pas de « / » dans leur nom (un modele du
+    catalogue s'ecrit `huihui_ai/qwen3.5-abliterated:4b`) — ca ne prouve
+    rien, donc on ne devine pas : on donne les DEUX chemins.
     """
     if isinstance(exc, httpx.HTTPStatusError):
         if exc.response.status_code == 404:
             return (
                 f"le modele « {modele} » n'existe pas dans Ollama.\n"
-                f"Installe-le :  ollama pull {modele}\n"
+                f"S'il vient du catalogue :  ollama pull {modele}\n"
+                f"S'il est construit ici    :  ollama create {modele} -f Modelfile\n"
                 f"Ou change NOVA_CHAT_MODEL dans .env — modeles disponibles : ollama list"
             )
         return f"le moteur a repondu {exc.response.status_code}."

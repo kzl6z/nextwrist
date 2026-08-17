@@ -1,0 +1,71 @@
+# ══════════════════════════════════════════════════════════════════════════
+#  LE MODELE « nova » — recette de construction
+#
+#      ollama create nova -f Modelfile
+#      ollama list                        # doit montrer nova:latest  (~3,3 Go)
+#
+#  POURQUOI CE FICHIER EXISTE
+#
+#  Le modele a d'abord ete construit a la main, sur une seule machine. Il
+#  n'existait donc qu'a un exemplaire, sans recette : un disque qui lache, un
+#  `ollama rm` de trop, un depot reclone ailleurs, et il faut le reinventer de
+#  memoire — en esperant retomber sur les memes reglages.
+#
+#  Un modele qui ne se reconstruit pas est un modele qu'on a EMPRUNTE.
+#
+#  ⚠️ SI TU AS DEJA CONSTRUIT LE TIEN AVEC D'AUTRES REGLAGES, C'EST LE TIEN
+#  QUI FAIT FOI. Exporte-le par-dessus celui-ci plutot que d'ecraser ta
+#  version par la mienne :
+#
+#      ollama show nova --modelfile > Modelfile
+#
+#  puis relis le resultat : Ollama y reecrit `FROM` en un identifiant de
+#  couche (`FROM sha256-...`), qui ne veut rien dire sur une autre machine.
+#  Remets la ligne `FROM huihui_ai/...` a la place.
+# ══════════════════════════════════════════════════════════════════════════
+
+# Base « abliteree » : les refus ont ete retires des POIDS, pas demandes dans
+# le prompt. C'est la difference qui compte ici — un system prompt permissif
+# se fait ecraser (voir plus bas), des poids non.
+FROM huihui_ai/qwen3.5-abliterated:4b
+
+# ── Fenetre de contexte ───────────────────────────────────────────────────
+#
+# ⚠️ LE SEUL REGLAGE DE CE FICHIER QUI PUISSE CASSER NOVA EN SILENCE.
+#
+# Nova n'impose PAS `num_ctx` : la valeur de ce fichier est donc celle qui
+# s'applique en vrai. Or son prompt systeme monte a ~6 800 caracteres quand la
+# memoire et les documents s'en melent (~2 000 jetons), plus 500 jetons de
+# reponse.
+#
+# Trop court, Ollama ne rend aucune erreur : il TRONQUE par le debut. Et le
+# debut, c'est justement l'identite et le contrat JSON. Nova se met alors a
+# repondre a cote, ou hors format, sans que rien nulle part ne le signale.
+#
+# 4096 laisse la marge necessaire sans gonfler l'empreinte memoire — sur 8 Go
+# partages, `num_ctx` se paie comptant.
+PARAMETER num_ctx 4096
+
+# Nova envoie sa propre temperature a chaque appel (NOVA_TEMPERATURE, 0.4 par
+# defaut) : celle-ci ne sert donc qu'a `ollama run nova` au terminal.
+PARAMETER temperature 0.7
+
+# ── Consigne par defaut ───────────────────────────────────────────────────
+#
+# ⚠️ NOVA NE VERRA JAMAIS CE TEXTE. CE N'EST PAS UN DEFAUT, C'EST L'API.
+#
+# Nova construit son propre message `system` a CHAQUE requete
+# (`orchestrator.build_system_prompt`), et un message systeme explicite
+# remplace le `SYSTEM` du Modelfile — il ne s'y ajoute pas.
+#
+# Autrement dit : tout ce qu'on ecrirait ici de permissif ou de « compagnon
+# intellectuel » ne vaudrait que pour `ollama run nova` au terminal, et serait
+# ecrase des que Nova parle. Ce qui doit valoir POUR NOVA se met dans :
+#
+#     config/prompts/identity.md     ← chemin CLI  (`nova chat`)
+#     ui/electron/brain.js  systemPrompt()   ← chemin vocal / application
+#
+# Ce qui survit du modele lui-meme, en revanche, survit toujours : les poids
+# abliteres. La liberte de ce modele est dans sa base, pas dans ce paragraphe.
+SYSTEM """Tu es Nova. Tu analyses, tu contredis, tu proposes. Tu ne flattes pas et tu n'esquives pas.
+Quand une idee est faible, tu dis pourquoi. Quand elle tient, tu dis ce qui la rendrait plus solide."""
