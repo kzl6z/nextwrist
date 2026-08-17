@@ -450,9 +450,30 @@ def build_system_prompt(
             contrat or prompts.load("identity"))
     if mode == "critique" and not contrat:
         ajouter("mode critique", prompts.load("mode_critique"))
-    if not get_settings().thinking and not contrat:
+    if not get_settings().thinking:
         # Interrupteur documente de Qwen 3. Inoffensif pour les modeles qui ne
         # le connaissent pas : ce n'est qu'une ligne de texte de plus.
+        #
+        # ⚠️ IL ETAIT CONDITIONNE A `not contrat`, ET C'ETAIT L'INVERSE DE CE
+        # QU'IL FALLAIT.
+        #
+        # L'application de bureau envoie TOUJOURS son contrat (le JSON a une
+        # clef `response`). Le seul chemin qui n'en envoie pas est la CLI. Le
+        # coupe-monologue etait donc actif exactement la ou personne ne parle a
+        # Nova, et desactive sur le chemin vocal — celui ou quelqu'un attend en
+        # silence devant une sphere qui tourne.
+        #
+        # Ca ne se voyait pas tant que le modele n'etait pas un raisonneur.
+        # Avec une base Qwen 3.x, ca se compte en dizaines de secondes de
+        # silence avant le premier mot. `ThinkFilter` cache le monologue, il ne
+        # le rembourse pas : « Ce filtre ne rend pas le modele plus rapide : le
+        # temps est deja depense » (llm/client.py).
+        #
+        # Un contrat decrit la FORME de la reponse. `/no_think` decide s'il y a
+        # un monologue AVANT. Les deux ne parlent pas de la meme chose et n'ont
+        # aucune raison de s'exclure. Qui veut le raisonnement met
+        # NOVA_THINKING=true — c'est le champ prevu pour, et il vaut maintenant
+        # pour les deux chemins.
         ajouter("no_think", "/no_think")
 
     # 2. Lent — ne bouge que quand la memoire evolue.

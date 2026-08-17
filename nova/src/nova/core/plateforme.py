@@ -89,6 +89,19 @@ POIDS_CONNUS: dict[str, float] = {
     "qwen3:1.7b": 1.4, "qwen3:4b": 2.6, "qwen3:8b": 5.2,
     "gemma2:2b": 1.6, "gemma3:4b": 3.3,
     "mistral:7b": 4.1, "phi3:mini": 2.3,
+    # ⚠️ UN MODELE ABSENT DE CETTE TABLE NE PESE PAS ZERO : IL PESE INCONNU.
+    #
+    # `nova` est construit localement par Modelfile — il ne s'obtient pas par
+    # `ollama pull`, donc rien ne peut deviner son poids. Or `poids_modele_go`
+    # rend `None` pour un inconnu, et `modele_trop_lourd` traite `None` comme
+    # « rien a signaler ». Un modele hors table traverse donc TOUS les
+    # garde-fous en silence : pas d'alerte de pagination au demarrage, et
+    # absent du rapport `empreinte_nova` — c'est-a-dire absent precisement du
+    # seul endroit qui explique pourquoi la machine rame.
+    #
+    # 3,3 Go, releve par `ollama list`. Base : huihui_ai/qwen3.5-abliterated:4b.
+    # Sur l'iMac M1 de reference (8 Go, budget 3,6 Go) il passe — de peu.
+    "nova": 3.3,
 }
 
 

@@ -8,10 +8,16 @@ Documentation complete : `../docs/nova/`
 
 ```bash
 cp .env.example .env        # puis edite le mot de passe et le modele
-ollama pull qwen3:8b        # sur la machine hote
+ollama create nova -f Modelfile   # le modele du projet, construit localement
 ollama pull bge-m3
 make up                     # Postgres + Nova + interface
 ```
+
+> `nova` est bati sur `huihui_ai/qwen3.5-abliterated:4b` (3,3 Go) et ne
+> s'obtient **pas** par `ollama pull` — il se construit. Sur une machine ou tu
+> ne veux pas le construire : `NOVA_CHAT_MODEL=llama3.2:3b` et
+> `ollama pull llama3.2:3b`. Le poids doit tenir dans ~45 % de la RAM, sinon la
+> machine pagine sans qu'aucune erreur ne le dise.
 
 Interface : http://localhost:3000 — le modele `nova` apparait dans la liste.
 
