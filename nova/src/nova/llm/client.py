@@ -244,6 +244,43 @@ class LLMClient:
             # caracteres — ce qui l'a longtemps fait passer pour de la lecture.
             "keep_alive": "30m",
         }
+        # ── COUPER LE RAISONNEMENT — ET LE FAIRE AVEC LE BON CHAMP ────────
+        #
+        # ⚠️ `/no_think` NE SUFFIT PLUS, ET SON ECHEC EST INVISIBLE.
+        #
+        # C'est un interrupteur de Qwen 3, glisse dans le prompt systeme. Sur
+        # la base Qwen 3.5 du modele `nova`, il est purement ignore : releve en
+        # conditions reelles, le modele raisonnait alors que `/no_think` etait
+        # le message systeme ENTIER.
+        #
+        # Ce qui rendait la panne indechiffrable, c'est ou passe ce
+        # raisonnement. Ollama ne l'ecrit PAS dans `content` (donc `ThinkFilter`
+        # ne le voit jamais) : il le range dans un champ `reasoning` separe.
+        # Le flux ressemblait donc a ceci, du premier fragment au dernier :
+        #
+        #     "delta":{"content":"","reasoning":"The"}
+        #     "delta":{"content":"","reasoning":" user"}
+        #
+        # Les 500 jetons du plafond partaient integralement dans `reasoning`,
+        # `content` restait vide, et Nova rendait « Aucune reponse » apres
+        # 39 secondes de travail bien reel.
+        #
+        # Trois interrupteurs ont ete essayes sur la machine, contre le vrai
+        # Ollama. Un seul marche sur ce point d'entree :
+        #
+        #     /v1  + "think": false              -> ignore, content vide
+        #     /v1  + "reasoning_effort": "none"  -> ✅ content rempli des le 1er
+        #     /api/chat + "think": false         -> marche, mais API NATIVE
+        #
+        # On prend le deuxieme. Le troisieme marche aussi et couterait la
+        # frontiere du projet : `/v1` est le seul endroit qui sait qu'Ollama
+        # existe, et en sortir pour un reglage rendrait le moteur non
+        # remplacable.
+        #
+        # `reasoning_effort` est un champ OpenAI standard. Un moteur qui ne le
+        # connait pas l'ignore, comme il ignore deja `keep_alive` et `format`.
+        if not get_settings().thinking:
+            payload["reasoning_effort"] = "none"
         if json_mode:
             # Sortie JSON garantie par le moteur : il contraint le decodage token
             # par token, ce qui rend une sortie invalide IMPOSSIBLE plutot
@@ -296,6 +333,27 @@ class LLMClient:
                     # En mode contraint, on coupe des que l'objet est ferme :
                     # tout ce qui suit est du remplissage jusqu'au plafond.
                     fin = FinDeJson() if json_mode else None
+                    # ── DE QUOI EXPLIQUER UN SILENCE ─────────────────────
+                    #
+                    # ⚠️ CE COMPTEUR EXISTE PARCE QUE NOVA A DEJA RENDU
+                    # « Aucune reponse » APRES 39 SECONDES DE TRAVAIL REEL.
+                    #
+                    # Le modele raisonnait, Ollama envoyait ce raisonnement
+                    # dans un champ `reasoning` separe, et cette boucle ne lit
+                    # que `content`. Elle recevait donc des milliers de
+                    # caracteres, n'en gardait aucun, et se terminait
+                    # normalement — sans erreur, sans avertissement, sans la
+                    # moindre trace de ce qui venait de se passer.
+                    #
+                    # C'est le pire mode de panne possible : celui ou tout le
+                    # monde a l'air d'avoir bien fait son travail. On a cherche
+                    # du cote du modele, du prompt et de la machine avant de
+                    # penser a regarder le flux brut.
+                    #
+                    # Compter ce qu'on jette coute deux entiers, et transforme
+                    # une enquete en une phrase.
+                    vus = 0
+                    raisonnes = 0
                     for line in resp.iter_lines():
                         if not line or not line.startswith("data: "):
                             continue
@@ -306,7 +364,12 @@ class LLMClient:
                             delta = json.loads(data)["choices"][0]["delta"]
                         except (json.JSONDecodeError, KeyError, IndexError):
                             continue  # fragment malforme : on ignore, on ne casse pas
+                        # Champ separe, jamais present dans `content` : c'est
+                        # tout l'interet de le compter ici plutot que d'esperer
+                        # que `ThinkFilter` le voie passer.
+                        raisonnes += len(delta.get("reasoning") or "")
                         if content := delta.get("content"):
+                            vus += len(content)
                             visible = filtre.feed(content)
                             if fin is not None:
                                 visible = fin.feed(visible)
@@ -319,6 +382,25 @@ class LLMClient:
                                 yield visible
                     if reste := filtre.flush():
                         yield reste
+                    # Un silence complet n'est jamais normal. S'il y avait du
+                    # raisonnement derriere, on nomme la cause ET le remede —
+                    # c'est exactement ce qui manquait le jour ou c'est arrive.
+                    if vus == 0 and raisonnes > 0:
+                        raise LLMError(
+                            f"le modele « {self.model} » a produit "
+                            f"{raisonnes} caracteres de RAISONNEMENT et aucune reponse.\n"
+                            f"Il a epuise son plafond de jetons a reflechir avant "
+                            f"d'ecrire le premier mot.\n"
+                            f"Remede : verifie que NOVA_THINKING reste faux "
+                            f"(Nova envoie alors reasoning_effort=none),\n"
+                            f"ou releve NOVA_MAX_TOKENS si tu veux garder le raisonnement."
+                        )
+                    if vus == 0:
+                        log.warning(
+                            "Le modele %s n'a produit aucun caractere. Ni reponse, "
+                            "ni raisonnement : le plafond, le prompt ou le modele.",
+                            self.model,
+                        )
         except httpx.HTTPError as exc:
             raise LLMError(_explique(exc, self.model)) from exc
 

@@ -474,6 +474,20 @@ def build_system_prompt(
         # aucune raison de s'exclure. Qui veut le raisonnement met
         # NOVA_THINKING=true — c'est le champ prevu pour, et il vaut maintenant
         # pour les deux chemins.
+        #
+        # ⚠️ CETTE LIGNE N'EST PLUS L'INTERRUPTEUR. ELLE NE L'A JAMAIS ETE
+        # POUR LE MODELE DU PROJET.
+        #
+        # `/no_think` appartient a Qwen 3. Sur la base Qwen 3.5 de `nova`, il
+        # est ignore — verifie sur la machine : le modele raisonnait alors que
+        # `/no_think` etait le message systeme ENTIER. Le vrai interrupteur est
+        # `reasoning_effort: "none"`, envoye dans la requete par
+        # `llm/client.py`, sous la meme condition `NOVA_THINKING`.
+        #
+        # On garde la ligne : elle coute neuf caracteres et reste le seul
+        # levier pour un Qwen 3 servi par un Ollama trop ancien pour connaitre
+        # `reasoning_effort`. Mais elle ne garantit rien, et c'est ecrit ici
+        # pour que personne ne la croie sur parole une deuxieme fois.
         ajouter("no_think", "/no_think")
 
     # 2. Lent — ne bouge que quand la memoire evolue.
