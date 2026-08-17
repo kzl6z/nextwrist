@@ -80,9 +80,31 @@ PY
 #                                     lectures concurrentes, AbortError,
 #                                     repli sur la voix du système
 #
-# Les modules portent désormais un garde-fou interne, donc un doublon ne
-# casse plus rien. On le signale quand même : du code mort dans script.js
-# reste du code qui se lit, se modifie par erreur, et trompe.
+# ⚠️ ON A CRU QUE LE GARDE-FOU SUFFISAIT. LA MACHINE A DIT NON.
+#
+# Chaque module refuse de s'activer deux fois, donc ce script se contentait
+# d'AVERTIR quand il trouvait une copie manuelle — « ça ne casse plus rien,
+# c'est juste du code mort ». Releve sur la machine reelle, apres un
+# `make ui` qui affichait pourtant ses trois avertissements sans broncher :
+#
+#     [NOVA/reveil] ecoute par la parole active    script.js:3476
+#     [NOVA/reveil] ecoute par la parole active    script.js:4019
+#     Request sent to ElevenLabs (117 car.)        <- deux fois, MEME texte
+#     PLAYBACK BLOCKED: AbortError
+#     [VOIX] lecture echouee -> repli voix systeme
+#
+# Le drapeau est POSE PAR LA COPIE NEUVE. Les copies manuelles datent d'AVANT
+# son existence : elles ne le posent pas. L'ancienne s'active donc en premier
+# sans rien dire, la neuve trouve le drapeau absent, et s'active a son tour.
+# Le garde-fou protegeait une copie neuve d'une autre copie neuve — le seul
+# cas qui ne se produisait pas.
+#
+# On RETIRE donc, au lieu d'avertir. Un avertissement demande a quelqu'un de
+# faire le travail plus tard, a la main, dans un fichier de 4000 lignes : la
+# meme erreur que le tableau du README qui a laisse `rendu-econome.js` sur
+# l'etagere pendant des semaines.
+#
+# Le retrait est verifie par `node --check` et annule s'il casse le fichier.
 #
 # ⚠️ ON COMPTE ICI, ET PAS PLUS HAUT. Notre propre bloc vient d'être retiré
 # par le python ci-dessus ; compter avant l'aurait fait dénoncer comme une
@@ -110,10 +132,18 @@ for module in $MODULES; do
   rang=$((rang + 1))
   copies=$(grep -c "function $empreinte" "$SCRIPT" || true)
   if [ "${copies:-0}" -gt 0 ]; then
-    echo "  ⚠ $module est déjà présent ($copies copie(s) collée(s) à la main)"
+    echo "  ⚠ $module etait colle a la main ($copies copie(s)) — retrait"
     avertis=1
   fi
 done
+
+if [ "$avertis" -ne 0 ]; then
+  python3 "$(dirname "${BASH_SOURCE[0]}")/retirer-copies-manuelles.py" "$SCRIPT" || {
+    echo "  ⚠ retrait impossible — les copies manuelles restent en place."
+    echo "    Elles vont s'executer EN PLUS des nouvelles : deux ecoutes, deux"
+    echo "    voix. Retire-les a la main, ou restaure $SCRIPT.avant-nova"
+  }
+fi
 
 {
   echo ""
@@ -141,6 +171,26 @@ for module in reveil-vocal.js parole-en-flux.js rendu-econome.js; do
 done
 grep -q "analyserEnFlux" "$CIBLE/electron/brain.js" || { echo "  ✗ brain.js incomplet"; manquants=1; }
 
+# ⚠️ VERIFIER LA PRESENCE NE VERIFIE PAS L'UNICITE — ET C'EST L'UNICITE QUI
+# MANQUAIT.
+#
+# Cette section relisait le fichier pour prouver que chaque module etait bien
+# la. Elle passait au vert avec DEUX copies de chacun, puisque deux copies sont
+# au moins une. L'installation etait donc declaree reussie pendant que Nova
+# ouvrait deux micros et commandait deux fois la meme synthese vocale.
+#
+# Compter est aussi peu couteux que chercher, et repond a la vraie question.
+rang=1
+for module in $MODULES; do
+  empreinte=$(echo "$EMPREINTES" | cut -d' ' -f"$rang")
+  rang=$((rang + 1))
+  copies=$(grep -c "function $empreinte" "$SCRIPT" || true)
+  if [ "${copies:-0}" -ne 1 ]; then
+    echo "  ✗ $module present en ${copies:-0} exemplaire(s) — il en faut exactement 1"
+    manquants=1
+  fi
+done
+
 if [ "$manquants" -ne 0 ]; then
   echo ""
   echo "✗ Installation incomplete. Sauvegarde : $SCRIPT.avant-nova"
@@ -149,14 +199,11 @@ fi
 
 echo ""
 if [ "$avertis" -ne 0 ]; then
-  echo "⚠ D'anciennes copies collées à la main subsistent dans script.js."
-  echo "  Elles ne cassent plus rien — chaque module refuse de s'activer deux"
-  echo "  fois — mais ce sont des centaines de lignes mortes. Pour les retirer :"
-  echo "    1. ouvre $SCRIPT"
-  echo "    2. supprime tout ce qui est AVANT « $DEBUT »"
-  echo "       et qui contient reveilLocal, paroleEnFlux ou renduEconome"
-  echo "    3. relance : make ui"
-  echo "  La sauvegarde d'origine est dans $SCRIPT.avant-nova"
+  echo "D'anciennes copies collées à la main ont été retirées."
+  echo "  Elles s'exécutaient EN PLUS des nouvelles : deux écoutes du micro,"
+  echo "  deux requêtes de synthèse par phrase, et cette « deuxième voix » qui"
+  echo "  répondait par-dessus Nova."
+  echo "  Sauvegarde avant retrait : $SCRIPT.avant-nova"
   echo ""
 fi
 echo "✓ Les quatre modules sont en place."

@@ -42,8 +42,34 @@ Ce qui s'entendait comme « une deuxième voix par-dessus celle de Nova »
 n'était pas un défaut de synthèse : c'était deux fois le même module.
 
 Chaque module refuse désormais de s'activer deux fois (`test-doublon.cjs`), et
-`make ui` signale les copies manuelles qu'il trouve. Un doublon ne casse plus
-rien — mais ce sont des lignes mortes, et il vaut mieux les retirer.
+`make ui` **retire** les copies collées à la main qu'il trouve.
+
+### Pourquoi le garde-fou ne suffisait pas
+
+Première version : `make ui` se contentait de *signaler* les copies manuelles,
+puisque chaque module refuse de s'activer deux fois. Puis la panne est revenue
+sur la machine de référence, après un `make ui` qui avait affiché ses trois
+avertissements sans broncher :
+
+```
+[NOVA/réveil] écoute par la parole active    script.js:3476
+[NOVA/réveil] écoute par la parole active    script.js:4019
+```
+
+Le drapeau est posé **par la copie neuve**. Les copies manuelles datent d'*avant*
+son existence : elles ne le posent pas. L'ancienne s'active donc en premier sans
+rien dire, la neuve trouve le drapeau absent, et s'active à son tour.
+
+Le garde-fou protégeait une copie neuve d'une autre copie neuve — c'est-à-dire le
+seul cas qui ne se produisait pas. `test-doublon.cjs` ne pouvait pas le voir : il
+charge deux fois *le même* fichier, donc deux fois la version qui respecte la
+convention. Il faut simuler l'**ancienne** (`tests/test_copies_manuelles.py`).
+
+Le retrait est vérifié par `node --check` et annulé s'il casse le fichier : mieux
+vaut du code mort qu'une application qui ne démarre plus. `make ui` échoue
+désormais si un module n'est pas présent **exactement une fois** — vérifier la
+présence ne vérifiait pas l'unicité, et l'installation passait au vert avec deux
+copies de chaque.
 
 Pour vérifier côté application, dans la console :
 
