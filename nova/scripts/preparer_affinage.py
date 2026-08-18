@@ -51,16 +51,24 @@ MARGE_S = 0.06
 #: assez bas pour qu'aucune crete ne sature.
 CIBLE_DB = -23.0
 
-#: Proportion d'echantillons qu'on accepte d'ecreter pour atteindre le niveau
-#: vise. Sur seize millions d'echantillons, un dix-millieme en represente mille
-#: six cents — soit quelques clics et chocs, inaudibles une fois rabotes. C'est
-#: le reglage qui empeche un accident isole de brider tout le corpus.
-ECRETAGE_TOLERE = 1e-4
+#: Proportion d'echantillons qu'on accepte d'ecreter DANS CHAQUE FICHIER pour
+#: atteindre le niveau vise. Un pour mille, sur une prise de quatre secondes,
+#: fait quatre-vingt-huit echantillons — un clic, un choc, inaudibles une fois
+#: rabotes. C'est le reglage qui empeche un accident isole de brider le corpus.
+#
+#: ⚠️ MEME VALEUR QUE `ECRETAGE_MAX` DU VERIFICATEUR, ET C'EST DELIBERE.
+#: Deux outils du meme projet qui se contredisent coutent plus cher qu'un outil
+#: absent : on ne sait plus lequel croire.
+ECRETAGE_TOLERE = 1e-3
 
 #: En dessous de ce rapport signal/bruit, la prise est ECARTEE. Le modele
 #: apprendrait le fond sonore en meme temps que la voix, et le restituerait
 #: sous chaque phrase.
-SNR_MIN_DB = 20.0
+#:
+#: ⚠️ MEME VALEUR QUE `SNR_MIN_DB` DU VERIFICATEUR. Elle valait 20 ici et 25
+#: la-bas : le preparateur gardait donc des prises que le verificateur
+#: condamnait juste apres, sur le corpus que le preparateur venait d'ecrire.
+SNR_MIN_DB = 25.0
 
 
 def _lire(chemin: Path) -> tuple[array, int]:
@@ -250,21 +258,30 @@ def main() -> int:
     #
     # L'histogramme evite de trier seize millions de valeurs : les amplitudes
     # sont deja des entiers de 0 a 32767, donc les compter suffit.
-    histogramme = [0] * 32768
-    total_echantillons = 0
+    # ⚠️ LA TOLERANCE EST PAR FICHIER, PAS SUR LE CORPUS ENTIER.
+    #
+    # Une premiere version comptait les echantillons ecretes sur TOUT le
+    # corpus. Deux mille sur seize millions, c'est un dix-millieme — sauf
+    # qu'ils se concentrent dans deux ou trois fichiers, ou ils representent
+    # alors un demi-pour-cent. Le verificateur, qui juge par fichier, les
+    # condamnait ensuite pour une saturation que ce script venait d'introduire
+    # exprès.
+    #
+    # Deux outils du meme projet qui se contredisent coutent plus cher qu'un
+    # outil absent : on ne sait plus lequel croire. La tolerance est donc la
+    # meme des deux cotes, et appliquee a la meme grandeur.
+    reference = 1
     for _, valeurs, _ in gardees:
-        total_echantillons += len(valeurs)
+        histogramme = [0] * 32768
         for x in valeurs:
             histogramme[abs(x) if x != -32768 else 32767] += 1
-
-    autorises = int(total_echantillons * ECRETAGE_TOLERE)
-    cumul = 0
-    reference = 1
-    for amplitude in range(32767, 0, -1):
-        cumul += histogramme[amplitude]
-        if cumul > autorises:
-            reference = amplitude
-            break
+        autorises = int(len(valeurs) * ECRETAGE_TOLERE)
+        cumul = 0
+        for amplitude in range(32767, 0, -1):
+            cumul += histogramme[amplitude]
+            if cumul > autorises:
+                reference = max(reference, amplitude)
+                break
 
     gain_max = 32000 / max(reference, 1)
     gain = min(gain_vise, gain_max)

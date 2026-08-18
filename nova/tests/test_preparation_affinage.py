@@ -249,3 +249,60 @@ def test_un_clic_isole_ne_bride_pas_tout_le_corpus(tmp_path):
         f"{atteint:.1f} dB au lieu de {preparer.CIBLE_DB} — un accident isole "
         f"a plafonne la normalisation de tout le corpus"
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  LES DEUX OUTILS DOIVENT DIRE LA MEME CHOSE
+#
+#  ⚠️ SUR LE CORPUS REEL, ILS SE CONTREDISAIENT SUR LEUR PROPRE SORTIE.
+#
+#  Le preparateur ecretait quelques milliers d'echantillons — delibere,
+#  documente, inaudible — et le verificateur condamnait ensuite les fichiers
+#  concernes pour « saturation ». Il gardait aussi des prises a 20 dB de
+#  rapport signal/bruit que le verificateur rejetait a 25.
+#
+#  Deux outils du meme projet qui se contredisent coutent plus cher qu'un
+#  outil absent : on ne sait plus lequel croire, et on finit par n'en croire
+#  aucun.
+# ══════════════════════════════════════════════════════════════════════════
+def _verificateur():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "verifier", RACINE / "scripts" / "verifier_voix_clone.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_les_seuils_des_deux_outils_sont_identiques():
+    verifier = _verificateur()
+
+    assert preparer.ECRETAGE_TOLERE == verifier.ECRETAGE_MAX
+    assert preparer.SNR_MIN_DB == verifier.SNR_MIN_DB
+
+
+def test_la_sortie_du_preparateur_passe_le_test_de_saturation(tmp_path):
+    """Ce que ce script ecrit ne doit pas etre condamne par l'autre."""
+    verifier = _verificateur()
+
+    prises = {f"phrase-{i:04d}": _prise(0.03, 0.0001, blanc=0.3) for i in range(12)}
+    avec_clic = _prise(0.03, 0.0001, blanc=0.3)
+    for j in range(40):
+        avec_clic[int(0.5 * TAUX) + j] = 30000
+    prises["phrase-0005"] = avec_clic
+    _corpus(tmp_path / "src", prises)
+
+    preparer.main.__globals__["sys"].argv = [
+        "x", str(tmp_path / "src"), str(tmp_path / "out")
+    ]
+    preparer.main()
+
+    for chemin in (tmp_path / "out" / "wavs").glob("*.wav"):
+        valeurs, _ = preparer._lire(chemin)
+        ecrete = verifier._ecretage(valeurs)
+        assert ecrete <= verifier.ECRETAGE_MAX, (
+            f"{chemin.name} : {ecrete * 100:.2f} % d'echantillons ecretes — "
+            f"le preparateur produit ce que le verificateur condamne"
+        )

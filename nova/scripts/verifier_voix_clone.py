@@ -162,6 +162,25 @@ def main() -> int:
 
     print(f"\n── {len(wavs)} enregistrement(s) ──────────────────────────────\n")
 
+    # ⚠️ ON DECIDE D'ABORD SI LA MESURE DE BRUIT A ENCORE UN SENS.
+    #
+    # Sur un corpus prepare, le rognage a retire les silences : le rapport
+    # signal/bruit n'y est plus mesurable (voir plus bas). Quelques prises en
+    # gardent pourtant un peu, par hasard. Les juger, elles seules, revient a
+    # condamner une minorite par une regle a laquelle la majorite echappe —
+    # sur le corpus reel, 15 prises accusees pendant que 231 y echappaient.
+    #
+    # Une regle qui ne s'applique qu'a ceux qu'elle peut atteindre n'est pas
+    # une regle : c'est un tirage au sort.
+    avec_silence = 0
+    for chemin in wavs:
+        v, t = _lire(chemin)
+        f = _plancher_de_bruit(v, t)
+        a, b = _blancs(v, t, max(f * 3, 0.005))
+        if a + b >= 0.2:
+            avec_silence += 1
+    corpus_prepare = avec_silence < len(wavs) / 2
+
     problemes: list[str] = []
     a_rogner: list[str] = []
     non_mesurables = 0
@@ -220,7 +239,7 @@ def main() -> int:
         #
         # On ne bricole donc pas le seuil : on refuse de conclure quand la
         # mesure n'a plus de sens. Un chiffre faux est pire qu'un silence.
-        mesurable = avant + apres >= 0.2
+        mesurable = (avant + apres >= 0.2) and not corpus_prepare
 
         if taux != TAUX_ATTENDU:
             a_refaire.append(f"{taux} Hz au lieu de {TAUX_ATTENDU}")
@@ -270,11 +289,12 @@ def main() -> int:
     if sans_audio:
         print(f"  ✗ {len(sans_audio)} transcription(s) sans audio : {sans_audio[:5]}")
 
-    if non_mesurables:
-        print(f"\n  {non_mesurables} prise(s) sans silence de bord : le bruit de fond n'y est")
-        print("  pas mesurable, et ne rien dire vaut mieux qu'un chiffre faux.")
-        print("  C'est normal apres `preparer_affinage.py` — le rognage a fait son")
-        print("  travail. Pour juger le bruit, verifie le corpus D'ORIGINE.")
+    if corpus_prepare:
+        print("\n  Corpus PREPARE : les silences ont ete rognes, le bruit de fond n'y")
+        print("  est donc plus mesurable. Ne rien dire vaut mieux qu'un chiffre faux,")
+        print("  et juger les rares prises encore mesurables reviendrait a condamner")
+        print("  une minorite par une regle a laquelle le reste echappe.")
+        print("  Pour juger le bruit, verifie le corpus D'ORIGINE.")
 
     if a_rogner:
         print(f"\n  {len(a_rogner)} prise(s) avec des blancs — RIEN A REFAIRE.")
