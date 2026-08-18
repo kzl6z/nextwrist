@@ -106,3 +106,73 @@ def test_un_fichier_sans_requestSpeech_n_est_pas_touche():
     assert "requestSpeech" not in apres
     assert "'/v1/audio/speech'" not in apres
     assert faits == ["module `http` importe"]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  LE TYPE AUDIO — annoncer ce qu'on livre
+#
+#  `speak()` codait « audio/mpeg » en dur, parce qu'ElevenLabs rendait du MP3.
+#  Kokoro rend du WAV. Chromium renifle souvent le contenu et joue quand meme,
+#  ce qui est le PIRE cas : ca marche jusqu'au jour ou ca ne marche plus, et ce
+#  jour-la personne ne cherche dans une constante ecrite deux ans plus tot.
+# ══════════════════════════════════════════════════════════════════════════
+AVEC_SPEAK = """const https = require('https');
+
+function requestSpeech(text) {
+  return new Promise((resolve, reject) => {
+    const req = https.request({ hostname: 'api.elevenlabs.io' }, (res) => {});
+    req.end();
+  });
+}
+
+async function speak(text) {
+  const cached = readCache(text);
+  if (cached) return { ok: true, cached: true, audio: 'data:audio/mpeg;base64,' + cached.toString('base64') };
+  const buf = await requestSpeech(text);
+  return { ok: true, cached: false, audio: 'data:audio/mpeg;base64,' + buf.toString('base64') };
+}
+"""
+
+
+def test_le_type_est_lu_dans_les_octets():
+    apres, faits = brancher_voix.brancher(AVEC_SPEAK)
+
+    assert "function typeAudio(buf)" in apres
+    assert "'data:audio/mpeg;base64,'" not in apres
+    # Les DEUX sites d'appel — le cache et le direct. N'en corriger qu'un
+    # donnerait un silence qui ne survient qu'a la deuxieme ecoute.
+    assert apres.count("typeAudio(") == 3, "helper + deux appels attendus"
+    assert "typeAudio(cached)" in apres and "typeAudio(buf)" in apres
+    assert "le type audio est lu dans les octets, plus suppose" in faits
+
+
+def test_le_type_se_corrige_meme_apres_un_branchement_deja_fait():
+    """⚠️ LA PREMIERE VERSION SORTAIT TROP TOT ET NE RATTRAPAIT PLUS RIEN.
+
+    Elle rendait immediatement si `/v1/audio/speech` etait deja present. Relancer
+    le script apres avoir branche Nova Core ne pouvait donc plus corriger le type
+    audio — alors que c'est exactement la situation ou l'on relance.
+    """
+    deja_branche, _ = brancher_voix.brancher(AVEC_SPEAK.replace(
+        "https.request({ hostname: 'api.elevenlabs.io' }",
+        "http.request({ path: '/v1/audio/speech' }",
+    ))
+    # Le branchement n'a rien a faire ; le type, si.
+    assert "function typeAudio(" in deja_branche
+
+
+def test_le_helper_reconnait_les_deux_formats():
+    """RIFF → wav, tout le reste → mpeg. Le cache peut contenir les deux."""
+    apres, _ = brancher_voix.brancher(AVEC_SPEAK)
+
+    assert "=== 'RIFF'" in apres and "'audio/wav'" in apres
+    assert "return 'audio/mpeg';" in apres
+
+
+def test_relancer_ne_reinsere_pas_le_helper():
+    une_fois, _ = brancher_voix.brancher(AVEC_SPEAK)
+    deux_fois, faits = brancher_voix.brancher(une_fois)
+
+    assert deux_fois == une_fois
+    assert faits == []
+    assert une_fois.count("function typeAudio(") == 1

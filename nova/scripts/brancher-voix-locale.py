@@ -28,6 +28,7 @@ serait plus rapide a taper et bien plus long a reparer.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -155,11 +156,26 @@ def _fin_de_fonction(texte: str, depart: int) -> int | None:
     return None
 
 
+TYPE_AUDIO = '''// ⚠️ LE TYPE NE SE DEVINE PAS DU FOURNISSEUR, IL SE LIT DANS LES OCTETS.
+//
+// `speak()` codait « audio/mpeg » en dur, parce qu'ElevenLabs rendait du MP3.
+// Kokoro rend du WAV : l'application annoncait donc un format et en livrait un
+// autre. Chromium renifle souvent le contenu et joue quand meme — c'est le pire
+// cas, parce que ca marche jusqu'au jour ou ca ne marche plus, et ce jour-la
+// personne ne cherche ici.
+//
+// Quatre octets suffisent a savoir. Le cache peut aussi contenir des MP3 d'une
+// bascule precedente : lire evite d'avoir a s'en souvenir.
+function typeAudio(buf) {
+  if (buf && buf.length >= 4 && buf.slice(0, 4).toString('latin1') === 'RIFF') return 'audio/wav';
+  return 'audio/mpeg';
+}
+
+'''
+
+
 def brancher(source: str) -> tuple[str, list[str]]:
     faits: list[str] = []
-
-    if "'/v1/audio/speech'" in source:
-        return source, []
 
     # 1. `http` n'etait pas importe : on ne parlait qu'a l'exterieur.
     if "require('http')" not in source:
@@ -174,21 +190,43 @@ def brancher(source: str) -> tuple[str, list[str]]:
         faits.append("module `http` importe")
 
     # 2. Le corps de `requestSpeech`, et lui seul.
-    debut = source.find("function requestSpeech(")
-    if debut == -1:
-        return source, faits
-    fin = _fin_de_fonction(source, debut)
-    if fin is None:
-        return source, faits
+    if "'/v1/audio/speech'" not in source:
+        debut = source.find("function requestSpeech(")
+        fin = _fin_de_fonction(source, debut) if debut != -1 else None
+        if debut != -1 and fin is not None:
+            # On remonte au commentaire d'en-tete pour ne pas laisser une
+            # description de l'ancien appel au-dessus du nouveau : un
+            # commentaire qui ment est pire qu'un commentaire absent.
+            tete = source.rfind("\n// ── Appel à l'API ──", 0, debut)
+            if tete == -1:
+                tete = source.rfind("\n\n", 0, debut)
+            source = source[: tete + 1].rstrip() + "\n\n" + NOUVELLE + source[fin:]
+            faits.append("`requestSpeech` appelle Nova Core")
 
-    # On remonte au commentaire d'en-tete pour ne pas laisser une description
-    # de l'ancien appel au-dessus du nouveau : un commentaire qui ment est
-    # pire qu'un commentaire absent.
-    tete = source.rfind("\n// ── Appel à l'API ──", 0, debut)
-    if tete == -1:
-        tete = source.rfind("\n\n", 0, debut)
-    source = source[: tete + 1].rstrip() + "\n\n" + NOUVELLE + source[fin:]
-    faits.append("`requestSpeech` appelle Nova Core")
+    # 3. Le type MIME, lu dans les octets au lieu d'etre suppose.
+    #
+    # ⚠️ ETAPE SEPAREE, ET IDEMPOTENTE A ELLE SEULE.
+    #
+    # La premiere version sortait tout de suite si `/v1/audio/speech` etait deja
+    # la — donc relancer le script apres avoir branche Nova Core ne pouvait plus
+    # rien corriger d'autre. Un script d'installation doit pouvoir rattraper ce
+    # qui manque, pas seulement tout faire ou rien : c'est la lecon de
+    # `installer-ui.sh`, dont les marqueurs le protegeaient de lui-meme et de
+    # rien d'autre.
+    if "function typeAudio(" not in source:
+        avant = source
+        source = re.sub(
+            r"'data:audio/mpeg;base64,' \+ (\w+)\.toString\('base64'\)",
+            r"'data:' + typeAudio(\1) + ';base64,' + \1.toString('base64')",
+            source,
+        )
+        if source != avant:
+            ancre = source.find("async function speak(")
+            if ancre != -1:
+                source = source[:ancre] + TYPE_AUDIO + source[ancre:]
+                faits.append("le type audio est lu dans les octets, plus suppose")
+            else:
+                source = avant   # pas d'ancre : on ne laisse pas un appel orphelin
 
     return source, faits
 
