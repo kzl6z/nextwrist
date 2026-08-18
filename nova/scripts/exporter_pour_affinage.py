@@ -59,7 +59,61 @@ COMMANDES = """\
 # ══════════════════════════════════════════════════════════════════════════
 
 # ── 1. Installer ──────────────────────────────────────────────────────────
-!pip install -q "piper-tts[train]"
+!pip install -q "piper-tts[train]" cython
+
+# ── 1 bis. Compiler l'extension Cython ────────────────────────────────────
+#
+# ⚠️ A FAIRE AVANT L'ENTRAINEMENT, PAS APRES.
+#
+# `monotonic_align` est le seul morceau de Piper ecrit en Cython : il aligne
+# les phonemes sur l'audio, et la version Python pure serait trop lente. Le
+# paquet publie sur PyPI ne le compile pas pour toutes les versions de Python.
+#
+# Quand il manque, l'entrainement demarre normalement — chargement des poids,
+# mise en cache du corpus, « Epoch 0 » affiche — et ne s'effondre qu'au
+# premier lot, sur un `ModuleNotFoundError`. Autrement dit, on paie les
+# minutes de preparation pour rien.
+import glob
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+dossier = Path(
+    glob.glob("/usr/local/lib/python*/dist-packages/piper/train/vits/monotonic_align")[0]
+)
+(dossier / "setup_nova.py").write_text(
+    "from setuptools import setup\\n"
+    "from Cython.Build import cythonize\\n"
+    "import numpy\\n"
+    "setup(ext_modules=cythonize('core.pyx', language_level=3),\\n"
+    "      include_dirs=[numpy.get_include()])\\n"
+)
+subprocess.run(
+    [sys.executable, "setup_nova.py", "build_ext", "--inplace"], cwd=dossier, check=True
+)
+
+# Selon les versions, l'import cherche `monotonic_align.core` ou
+# `monotonic_align.monotonic_align.core`. On satisfait les deux : un fichier
+# en trop ne coute rien, un import rate coute une heure de GPU.
+niche = dossier / "monotonic_align"
+niche.mkdir(exist_ok=True)
+(niche / "__init__.py").touch()
+for produit in sorted(dossier.rglob("core*.so")):
+    if produit.parent != niche:
+        shutil.copy2(produit, niche / produit.name)
+    if produit.parent != dossier:
+        shutil.copy2(produit, dossier / produit.name)
+
+subprocess.run(
+    [
+        sys.executable,
+        "-c",
+        "import piper.train.vits.monotonic_align as m; "
+        "print('✓ monotonic_align operationnel :', m.maximum_path)",
+    ],
+    check=True,
+)
 
 # ── 2. Deposer l'archive ──────────────────────────────────────────────────
 # Glisse `voix-nova-affinage.zip` dans le panneau Fichiers de Colab, puis :

@@ -143,3 +143,26 @@ def test_les_commandes_affinent_au_lieu_de_reprendre(tmp_path):
     assert "weights_only=False" in commandes, (
         "le checkpoint publie contient des PosixPath que PyTorch 2.6 refuse"
     )
+
+
+def test_l_extension_cython_est_compilee_avant_l_entrainement(tmp_path):
+    """⚠️ `monotonic_align` MANQUANT NE SE VOIT QU'AU PREMIER LOT.
+
+    L'entrainement charge les poids, met le corpus en cache, affiche
+    « Epoch 0 » — puis tombe sur un ModuleNotFoundError. Toute la preparation
+    est payee pour rien. La compilation doit donc venir avant, pas apres.
+    """
+    _corpus(tmp_path / "src", prises=200)
+    _exporter(tmp_path / "src", tmp_path / "sortie" / "a.zip")
+
+    commandes = (tmp_path / "sortie" / "COMMANDES.txt").read_text(encoding="utf-8")
+    assert "monotonic_align" in commandes
+    assert commandes.index("monotonic_align") < commandes.index("piper.train fit"), (
+        "compiler apres l'entrainement ne sert a rien : il aura deja echoue"
+    )
+
+    # Cette etape est du Python, pas du shell, et elle vit dans une chaine :
+    # une barre oblique mal echappee ne se verrait qu'au collage dans Colab.
+    debut = commandes.index("import glob")
+    fin = commandes.index("# ── 2. Deposer")
+    compile(commandes[debut:fin], "<etape-1-bis>", "exec")
