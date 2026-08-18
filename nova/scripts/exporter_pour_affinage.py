@@ -75,14 +75,69 @@ COMMANDES = """\
 # connait la langue ; l'affinage ne fait que deplacer le timbre vers celui du
 # corpus. C'est toute la difference entre quinze minutes et dix heures.
 #
-# Les points de depart sont publies sur huggingface.co/rhasspy/piper-checkpoints
-# sous  fr/fr_FR/siwis/medium/ . Prends le .ckpt au numero d'epoque le plus
-# eleve et remplace l'adresse ci-dessous si elle a change.
-!wget -q -O base.ckpt \\
-  "https://huggingface.co/rhasspy/piper-checkpoints/resolve/main/fr/fr_FR/siwis/medium/epoch%3D2307-step%3D558536.ckpt"
-!ls -lh base.ckpt
+# ⚠️ `rhasspy/piper-checkpoints` est un depot de type DATASET, pas MODEL.
+# `hf_hub_download(...)` sans `repo_type="dataset"` renvoie un 401 qui ressemble
+# a un probleme d'authentification alors que le depot est public.
+from huggingface_hub import hf_hub_download
+
+base = hf_hub_download(
+    repo_id="rhasspy/piper-checkpoints",
+    repo_type="dataset",
+    filename="fr/fr_FR/siwis/medium/epoch=3304-step=2050940.ckpt",
+)
+print(base)
+
+# ── 3 bis. Nettoyer le point de depart ────────────────────────────────────
+#
+# ⚠️ CETTE ETAPE N'EST PAS FACULTATIVE.
+#
+# Le checkpoint publie contient des `pathlib.PosixPath` serialises. Depuis
+# PyTorch 2.6, `torch.load` refuse par defaut tout objet qui n'est pas un
+# tenseur (`weights_only=True`) et leve `UnpicklingError`. L'option
+# `--weights_only false` de la ligne de commande NE SERT A RIEN ici : Lightning
+# force `weights_only=True` en interne quand il lit un checkpoint.
+#
+# On reecrit donc une copie ou ces chemins sont de simples chaines.
+import torch
+
+point = torch.load(base, map_location="cpu", weights_only=False)
+
+
+def _en_texte(valeur):
+    from pathlib import PurePath
+
+    if isinstance(valeur, PurePath):
+        return str(valeur)
+    if isinstance(valeur, dict):
+        return {c: _en_texte(v) for c, v in valeur.items()}
+    if isinstance(valeur, (list, tuple)):
+        return type(valeur)(_en_texte(v) for v in valeur)
+    return valeur
+
+
+point = _en_texte(point)
+torch.save(point, "/content/base-propre.ckpt")
+torch.load("/content/base-propre.ckpt", map_location="cpu")  # doit passer
+print("✓ relu en mode strict")
 
 # ── 4. Entrainer ──────────────────────────────────────────────────────────
+#
+# ⚠️ `--model.warmstart_ckpt` ET NON `--ckpt_path`.
+#
+# `--ckpt_path` demande une REPRISE complete : poids, optimiseur, compteur
+# d'epoques et hyperparametres enregistres. Les deux derniers font echouer
+# l'affinage, et pour deux raisons distinctes :
+#
+#   1. les hyperparametres du checkpoint publie contiennent des cles que la
+#      version actuelle du CLI ne connait plus, d'ou
+#      « Subcommand 'fit' does not accept option 'model.sample_bytes' » ;
+#   2. le compteur repartirait de l'epoque du modele de base (3304 ici), donc
+#      un `--trainer.max_epochs 600` arreterait l'entrainement immediatement,
+#      sans erreur et sans avoir rien appris.
+#
+# `--model.warmstart_ckpt` charge les POIDS SEULS. C'est l'entree dediee a
+# l'affinage : compteur a zero, optimiseur neuf, hyperparametres pris sur la
+# ligne de commande.
 #
 # `--data.trim_silence false` : le corpus a DEJA ete rogne, avec une marge de
 # 60 ms choisie pour ne pas manger l'attaque des consonnes. Laisser Piper
@@ -91,6 +146,10 @@ COMMANDES = """\
 # `--data.validation_split 0.0` : sur deux cent quarante prises, mettre de cote
 # de quoi valider revient a s'amputer d'une part utile du corpus pour une
 # mesure qu'on ne regardera pas. On juge a l'oreille, a la fin.
+#
+# 600 epoques est un plafond, pas un objectif : `last.ckpt` est reecrit a
+# chaque epoque, et vers 200 la voix est souvent deja bonne. Interrompre la
+# cellule pour passer a l'export est parfaitement legitime.
 !python -m piper.train fit \\
   --data.voice_name "nova" \\
   --data.csv_path /content/corpus/metadata.csv \\
@@ -103,11 +162,11 @@ COMMANDES = """\
   --data.num_test_examples 0 \\
   --data.trim_silence false \\
   --model.sample_rate 22050 \\
-  --trainer.max_epochs 2000 \\
+  --model.warmstart_ckpt /content/base-propre.ckpt \\
+  --trainer.max_epochs 600 \\
   --trainer.accelerator gpu \\
   --trainer.devices 1 \\
-  --trainer.default_root_dir /content/sortie \\
-  --ckpt_path base.ckpt
+  --trainer.default_root_dir /content/sortie
 
 # ── 5. Exporter en .onnx ──────────────────────────────────────────────────
 !ls /content/sortie/lightning_logs/version_0/checkpoints/

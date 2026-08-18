@@ -112,3 +112,34 @@ def test_les_commandes_sont_ecrites_a_cote_de_l_archive(tmp_path):
     assert "nova.onnx.json" in commandes, (
         "sans le fichier de configuration, Piper refuse de charger le modele"
     )
+
+
+def test_les_commandes_affinent_au_lieu_de_reprendre(tmp_path):
+    """`--ckpt_path` echoue de deux facons, dont une silencieuse.
+
+    Il exige les hyperparametres enregistres du checkpoint publie — que le CLI
+    actuel rejette — et il restaure le compteur d'epoques du modele de base.
+    Ce second point ne leve aucune erreur : l'entrainement s'arrete aussitot,
+    en ayant l'air d'avoir reussi.
+    """
+    _corpus(tmp_path / "src", prises=200)
+    _exporter(tmp_path / "src", tmp_path / "sortie" / "a.zip")
+
+    commandes = (tmp_path / "sortie" / "COMMANDES.txt").read_text(encoding="utf-8")
+    assert "--model.warmstart_ckpt" in commandes
+
+    # Les commentaires ont le droit de citer `--ckpt_path` — c'est meme le seul
+    # endroit ou la raison du choix est ecrite. On ne regarde donc que les
+    # lignes executees.
+    lignes = commandes.splitlines()
+    executees = [x for x in lignes if not x.lstrip().startswith("#")]
+    assert not any("--ckpt_path" in x for x in executees), (
+        "une reprise complete rejoue le compteur d'epoques du modele de base"
+    )
+    assert 'repo_type="dataset"' in commandes, (
+        "piper-checkpoints est un depot dataset ; sans ca le 401 fait croire "
+        "a un probleme d'authentification"
+    )
+    assert "weights_only=False" in commandes, (
+        "le checkpoint publie contient des PosixPath que PyTorch 2.6 refuse"
+    )
