@@ -259,9 +259,21 @@ print("✓ relu en mode strict")
 # de quoi valider revient a s'amputer d'une part utile du corpus pour une
 # mesure qu'on ne regardera pas. On juge a l'oreille, a la fin.
 #
-# 600 epoques est un plafond, pas un objectif : `last.ckpt` est reecrit a
-# chaque epoque, et vers 200 la voix est souvent deja bonne. Interrompre la
-# cellule pour passer a l'export est parfaitement legitime.
+# ⚠️ POURQUOI 200 EPOQUES ET NON 600, ET POURQUOI PAS SUR LE DRIVE.
+#
+# Mesure sur T4 : 15 lots par epoque a 0,74 it/s, soit ~20 s l'epoque. 600
+# epoques feraient 3 h 20 — une duree qu'une session Colab gratuite ne tient
+# pas de facon fiable, et `/content` disparait avec elle.
+#
+# Ecrire directement sur le Drive ne resout rien, au contraire : chaque point
+# de reprise pese ~800 Mo (70,4 M de parametres plus l'etat de l'optimiseur)
+# et Lightning en reecrit un a CHAQUE epoque. Ce serait 40 Mo/s soutenus vers
+# Google Drive ; l'entrainement attendrait le reseau au lieu de calculer.
+#
+# On decoupe donc en tranches d'environ une heure, recopiees sur le Drive une
+# fois finies. Si la voix demande plus, on reprend depuis NOTRE point de
+# reprise avec `--ckpt_path` — celui-la est produit par la version actuelle du
+# CLI, il n'a pas les hyperparametres perimes du checkpoint publie.
 !python -m piper.train fit \\
   --data.voice_name "nova" \\
   --data.csv_path /content/corpus/metadata.csv \\
@@ -275,15 +287,43 @@ print("✓ relu en mode strict")
   --data.trim_silence false \\
   --model.sample_rate 22050 \\
   --model.warmstart_ckpt /content/base-propre.ckpt \\
-  --trainer.max_epochs 600 \\
+  --trainer.max_epochs 200 \\
   --trainer.accelerator gpu \\
   --trainer.devices 1 \\
   --trainer.default_root_dir /content/sortie
 
+# ⚠️ Cette recopie n'a lieu QUE si l'entrainement va au bout. Interrompre la
+# cellule interrompt aussi la sauvegarde — dans ce cas, relancer ce bloc seul.
+import glob
+import shutil
+from pathlib import Path
+
+sauvegarde = Path("/content/drive/MyDrive/nova-affinage")
+sauvegarde.mkdir(parents=True, exist_ok=True)
+for point in glob.glob("/content/sortie/**/*.ckpt", recursive=True):
+    destination = sauvegarde / Path(point).name
+    shutil.copy2(point, destination)
+    print("sauvegarde :", destination, f"({Path(point).stat().st_size / 1e6:.0f} Mo)")
+
 # ── 5. Exporter en .onnx ──────────────────────────────────────────────────
-!ls /content/sortie/lightning_logs/version_0/checkpoints/
+#
+# ⚠️ ON NE CODE PAS `version_0` EN DUR.
+#
+# Lightning cree un nouveau `version_N` a chaque lancement, et il y en a
+# forcement eu plusieurs : une tentative interrompue, une tranche refaite.
+# Un chemin fige exporterait silencieusement le mauvais entrainement — et
+# rien, dans un .onnx, ne dit de quelle epoque il vient.
+points = sorted(
+    glob.glob("/content/sortie/**/*.ckpt", recursive=True), key=lambda p: Path(p).stat().st_mtime
+)
+for p in points:
+    print(p)
+assert points, "aucun point de reprise : l'entrainement n'a rien ecrit"
+recent = points[-1]
+print("\\nle plus recent :", recent)
+
 !python -m piper.train.export_onnx \\
-  --checkpoint /content/sortie/lightning_logs/version_0/checkpoints/last.ckpt \\
+  --checkpoint "{recent}" \\
   --output-file /content/nova.onnx
 !cp /content/nova.json /content/nova.onnx.json
 !ls -lh /content/nova.onnx

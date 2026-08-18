@@ -171,3 +171,20 @@ def test_l_extension_cython_est_compilee_avant_l_entrainement(tmp_path):
     # L'erreur ne ressemble alors a rien de ce qu'on vient d'ecrire : elle
     # tombe des dizaines de lignes plus bas, sur du code sain.
     assert '"""' not in commandes
+
+
+def test_l_export_ne_fige_pas_le_numero_de_version(tmp_path):
+    """⚠️ `version_0` EN DUR EXPORTERAIT LE MAUVAIS ENTRAINEMENT, EN SILENCE.
+
+    Lightning cree un `version_N` par lancement, et il y en a toujours
+    plusieurs : une tentative interrompue, une tranche refaite. Rien dans un
+    fichier .onnx ne dit de quelle epoque il vient — l'erreur ne se verrait
+    qu'a l'oreille, apres le telechargement.
+    """
+    _corpus(tmp_path / "src", prises=200)
+    _exporter(tmp_path / "src", tmp_path / "sortie" / "a.zip")
+
+    commandes = (tmp_path / "sortie" / "COMMANDES.txt").read_text(encoding="utf-8")
+    executees = [x for x in commandes.splitlines() if not x.lstrip().startswith("#")]
+    assert not any("version_0" in x for x in executees)
+    assert "export_onnx" in commandes
