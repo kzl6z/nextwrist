@@ -48,6 +48,11 @@ known-first-party = ["nova", "bench_whisper", "bench_models", "enregistrer_voix"
 # FastAPI : `File(...)`, `Form(...)`, `Depends(...)` dans les valeurs par defaut
 # est l'idiome officiel du framework, pas un piege de mutabilite.
 "src/nova/api/*" = ["B008"]
+# Ce banc contient une reproduction A L'IDENTIQUE d'un bloc de `tts.js`, l'appli
+# de bureau. Sa valeur tient a sa fidelite : reformater ses lignes pour tenir en
+# 100 colonnes en ferait une approximation, et le test ne prouverait plus que le
+# correctif s'applique au vrai fichier.
+"tests/test_tts_diagnostic.py" = ["E501"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "scripts"]
