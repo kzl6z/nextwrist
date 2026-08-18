@@ -151,3 +151,37 @@ def test_le_logarithme_de_zero_ne_casse_rien():
     """Un fichier entierement muet ne doit pas faire echouer la verification."""
     assert verifier_voix._db(0.0) < -100
     assert verifier_voix._rms([]) == 0.0
+
+
+def test_le_snr_ne_se_mesure_pas_sur_une_prise_sans_silence():
+    """⚠️ LA MESURE ACCUSAIT LE TRAITEMENT QUI VENAIT DE L'AMELIORER.
+
+    `_plancher_de_bruit` prend le dixieme percentile de fenetres de 50 ms. Tant
+    qu'il reste du silence en bord, il tombe dedans et mesure le vrai fond. Sur
+    une prise ROGNEE il n'y a plus de silence : il tombe dans les creux entre
+    les syllabes, qui sont de la voix faible et non du bruit.
+
+    Releve sur le corpus reel, avant et apres rognage :
+
+        avant  →    1 prise signalee
+        apres  →  140 prises signalees
+
+    L'audio etait identique. Seule la mesure avait cesse d'etre valide.
+    """
+    avec_silence = _prise(0.25, 0.0002, blanc=1.0)
+    sans_silence = _prise(0.25, 0.0002, blanc=0.0)
+
+    def snr(valeurs):
+        fond = verifier_voix._plancher_de_bruit(valeurs, TAUX)
+        return verifier_voix._db(verifier_voix._rms(valeurs)) - verifier_voix._db(fond)
+
+    # Le meme signal, la meme voix, le meme bruit : seul le silence de bord
+    # change. Si les deux mesures concordaient, il n'y aurait rien a corriger.
+    assert snr(avec_silence) - snr(sans_silence) > 6.0, (
+        "le rognage ne degrade pas la mesure — ce banc n'a plus lieu d'etre"
+    )
+
+    # D'ou la regle : sans silence de bord, on refuse de conclure.
+    fond = verifier_voix._plancher_de_bruit(sans_silence, TAUX)
+    avant, apres = verifier_voix._blancs(sans_silence, TAUX, max(fond * 3, 0.005))
+    assert avant + apres < 0.2, "prise sans silence : le SNR n'est pas mesurable"

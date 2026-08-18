@@ -204,15 +204,46 @@ def main() -> int:
     # phrases. Il est borne par la prise la plus forte : depasser ferait
     # saturer celle-la, et une seule prise ecretee suffit a apprendre
     # l'ecretage.
-    global_rms = (
-        sum(_rms(v) ** 2 * len(v) for _, v, _ in gardees)
-        / sum(len(v) for _, v, _ in gardees)
-    ) ** 0.5
+    # ⚠️ LA MEDIANE, ET SURTOUT PAS LA MOYENNE D'ENERGIE.
+    #
+    # La premiere version faisait la moyenne quadratique de tout le corpus.
+    # Un claquement de touche de quarante echantillons a 30000 y pese alors
+    # PLUS, en energie, que les deux secondes de voix du meme fichier :
+    #
+    #     energie du clic    40 x (30000/32768)²  = 33,5
+    #     energie de la voix 41716 x (0,0056)²    =  1,3
+    #
+    # Le corpus paraissait a -41,4 dB alors qu'il etait a -45. Le gain calcule
+    # etait donc trop faible de 3,5 dB, et l'accident se payait DEUX fois : une
+    # fois en bridant le plafond, une fois en faussant la mesure.
+    #
+    # La mediane des niveaux par fichier ignore les valeurs extremes par
+    # construction. Elle repond a la vraie question — « a quel niveau parle-t-on
+    # dans ce corpus ? » — au lieu de « combien d'energie contient-il ? ».
+    niveaux = sorted(_rms(v) for _, v, _ in gardees)
+    global_rms = niveaux[len(niveaux) // 2]
     gain_vise = (10 ** (CIBLE_DB / 20)) / max(global_rms, 1e-9)
 
-    crete = max(max((abs(x) for x in v), default=1) for _, v, _ in gardees)
-    gain_max = 32000 / max(crete, 1)
+    # ⚠️ LA CRETE ABSOLUE EST UN MAUVAIS PLAFOND : UN CLIC BRIDE TOUT.
+    #
+    # Releve en conditions reelles : niveau RMS du corpus 0,027, crete a 0,56.
+    # Un facteur vingt-et-un — ce n'est pas de la voix, c'est un claquement de
+    # touche ou un choc sur le bureau, dans UN fichier. Il plafonnait le gain a
+    # x1,75 et laissait les 244 autres a -26,6 dB au lieu de -23.
+    #
+    # On se cale donc sur le 99,9e percentile des cretes de chaque prise : les
+    # accidents isoles passent au-dessus et seront bornes a l'ecriture, ce qui
+    # les rabote sans toucher a la voix. Un clic ecrete ne s'entend pas ; un
+    # corpus entier trop faible s'entend partout.
+    cretes = sorted(max((abs(x) for x in v), default=1) for _, v, _ in gardees)
+    reference = cretes[int(len(cretes) * 0.999) - 1] if len(cretes) > 1 else cretes[0]
+    gain_max = 32000 / max(reference, 1)
     gain = min(gain_vise, gain_max)
+
+    # Les prises qui depassent apres gain : on les NOMME. Une pointe isolee est
+    # souvent un bruit parasite, et savoir laquelle permet de l'ecouter.
+    bruyantes = [nom for nom, v, _ in gardees
+                 if max((abs(x) for x in v), default=0) * gain > 32700]
 
     # ── 3. Ecrire un dossier NEUF ────────────────────────────────────────
     #
@@ -233,6 +264,11 @@ def main() -> int:
           f"   ({(secondes_avant - secondes_apres) / 60:.1f} min de silence retire)")
     print(f"  niveau       {_db(global_rms):.1f} → {_db(global_rms * gain):.1f} dB"
           f"   (gain x{gain:.2f}" + (", borne par la crete)" if gain == gain_max else ")"))
+    if bruyantes:
+        print(f"  cretes rabotees dans {len(bruyantes)} prise(s) : "
+              + ", ".join(bruyantes[:4]) + ("…" if len(bruyantes) > 4 else ""))
+        print("    (une pointe isolee est souvent un choc ou un clic — ecoute-les")
+        print("     si le clone grince, mais ca ne bloque rien)")
     print(f"  gardees      {len(gardees)} / {len(wavs)}")
 
     if ecartees:

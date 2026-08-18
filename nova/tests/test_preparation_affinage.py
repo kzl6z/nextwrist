@@ -213,3 +213,39 @@ def test_la_fiche_ne_garde_que_ce_qui_reste(tmp_path):
     wavs = sorted(p.stem for p in (tmp_path / "out" / "wavs").glob("*.wav"))
 
     assert sorted(identifiants) == wavs
+
+
+def test_un_clic_isole_ne_bride_pas_tout_le_corpus(tmp_path):
+    """⚠️ RELEVE EN CONDITIONS REELLES : UN FICHIER PLAFONNAIT LES 244 AUTRES.
+
+    Niveau RMS du corpus 0,027, crete a 0,56 — un facteur vingt-et-un. Ce n'est
+    pas de la voix, c'est un claquement de touche. En se calant sur la crete
+    ABSOLUE, le gain tombait a x1,75 et laissait tout le corpus a -26,6 dB au
+    lieu de -23.
+
+    On se cale donc sur le 99,9e percentile : l'accident isole est rabote — un
+    clic ecrete ne s'entend pas — et la voix atteint son niveau.
+    """
+    prises = {f"phrase-{i:04d}": _prise(0.03, 0.0001, blanc=0.3) for i in range(20)}
+    avec_clic = _prise(0.03, 0.0001, blanc=0.3)
+    for j in range(40):
+        avec_clic[int(0.5 * TAUX) + j] = 30000    # le claquement
+    prises["phrase-0007"] = avec_clic
+    _corpus(tmp_path / "src", prises)
+
+    preparer.main.__globals__["sys"].argv = [
+        "x", str(tmp_path / "src"), str(tmp_path / "out")
+    ]
+    assert preparer.main() == 0
+
+    # Le corpus doit avoir atteint sa cible, clic ou pas.
+    total = [preparer._lire(p)[0] for p in (tmp_path / "out" / "wavs").glob("*.wav")]
+    global_rms = (
+        sum(preparer._rms(v) ** 2 * len(v) for v in total) / sum(len(v) for v in total)
+    ) ** 0.5
+    atteint = preparer._db(global_rms)
+
+    assert atteint > preparer.CIBLE_DB - 2.0, (
+        f"{atteint:.1f} dB au lieu de {preparer.CIBLE_DB} — un accident isole "
+        f"a plafonne la normalisation de tout le corpus"
+    )

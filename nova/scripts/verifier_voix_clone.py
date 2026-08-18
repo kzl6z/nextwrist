@@ -157,6 +157,7 @@ def main() -> int:
 
     problemes: list[str] = []
     a_rogner: list[str] = []
+    non_mesurables = 0
     niveaux: list[float] = []
     total = 0.0
 
@@ -190,12 +191,36 @@ def main() -> int:
         reparables = []
         a_refaire = []
 
+        # ⚠️ LE RAPPORT SIGNAL/BRUIT NE SE MESURE PAS SANS SILENCE.
+        #
+        # `_plancher_de_bruit` prend le dixieme percentile de fenetres de
+        # 50 ms. Tant qu'il reste du silence en bord, ce percentile tombe
+        # dedans et mesure le vrai fond sonore. Sur une prise ROGNEE, il n'y a
+        # plus de silence : il tombe alors dans les creux entre les syllabes,
+        # qui sont de la voix faible et non du bruit. Le rapport s'effondre
+        # mecaniquement.
+        #
+        # Releve en conditions reelles, le meme corpus avant et apres rognage :
+        #
+        #     avant  →    1 prise signalee
+        #     apres  →  140 prises signalees
+        #
+        # L'audio etait identique — meilleur, meme. Seule la mesure avait
+        # cesse d'etre valide, et elle accusait le traitement qui venait de
+        # l'ameliorer.
+        #
+        # On ne bricole donc pas le seuil : on refuse de conclure quand la
+        # mesure n'a plus de sens. Un chiffre faux est pire qu'un silence.
+        mesurable = avant + apres >= 0.2
+
         if taux != TAUX_ATTENDU:
             a_refaire.append(f"{taux} Hz au lieu de {TAUX_ATTENDU}")
-        if snr < SNR_MIN_DB:
+        if mesurable and snr < SNR_MIN_DB:
             # Le bruit est melange a la voix : aucun traitement ne l'en sort
             # sans abimer la voix elle-meme.
             a_refaire.append(f"bruit de fond (rapport {snr:.0f} dB)")
+        elif not mesurable:
+            non_mesurables += 1
         if ecrete > ECRETAGE_MAX:
             # L'ecretage a DETRUIT l'information : les cretes coupees ne se
             # reconstituent pas.
@@ -225,6 +250,12 @@ def main() -> int:
         print(f"\n  ✗ {len(sans_texte)} audio(s) sans transcription : {sans_texte[:5]}")
     if sans_audio:
         print(f"  ✗ {len(sans_audio)} transcription(s) sans audio : {sans_audio[:5]}")
+
+    if non_mesurables:
+        print(f"\n  {non_mesurables} prise(s) sans silence de bord : le bruit de fond n'y est")
+        print("  pas mesurable, et ne rien dire vaut mieux qu'un chiffre faux.")
+        print("  C'est normal apres `preparer_affinage.py` — le rognage a fait son")
+        print("  travail. Pour juger le bruit, verifie le corpus D'ORIGINE.")
 
     if a_rogner:
         print(f"\n  {len(a_rogner)} prise(s) avec des blancs — RIEN A REFAIRE.")
