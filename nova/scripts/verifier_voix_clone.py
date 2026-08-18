@@ -156,6 +156,7 @@ def main() -> int:
     print(f"\n── {len(wavs)} enregistrement(s) ──────────────────────────────\n")
 
     problemes: list[str] = []
+    a_rogner: list[str] = []
     niveaux: list[float] = []
     total = 0.0
 
@@ -171,18 +172,41 @@ def main() -> int:
         avant, apres = _blancs(valeurs, taux, max(fond * 3, 0.005))
         ecrete = _ecretage(valeurs)
 
-        soucis = []
-        if taux != TAUX_ATTENDU:
-            soucis.append(f"{taux} Hz au lieu de {TAUX_ATTENDU}")
-        if snr < SNR_MIN_DB:
-            soucis.append(f"bruit de fond (rapport {snr:.0f} dB)")
-        if ecrete > ECRETAGE_MAX:
-            soucis.append(f"saturation ({ecrete * 100:.1f} % des echantillons)")
-        if avant > BLANC_MAX_S or apres > BLANC_MAX_S:
-            soucis.append(f"blancs {avant:.1f} s / {apres:.1f} s")
+        # ⚠️ DEUX COLONNES, ET LES CONFONDRE COUTE UNE SEANCE ENTIERE.
+        #
+        # La premiere version rangeait tout dans « a refaire ». Sur le corpus
+        # reel, ca donnait :
+        #
+        #     233 prise(s) a refaire
+        #       232 x  blancs 0.5 a 2.0 s
+        #         1 x  bruit de fond
+        #
+        # Les blancs se ROGNENT — deux secondes de calcul. L'outil allait donc
+        # faire recommencer vingt-cinq minutes de lecture a quelqu'un pour du
+        # silence qu'un programme enleve tout seul.
+        #
+        # Un diagnostic qui ne distingue pas le reparable de l'irreparable
+        # n'est pas un diagnostic, c'est une facture.
+        reparables = []
+        a_refaire = []
 
-        if soucis:
-            problemes.append(f"  {chemin.stem}  {' · '.join(soucis)}")
+        if taux != TAUX_ATTENDU:
+            a_refaire.append(f"{taux} Hz au lieu de {TAUX_ATTENDU}")
+        if snr < SNR_MIN_DB:
+            # Le bruit est melange a la voix : aucun traitement ne l'en sort
+            # sans abimer la voix elle-meme.
+            a_refaire.append(f"bruit de fond (rapport {snr:.0f} dB)")
+        if ecrete > ECRETAGE_MAX:
+            # L'ecretage a DETRUIT l'information : les cretes coupees ne se
+            # reconstituent pas.
+            a_refaire.append(f"saturation ({ecrete * 100:.1f} % des echantillons)")
+        if avant > BLANC_MAX_S or apres > BLANC_MAX_S:
+            reparables.append(f"blancs {avant:.1f} s / {apres:.1f} s")
+
+        if a_refaire:
+            problemes.append(f"  {chemin.stem}  {' · '.join(a_refaire)}")
+        elif reparables:
+            a_rogner.append(f"  {chemin.stem}  {' · '.join(reparables)}")
 
     # ── La derive : ce qu'aucune prise isolee ne peut montrer ─────────────
     moitie = len(niveaux) // 2
@@ -202,14 +226,23 @@ def main() -> int:
     if sans_audio:
         print(f"  ✗ {len(sans_audio)} transcription(s) sans audio : {sans_audio[:5]}")
 
+    if a_rogner:
+        print(f"\n  {len(a_rogner)} prise(s) avec des blancs — RIEN A REFAIRE.")
+        print("  Le rognage est automatique :  uv run python scripts/preparer_affinage.py")
+
     if problemes:
-        print(f"\n── {len(problemes)} prise(s) a refaire ─────────────────────\n")
+        print(f"\n── {len(problemes)} prise(s) VRAIMENT a refaire ──────────────\n")
         for ligne in problemes[:25]:
             print(ligne)
         if len(problemes) > 25:
             print(f"  … et {len(problemes) - 25} autre(s)")
-        print("\n  Supprime le .wav ET sa ligne dans metadata.csv, puis relance")
+        print("\n  Celles-la ont perdu de l'information : le bruit ne se separe pas")
+        print("  de la voix, et une crete ecretee ne se reconstitue pas.")
+        print("  Supprime le .wav ET sa ligne dans metadata.csv, puis relance")
         print("  l'enregistreur : il repropose les phrases manquantes.")
+        print("  Si elles sont peu nombreuses, preparer_affinage.py les ecarte")
+        print("  tout seul — quelques phrases sur deux cent quarante-cinq ne")
+        print("  manqueront a personne.")
 
     print("\n── Verdict ───────────────────────────────────────────────")
     pret = True
@@ -221,14 +254,21 @@ def main() -> int:
         print("    Refais les prises les plus faibles, ou toute une moitie.")
         pret = False
     if problemes:
-        print(f"  ⚠ {len(problemes)} prise(s) degradee(s) sur {len(wavs)}.")
-        pret = pret and len(problemes) < len(wavs) * 0.05
+        # Un corpus reste utilisable si les prises perdues sont rares :
+        # `preparer_affinage.py` les ecarte, et quelques phrases sur deux cent
+        # quarante-cinq ne changent rien a ce que le modele apprend.
+        part = len(problemes) / len(wavs)
+        print(f"  {'⚠' if part >= 0.05 else '·'} {len(problemes)} prise(s) "
+              f"irrecuperable(s) sur {len(wavs)} ({part * 100:.0f} %)"
+              + ("" if part >= 0.05 else " — elles seront ecartees"))
+        pret = pret and part < 0.05
     if sans_texte or sans_audio:
         print("  ✗ Corpus desaligne — a corriger avant tout entrainement.")
         pret = False
 
     if pret:
-        print("  ✓ Corpus utilisable pour l'affinage.")
+        print("  ✓ Corpus utilisable. Prochaine etape :")
+        print("      uv run python scripts/preparer_affinage.py")
     return 0
 
 
