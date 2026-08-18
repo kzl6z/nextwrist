@@ -128,6 +128,133 @@ def _en_wav(echantillons) -> bytes:
     return tampon.getvalue()
 
 
+# ══════════════════════════════════════════════════════════════════════════
+#  PIPER — le moteur qui pese soixante megaoctets
+#
+#  POURQUOI UN SECOND MOTEUR PLUTOT QU'UN REMPLACEMENT
+#
+#  Kokoro est generaliste : il connait toutes ses voix, donc il pese 350 Mo et
+#  traine torch derriere lui — environ un gigaoctet resident. Sur une machine
+#  de 8 Go qui tient deja un modele de langue de 3,3 Go, ce gigaoctet se paie
+#  deux fois : en memoire, puis en lenteur de tout le reste.
+#
+#  Un modele Piper ne connait qu'UNE voix. Il pese 60 Mo, tourne sur onnx sans
+#  torch, et synthetise environ dix fois plus vite. C'est le format d'un modele
+#  AFFINE : le jour ou l'on entraine une voix sur mesure, elle arrive
+#  exactement sous cette forme, et il n'y a rien a rebrancher.
+#
+#  Les deux coexistent donc a dessein — `NOVA_VOIX_MOTEUR` choisit. Garder
+#  Kokoro permet de comparer a l'oreille sans reinstaller, ce qui est
+#  precisement comment la voix a ete choisie la premiere fois.
+#
+#  ⚠️ PIPER EMBARQUE SON PROPRE espeak-ng.
+#
+#  Contrairement a Kokoro, il n'a pas besoin du `brew install espeak-ng` qui
+#  n'est documente nulle part et sans lequel le francais echoue sur un message
+#  incomprehensible. Une dependance systeme de moins, c'est une panne de moins.
+# ══════════════════════════════════════════════════════════════════════════
+@lru_cache(maxsize=1)
+def _voix_piper(modele: str):
+    """Charge un modele Piper. `modele` est un nom connu ou un chemin .onnx.
+
+    ⚠️ LE CHEMIN EST CE QUI REND LE CLONE BRANCHABLE SANS UNE LIGNE DE CODE.
+
+    Un modele affine sur une vraie voix arrive sous forme de fichier .onnx. En
+    acceptant un chemin ici, on rend son installation aussi simple que :
+
+        NOVA_VOIX_MOTEUR=piper
+        NOVA_VOIX_MODELE=/chemin/vers/nova.onnx
+
+    Sans ca, il aurait fallu publier le modele quelque part pour que Piper le
+    telecharge — pour un fichier qui n'existe que sur cette machine.
+    """
+    from pathlib import Path
+
+    try:
+        from piper import PiperVoice
+    except ImportError as exc:
+        raise SyntheseIndisponible(
+            "piper n'est pas installe.\n"
+            'Installe-le :  uv pip install -e ".[piper]"'
+        ) from exc
+
+    depart = time.perf_counter()
+    chemin = Path(modele).expanduser()
+    if chemin.suffix == ".onnx":
+        if not chemin.exists():
+            raise SyntheseIndisponible(f"modele Piper introuvable : {chemin}")
+        log.info("Chargement du modele de synthese %s…", chemin.name)
+        voix = PiperVoice.load(chemin)
+    else:
+        # Nom de voix du catalogue : Piper le telecharge au premier usage et le
+        # garde. `download_dir` par defaut suffit — un chemin a nous obligerait
+        # a le recreer sur chaque machine.
+        log.info("Chargement du modele de synthese %s…", modele)
+        voix = PiperVoice.load(modele, download_dir=None)
+    log.info("Synthese prete en %.1f s.", time.perf_counter() - depart)
+    return voix
+
+
+def _synthetiser_piper(texte: str, modele: str) -> bytes:
+    """WAV rendu par Piper.
+
+    On passe par `synthesize_wav`, qui ecrit l'en-tete AVEC le taux declare par
+    le modele. C'est volontaire : les modeles « medium » sont en 22 050 Hz et
+    les « high » en 22 050 aussi, mais rien ne garantit qu'un modele affine le
+    soit. Laisser Piper ecrire l'en-tete supprime la classe entiere des bugs de
+    frequence — celle qui donne une voix trop lente sans qu'aucun fichier ne
+    soit invalide.
+    """
+    import wave
+
+    # ⚠️ CHARGER AVANT D'OUVRIR LE WAV, ET C'EST LOIN D'ETRE COSMETIQUE.
+    #
+    # En appelant `_voix_piper` A L'INTERIEUR du `with`, son echec traverse la
+    # fermeture du fichier — qui tente alors d'ecrire un en-tete jamais
+    # configure et leve a son tour :
+    #
+    #     wave.Error: # channels not specified
+    #
+    # L'erreur de menage REMPLACE l'erreur reelle. « modele Piper introuvable »
+    # devenait un message sur des canaux audio, et le 503 qui dit quoi
+    # installer devenait un 500 qui ne dit rien. Meme mecanique que `tts.js`
+    # ecrasant le message d'ElevenLabs, un etage plus bas et sans le vouloir.
+    voix = _voix_piper(modele)
+
+    tampon = io.BytesIO()
+    with wave.open(tampon, "wb") as fichier:
+        voix.synthesize_wav(texte, fichier)
+    return tampon.getvalue()
+
+
+def _synthetiser_kokoro(texte: str, voix: str, langue: str) -> bytes:
+    # `_pipeline` d'abord : si la brique manque, on veut l'apprendre ici et
+    # nulle part ailleurs.
+    moteur = _pipeline(langue)
+
+    # `.tolist()` couvre les tableaux numpy comme les tenseurs torch, sans que
+    # ce module ait a savoir lequel Kokoro rend aujourd'hui — ni lequel il
+    # rendra demain.
+    valeurs: list[float] = []
+    for _, _, audio in moteur(texte, voice=voix):
+        valeurs.extend(audio.tolist() if hasattr(audio, "tolist") else audio)
+
+    if not valeurs:
+        log.warning("Synthese : aucun echantillon produit pour « %s »", texte[:60])
+    return _en_wav(valeurs)
+
+
+def _duree_wav(wav: bytes) -> float:
+    """Duree reelle, lue dans l'en-tete — jamais deduite d'un taux suppose."""
+    import wave
+
+    try:
+        with wave.open(io.BytesIO(wav), "rb") as f:
+            return f.getnframes() / f.getframerate()
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
 def synthetiser(texte: str, *, voix: str | None = None, langue: str | None = None) -> bytes:
     """Rend la phrase en WAV. Leve `SyntheseIndisponible` si la brique manque.
 
@@ -148,39 +275,33 @@ def synthetiser(texte: str, *, voix: str | None = None, langue: str | None = Non
         return _en_wav([])
 
     depart = time.perf_counter()
-    # `_pipeline` d'abord : si la brique manque, on veut l'apprendre ici et
-    # nulle part ailleurs.
-    moteur = _pipeline(langue)
+    if reglages.voix_moteur == "piper":
+        wav = _synthetiser_piper(texte, voix)
+    else:
+        wav = _synthetiser_kokoro(texte, voix, langue)
 
-    # `.tolist()` couvre les tableaux numpy comme les tenseurs torch, sans que
-    # ce module ait a savoir lequel Kokoro rend aujourd'hui — ni lequel il
-    # rendra demain.
-    valeurs: list[float] = []
-    for _, _, audio in moteur(texte, voice=voix):
-        valeurs.extend(audio.tolist() if hasattr(audio, "tolist") else audio)
-
-    if not valeurs:
-        log.warning("Synthese : aucun echantillon produit pour « %s »", texte[:60])
-        return _en_wav([])
-
-    wav = _en_wav(valeurs)
-    duree = len(wav) / (ECHANTILLONNAGE * 2)
+    duree = _duree_wav(wav)
     ecoule = time.perf_counter() - depart
 
     # Le rapport temps de calcul / duree audio est LA mesure qui compte pour la
     # parole en flux : au-dessus de 1, Nova prend du retard sur elle-meme et la
     # file d'attente des phrases s'allonge sans jamais se resorber.
     log.info(
-        "Synthese : %d car. → %.1f s d'audio en %.1f s (x%.2f temps reel)",
-        len(texte), duree, ecoule, ecoule / duree if duree else 0.0,
+        "Synthese %s : %d car. → %.1f s d'audio en %.1f s (x%.2f temps reel)",
+        reglages.voix_moteur, len(texte), duree, ecoule,
+        ecoule / duree if duree else 0.0,
     )
     return wav
 
 
 def disponible() -> bool:
     """La synthese locale peut-elle servir ? Ne charge rien, ne leve jamais."""
+    moteur = get_settings().voix_moteur
     try:
-        import kokoro  # noqa: F401
+        if moteur == "piper":
+            import piper  # noqa: F401
+        else:
+            import kokoro  # noqa: F401
     except Exception:  # noqa: BLE001
         return False
     return True

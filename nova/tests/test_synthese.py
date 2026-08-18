@@ -222,3 +222,111 @@ def test_la_brique_absente_rend_503_et_dit_quoi_installer(monkeypatch):
 
     assert reponse.status_code == 503
     assert "espeak-ng" in reponse.json()["detail"]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  PIPER — le moteur de soixante megaoctets
+#
+#  Kokoro est generaliste : 350 Mo plus torch, environ un gigaoctet resident.
+#  Sur 8 Go deja occupes par un modele de langue de 3,3 Go, ce gigaoctet se
+#  paie deux fois — en memoire, puis en lenteur de tout le reste.
+#
+#  Un modele Piper ne connait qu'une voix : 60 Mo sur onnx, sans torch. C'est
+#  aussi le format d'un modele AFFINE, donc le chemin par lequel un clone
+#  arrivera. Ces bancs verifient qu'il arrivera sans une ligne de code a ecrire.
+# ══════════════════════════════════════════════════════════════════════════
+def _piper_double(monkeypatch, taux=22050, echantillons=2205):
+    """Un faux `piper` qui ecrit un WAV a SON propre taux."""
+    charges = []
+
+    class FausseVoix:
+        def synthesize_wav(self, texte, fichier, **kw):
+            fichier.setnchannels(1)
+            fichier.setsampwidth(2)
+            fichier.setframerate(taux)
+            fichier.writeframes(b"\x00\x01" * echantillons)
+
+        @staticmethod
+        def load(chemin, **kw):
+            charges.append(str(chemin))
+            return FausseVoix()
+
+    module = types.ModuleType("piper")
+    module.PiperVoice = FausseVoix
+    monkeypatch.setitem(sys.modules, "piper", module)
+    synthese._voix_piper.cache_clear()
+    return charges
+
+
+def test_piper_rend_un_wav_au_taux_de_son_modele(monkeypatch):
+    """⚠️ LE TAUX VIENT DU MODELE, IL N'EST PAS SUPPOSE.
+
+    Kokoro rend du 24 kHz, Piper « medium » du 22 050, et rien ne garantit
+    qu'un modele affine sur mesure suive l'un ou l'autre. Laisser Piper ecrire
+    son propre en-tete supprime la classe entiere des bugs de frequence —
+    celle qui donne une voix trop lente sans qu'aucun fichier ne soit invalide.
+    """
+    _piper_double(monkeypatch, taux=22050)
+    monkeypatch.setattr(synthese.get_settings(), "voix_moteur", "piper", raising=False)
+
+    _, _, taux, _ = _lire(synthese.synthetiser("bonjour"))
+
+    assert taux == 22050 != synthese.ECHANTILLONNAGE
+
+
+def test_un_chemin_onnx_est_charge_tel_quel(monkeypatch, tmp_path):
+    """C'est ce qui rend un clone branchable sans publier le modele nulle part.
+
+    Un modele affine n'existe que sur une machine. S'il fallait un nom du
+    catalogue, il faudrait le publier pour que Piper le telecharge — pour un
+    fichier qui ne concerne personne d'autre.
+    """
+    charges = _piper_double(monkeypatch)
+    modele = tmp_path / "nova.onnx"
+    modele.write_bytes(b"faux modele")
+    monkeypatch.setattr(synthese.get_settings(), "voix_moteur", "piper", raising=False)
+
+    synthese.synthetiser("bonjour", voix=str(modele))
+
+    assert charges == [str(modele)]
+
+
+def test_un_onnx_absent_le_dit_au_lieu_de_planter(monkeypatch):
+    _piper_double(monkeypatch)
+    monkeypatch.setattr(synthese.get_settings(), "voix_moteur", "piper", raising=False)
+
+    with pytest.raises(synthese.SyntheseIndisponible) as erreur:
+        synthese.synthetiser("bonjour", voix="/nulle/part/nova.onnx")
+
+    assert "introuvable" in str(erreur.value)
+
+
+def test_piper_absent_ne_parle_pas_d_espeak(monkeypatch):
+    """⚠️ CHAQUE MOTEUR A SON PROPRE REMEDE.
+
+    Kokoro exige `brew install espeak-ng`, que sa documentation ne mentionne
+    nulle part. Piper embarque le sien. Afficher le remede de l'un pour la
+    panne de l'autre enverrait installer une dependance sans rapport — c'est
+    exactement le defaut de `tts.js`, transpose d'un etage.
+    """
+    monkeypatch.setitem(sys.modules, "piper", None)
+    synthese._voix_piper.cache_clear()
+    monkeypatch.setattr(synthese.get_settings(), "voix_moteur", "piper", raising=False)
+
+    with pytest.raises(synthese.SyntheseIndisponible) as erreur:
+        synthese.synthetiser("bonjour")
+
+    assert "[piper]" in str(erreur.value)
+    assert "espeak" not in str(erreur.value).lower()
+
+
+def test_le_modele_piper_n_est_charge_qu_une_fois(monkeypatch, tmp_path):
+    charges = _piper_double(monkeypatch)
+    modele = tmp_path / "nova.onnx"
+    modele.write_bytes(b"faux modele")
+    monkeypatch.setattr(synthese.get_settings(), "voix_moteur", "piper", raising=False)
+
+    for phrase in ("une", "deux", "trois"):
+        synthese.synthetiser(phrase, voix=str(modele))
+
+    assert len(charges) == 1

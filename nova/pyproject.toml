@@ -28,6 +28,11 @@ voice = ["faster-whisper>=1.0"]
 # Sans lui, la phonemisation echoue avec un message qui parle de tout sauf de
 # ca.   brew install espeak-ng
 speech = ["kokoro>=0.9"]
+# Synthese Piper : un modele = une voix, 60 Mo sur onnx, sans torch. C'est
+# aussi le format d'un modele AFFINE sur une vraie voix — donc le chemin par
+# lequel un clone arrive. Il embarque son propre espeak-ng : contrairement a
+# `speech`, aucune dependance systeme a installer a cote.
+piper = ["piper-tts>=1.7"]
 
 [project.scripts]
 nova = "nova.cli:app"

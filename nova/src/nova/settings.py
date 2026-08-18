@@ -216,6 +216,26 @@ class Settings(BaseSettings):
     # tous deux une voix tiree du corpus `siwis`. Meme locutrice, meme
     # materiau, seul le moteur change — l'ecart entendu ne pouvait donc venir
     # que de la synthese, et pas du timbre de depart.
+    #
+    # ── DEUX MOTEURS, ET LE SECOND EST CELUI DE L'AVENIR ──────────────────
+    #
+    # `kokoro`  generaliste : 350 Mo + torch, ~1 Go resident, x0,25 temps reel
+    # `piper`   une seule voix : 60 Mo sur onnx, sans torch, ~x0,02
+    #
+    # Sur 8 Go deja occupes par un modele de langue de 3,3 Go, ce gigaoctet se
+    # paie deux fois — en memoire, puis en lenteur de tout le reste.
+    #
+    # Piper est aussi le format d'un modele AFFINE : une voix entrainee sur
+    # mesure arrive sous forme de `.onnx`, et `voix_modele` accepte un chemin.
+    # Le jour ou le clone existe, il n'y a rien a rebrancher :
+    #
+    #     NOVA_VOIX_MOTEUR=piper
+    #     NOVA_VOIX_MODELE=/chemin/vers/nova.onnx
+    #
+    # Le defaut reste `kokoro` : c'est ce qui est installe et ecoute
+    # aujourd'hui, et un defaut ne doit pas changer sous les pieds de qui met
+    # simplement le projet a jour.
+    voix_moteur: str = "kokoro"
     voix_modele: str = "ff_siwis"
     # Code de langue de Kokoro : « f » pour le francais. Il choisit le
     # phonemiseur, pas seulement l'accent — se tromper ici ne donne pas une
