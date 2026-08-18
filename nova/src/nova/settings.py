@@ -206,6 +206,21 @@ class Settings(BaseSettings):
         "Nova, qu'est-ce que la relativite ? Nova, explique-moi la photosynthese. "
         "Nova, pourquoi le ciel est-il bleu ?"
     )
+    # ── Synthese vocale locale ────────────────────────────────────────────
+    #
+    # `ff_siwis` n'a pas ete choisie sur une fiche technique mais A L'OREILLE,
+    # apres ecoute comparee de sept voix (`scripts/essayer-voix-locales.sh`) :
+    # c'est celle qui se rapprochait le plus de la voix ElevenLabs d'origine.
+    #
+    # Le detail qui rend cette comparaison lisible : Kokoro et Piper proposent
+    # tous deux une voix tiree du corpus `siwis`. Meme locutrice, meme
+    # materiau, seul le moteur change — l'ecart entendu ne pouvait donc venir
+    # que de la synthese, et pas du timbre de depart.
+    voix_modele: str = "ff_siwis"
+    # Code de langue de Kokoro : « f » pour le francais. Il choisit le
+    # phonemiseur, pas seulement l'accent — se tromper ici ne donne pas une
+    # voix a l'accent etranger, ca donne du charabia.
+    voix_langue: str = "f"
     # Vocabulaire declare a la main, separe par des virgules. Sert aux noms
     # que Nova ne peut pas deviner : marques, personnes, jargon de metier.
     #

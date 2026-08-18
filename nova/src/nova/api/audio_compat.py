@@ -11,7 +11,7 @@ point d'entree.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 
 from nova import orchestrator
 from nova.logging_setup import get_logger
@@ -190,3 +190,60 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
         "question": None if comprise.sure else comprise.question(),
         "raisons": list(comprise.raisons),
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  SYNTHESE : /v1/audio/speech
+#
+#  Le chemin inverse de la transcription, et pour la meme raison. La voix de
+#  Nova partait chez ElevenLabs jusqu'au soir ou elle s'est tue :
+#
+#      "This request exceeds your quota of 10000. You have 3 credits
+#       remaining, while 10 credits are required for this request."
+#
+#  Soixante reponses par mois. Un assistant dont la voix depend d'un quota
+#  mensuel n'est pas un assistant personnel, c'est un abonnement qui parle.
+#
+#  ⚠️ CE POINT D'ENTREE EST DANS LE CHEMIN DE LA PAROLE EN FLUX.
+#
+#  L'application demande une synthese PAR PHRASE, des la premiere, pendant
+#  que le modele ecrit encore les suivantes. Chaque appel est donc court et
+#  frequent — c'est exactement le regime ou un chargement de modele a chaque
+#  requete se verrait immediatement. Le pipeline est garde resident
+#  (`_pipeline`, lru_cache) pour cette raison.
+#
+#  Nom OpenAI, comme les deux autres points d'entree audio : `/v1/audio/speech`
+#  est ce que sait deja appeler n'importe quel client, et le champ s'appelle
+#  `input` chez eux. On accepte aussi `text`, parce que l'application de
+#  bureau l'envoyait deja sous ce nom et qu'un renommage casserait pour rien.
+# ══════════════════════════════════════════════════════════════════════════
+@router.post("/audio/speech")
+def synthese_vocale(demande: dict) -> Response:
+    from nova.voice import synthese
+
+    texte = (demande.get("input") or demande.get("text") or "").strip()
+    if not texte:
+        raise HTTPException(400, "champ « input » (ou « text ») vide ou absent")
+
+    try:
+        wav = synthese.synthetiser(
+            texte,
+            voix=demande.get("voice") or None,
+            langue=demande.get("language") or None,
+        )
+    except synthese.SyntheseIndisponible as exc:
+        # 503 et non 500 : la brique est absente, pas cassee. Meme distinction
+        # que pour la transcription — elle dit a l'appelant qu'il n'y a rien a
+        # deboguer, seulement quelque chose a installer.
+        raise HTTPException(503, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        # ⚠️ ON RELAIE LA VRAIE CAUSE, ON NE LA RESUME PAS.
+        #
+        # C'est la lecon directe de `tts.js`, qui lisait le message d'erreur
+        # d'ElevenLabs puis l'ecrasait par « cle API refusee ». Trois codes
+        # distincts rendaient la meme phrase inutile, et la vraie raison —
+        # quota epuise — n'est jamais sortie du programme.
+        log.exception("Synthese impossible")
+        raise HTTPException(500, f"synthese impossible : {exc}") from exc
+
+    return Response(content=wav, media_type="audio/wav")
