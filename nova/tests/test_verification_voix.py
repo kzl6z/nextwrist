@@ -28,7 +28,6 @@ from __future__ import annotations
 import importlib.util
 import math
 import random
-import struct
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parents[1]
