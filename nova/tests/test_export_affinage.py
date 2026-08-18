@@ -166,3 +166,8 @@ def test_l_extension_cython_est_compilee_avant_l_entrainement(tmp_path):
     debut = commandes.index("import glob")
     fin = commandes.index("# ── 2. Deposer")
     compile(commandes[debut:fin], "<etape-1-bis>", "exec")
+
+    # ⚠️ Une triple apostrophe fermerait la chaine qui PORTE ces commandes.
+    # L'erreur ne ressemble alors a rien de ce qu'on vient d'ecrire : elle
+    # tombe des dizaines de lignes plus bas, sur du code sain.
+    assert '"""' not in commandes

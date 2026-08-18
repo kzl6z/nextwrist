@@ -66,40 +66,98 @@ COMMANDES = """\
 # ⚠️ A FAIRE AVANT L'ENTRAINEMENT, PAS APRES.
 #
 # `monotonic_align` est le seul morceau de Piper ecrit en Cython : il aligne
-# les phonemes sur l'audio, et la version Python pure serait trop lente. Le
-# paquet publie sur PyPI ne le compile pas pour toutes les versions de Python.
+# les phonemes sur l'audio, et la version Python pure serait trop lente.
+#
+# La roue publiee sur PyPI (1.7.0) livre le `setup.py` de ce module MAIS PAS
+# le `core.pyx` qu'il compile. Rien a l'installation ne le signale.
 #
 # Quand il manque, l'entrainement demarre normalement — chargement des poids,
 # mise en cache du corpus, « Epoch 0 » affiche — et ne s'effondre qu'au
 # premier lot, sur un `ModuleNotFoundError`. Autrement dit, on paie les
 # minutes de preparation pour rien.
 import glob
+import io
+import json
 import shutil
 import subprocess
 import sys
+import tarfile
+import urllib.request
+from importlib.metadata import version
 from pathlib import Path
 
 dossier = Path(
     glob.glob("/usr/local/lib/python*/dist-packages/piper/train/vits/monotonic_align")[0]
 )
-(dossier / "setup_nova.py").write_text(
-    "from setuptools import setup\\n"
-    "from Cython.Build import cythonize\\n"
-    "import numpy\\n"
-    "setup(ext_modules=cythonize('core.pyx', language_level=3),\\n"
-    "      include_dirs=[numpy.get_include()])\\n"
-)
-subprocess.run(
-    [sys.executable, "setup_nova.py", "build_ext", "--inplace"], cwd=dossier, check=True
-)
+publiee = version("piper-tts")
+cible = dossier / "core.pyx"
 
-# Selon les versions, l'import cherche `monotonic_align.core` ou
-# `monotonic_align.monotonic_align.core`. On satisfait les deux : un fichier
-# en trop ne coute rien, un import rate coute une heure de GPU.
+
+def _depuis_sdist():
+    # L'archive source de la MEME version : aucune derive de code possible.
+    meta = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/piper-tts/{publiee}/json"))
+    for fichier in meta["urls"]:
+        if fichier["packagetype"] != "sdist":
+            continue
+        donnees = urllib.request.urlopen(fichier["url"]).read()
+        with tarfile.open(fileobj=io.BytesIO(donnees)) as tar:
+            for membre in tar.getmembers():
+                if membre.name.endswith("monotonic_align/core.pyx"):
+                    cible.write_bytes(tar.extractfile(membre).read())
+                    return f"sdist {fichier['filename']}"
+    return None
+
+
+def _depuis_github():
+    chemin = "src/piper/train/vits/monotonic_align/core.pyx"
+    for ref in (f"v{publiee}", publiee, "main"):
+        url = f"https://raw.githubusercontent.com/OHF-Voice/piper1-gpl/{ref}/{chemin}"
+        try:
+            cible.write_bytes(urllib.request.urlopen(url).read())
+            return url
+        except Exception as erreur:
+            print("  echec", ref, ":", erreur)
+    return None
+
+
+origine = _depuis_sdist() or _depuis_github()
+assert origine, "core.pyx introuvable — inutile de continuer"
+print("core.pyx recupere depuis :", origine)
+
+# ⚠️ LE REPERTOIRE COURANT EST UN REGLAGE, PAS UNE COMMODITE.
+#
+# Le setup.py livre passe a Cython un chemin ABSOLU. Cython en deduit le nom
+# complet du module — `piper.train.vits.monotonic_align.core` — et
+# `build_ext --inplace` ecrit a l'emplacement correspondant RELATIVEMENT au
+# repertoire courant. Lance depuis le dossier du module, il cherche donc
+# `monotonic_align/piper/train/vits/monotonic_align/` et echoue sur
+# « could not create ... No such file or directory » APRES avoir compile.
+# Depuis la racine des paquets, le meme chemin tombe pile au bon endroit.
+racine = dossier.parents[3]  # .../dist-packages
+resultat = subprocess.run(
+    [sys.executable, str(dossier / "setup.py"), "build_ext", "--inplace"],
+    cwd=racine,
+    capture_output=True,
+    text=True,
+)
+print(resultat.stdout[-1500:])
+print(resultat.stderr[-1500:])
+resultat.check_returncode()
+
+# Le setup.py livre le module A PLAT ; le __init__.py livre le cherche EN NID
+# (`from .monotonic_align.core import maximum_path_c`). Les deux fichiers du
+# meme paquet ne sont pas d'accord — c'est probablement pourquoi la roue est
+# incomplete : cette partie n'est pas exercee en aval. On satisfait les deux
+# plutot que d'arbitrer : un fichier en trop ne coute rien, un import rate
+# coute une heure de GPU.
+produits = sorted(dossier.rglob("core*.so"))
+print("compile :", [str(p) for p in produits])
+assert produits, "aucun .so produit malgre un code de retour nul"
+
 niche = dossier / "monotonic_align"
 niche.mkdir(exist_ok=True)
 (niche / "__init__.py").touch()
-for produit in sorted(dossier.rglob("core*.so")):
+for produit in produits:
     if produit.parent != niche:
         shutil.copy2(produit, niche / produit.name)
     if produit.parent != dossier:
