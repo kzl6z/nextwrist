@@ -55,6 +55,13 @@ DERIVE_MAX_DB = 3.0
 #: en meme temps que la voix, et le restitue sous chaque phrase.
 SNR_MIN_DB = 25.0
 
+#: Minutes de PAROLE NETTE requises — silences exclus.
+#:
+#: Piper part d'un point de depart francais deja entraine : l'affinage n'a pas
+#: a tout reapprendre, seulement a deplacer le timbre. Douze minutes suffisent,
+#: vingt sont confortables, au-dela de trente le gain devient marginal.
+MINUTES_PAROLE_MIN = 12
+
 #: Silence tolere en debut et fin de prise, en secondes.
 BLANC_MAX_S = 0.5
 
@@ -158,6 +165,7 @@ def main() -> int:
     problemes: list[str] = []
     a_rogner: list[str] = []
     non_mesurables = 0
+    parole_nette = 0.0
     niveaux: list[float] = []
     total = 0.0
 
@@ -172,6 +180,7 @@ def main() -> int:
         snr = _db(niveau) - _db(fond)
         avant, apres = _blancs(valeurs, taux, max(fond * 3, 0.005))
         ecrete = _ecretage(valeurs)
+        parole_nette += max(0.0, duree - avant - apres)
 
         # ⚠️ DEUX COLONNES, ET LES CONFONDRE COUTE UNE SEANCE ENTIERE.
         #
@@ -241,7 +250,17 @@ def main() -> int:
         fin = sum(niveaux[moitie:]) / (len(niveaux) - moitie)
         derive = _db(fin) - _db(debut)
 
+    # ⚠️ CE QUI COMPTE EST LA PAROLE, PAS LA DUREE DES FICHIERS.
+    #
+    # Le seuil venait d'un calcul en mots par minute — donc du temps de PAROLE.
+    # Il etait applique a la duree des fichiers, silences compris. Sur le corpus
+    # reel : 19,7 min de fichiers pour 14,9 min de parole. Avant rognage le
+    # verdict passait grace au silence ; apres rognage il echouait alors que
+    # l'audio etait devenu meilleur.
+    #
+    # Un seuil doit porter sur la grandeur qui l'a produit.
     print(f"  duree totale      {total / 60:5.1f} min")
+    print(f"  parole nette      {parole_nette / 60:5.1f} min")
     print(f"  niveau moyen      {_db(sum(niveaux) / len(niveaux)):5.1f} dB")
     print(f"  derive 1re/2e     {derive:+5.1f} dB", end="")
     print("   ⚠ la distance au micro a change" if abs(derive) > DERIVE_MAX_DB else "")
@@ -277,8 +296,9 @@ def main() -> int:
 
     print("\n── Verdict ───────────────────────────────────────────────")
     pret = True
-    if total < 18 * 60:
-        print(f"  ⏳ {total / 60:.0f} min sur 18 minimum — continue.")
+    if parole_nette < MINUTES_PAROLE_MIN * 60:
+        print(f"  ⏳ {parole_nette / 60:.0f} min de parole sur "
+              f"{MINUTES_PAROLE_MIN} minimum — continue.")
         pret = False
     if abs(derive) > DERIVE_MAX_DB:
         print("  ⚠ La derive de niveau apprendra deux distances au modele.")

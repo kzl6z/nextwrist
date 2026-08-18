@@ -185,3 +185,32 @@ def test_le_snr_ne_se_mesure_pas_sur_une_prise_sans_silence():
     fond = verifier_voix._plancher_de_bruit(sans_silence, TAUX)
     avant, apres = verifier_voix._blancs(sans_silence, TAUX, max(fond * 3, 0.005))
     assert avant + apres < 0.2, "prise sans silence : le SNR n'est pas mesurable"
+
+
+def test_le_verdict_juge_la_parole_et_pas_la_duree_des_fichiers():
+    """⚠️ LE MEME AUDIO PASSAIT AVANT ROGNAGE ET ECHOUAIT APRES.
+
+    Le seuil venait d'un calcul en mots par minute — donc du temps de PAROLE.
+    Il etait applique a la duree des fichiers, silences compris. Sur le corpus
+    reel : 19,7 min de fichiers pour 14,9 min de parole. Le silence faisait
+    donc passer le verdict, et le rognage — qui ameliore l'audio — le faisait
+    echouer.
+
+    Un seuil doit porter sur la grandeur qui l'a produit.
+    """
+    avec_silence = _prise(0.25, 0.0002, blanc=1.0)
+    sans_silence = _prise(0.25, 0.0002, blanc=0.0)
+
+    def parole(valeurs):
+        fond = verifier_voix._plancher_de_bruit(valeurs, TAUX)
+        avant, apres = verifier_voix._blancs(valeurs, TAUX, max(fond * 3, 0.005))
+        return len(valeurs) / TAUX - avant - apres
+
+    # Les fichiers different de deux secondes…
+    assert abs(len(avec_silence) - len(sans_silence)) / TAUX > 1.5
+    # …mais la parole qu'ils contiennent est la meme.
+    assert abs(parole(avec_silence) - parole(sans_silence)) < 0.3
+
+
+def test_le_seuil_porte_sur_la_parole_nette():
+    assert verifier_voix.MINUTES_PAROLE_MIN == 12

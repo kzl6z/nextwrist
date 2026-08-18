@@ -51,6 +51,12 @@ MARGE_S = 0.06
 #: assez bas pour qu'aucune crete ne sature.
 CIBLE_DB = -23.0
 
+#: Proportion d'echantillons qu'on accepte d'ecreter pour atteindre le niveau
+#: vise. Sur seize millions d'echantillons, un dix-millieme en represente mille
+#: six cents — soit quelques clics et chocs, inaudibles une fois rabotes. C'est
+#: le reglage qui empeche un accident isole de brider tout le corpus.
+ECRETAGE_TOLERE = 1e-4
+
 #: En dessous de ce rapport signal/bruit, la prise est ECARTEE. Le modele
 #: apprendrait le fond sonore en meme temps que la voix, et le restituerait
 #: sous chaque phrase.
@@ -224,19 +230,42 @@ def main() -> int:
     global_rms = niveaux[len(niveaux) // 2]
     gain_vise = (10 ** (CIBLE_DB / 20)) / max(global_rms, 1e-9)
 
-    # ⚠️ LA CRETE ABSOLUE EST UN MAUVAIS PLAFOND : UN CLIC BRIDE TOUT.
+    # ⚠️ LE PLAFOND SE FIXE SUR LES ECHANTILLONS, PAS SUR LES FICHIERS.
     #
-    # Releve en conditions reelles : niveau RMS du corpus 0,027, crete a 0,56.
-    # Un facteur vingt-et-un — ce n'est pas de la voix, c'est un claquement de
-    # touche ou un choc sur le bureau, dans UN fichier. Il plafonnait le gain a
-    # x1,75 et laissait les 244 autres a -26,6 dB au lieu de -23.
+    # Deux versions se sont trompees ici, et la seconde de facon instructive.
     #
-    # On se cale donc sur le 99,9e percentile des cretes de chaque prise : les
-    # accidents isoles passent au-dessus et seront bornes a l'ecriture, ce qui
-    # les rabote sans toucher a la voix. Un clic ecrete ne s'entend pas ; un
-    # corpus entier trop faible s'entend partout.
-    cretes = sorted(max((abs(x) for x in v), default=1) for _, v, _ in gardees)
-    reference = cretes[int(len(cretes) * 0.999) - 1] if len(cretes) > 1 else cretes[0]
+    # La premiere se calait sur la crete ABSOLUE du corpus. Un claquement de
+    # touche — quarante echantillons dans un seul fichier — plafonnait alors le
+    # gain a x1,75 et laissait les 244 autres prises a -26,6 dB au lieu de -23.
+    #
+    # La deuxieme prenait le 99,9e percentile des cretes PAR FICHIER. Sur 244
+    # fichiers, ca n'ecarte que 0,24 fichier : le deuxieme plus haut, qui reste
+    # une crete. Le gain est passe de x1,75 a x1,83 — la correction avait l'air
+    # d'agir, et ne corrigeait presque rien.
+    #
+    # La bonne question n'est pas « quel fichier est le plus fort ? » mais
+    # « combien d'echantillons accepte-t-on d'ecreter ? ». Sur seize millions
+    # d'echantillons, en rogner deux mille est inaudible — ce sont des clics.
+    # Laisser tout le corpus trois decibels trop bas s'entend partout.
+    #
+    # L'histogramme evite de trier seize millions de valeurs : les amplitudes
+    # sont deja des entiers de 0 a 32767, donc les compter suffit.
+    histogramme = [0] * 32768
+    total_echantillons = 0
+    for _, valeurs, _ in gardees:
+        total_echantillons += len(valeurs)
+        for x in valeurs:
+            histogramme[abs(x) if x != -32768 else 32767] += 1
+
+    autorises = int(total_echantillons * ECRETAGE_TOLERE)
+    cumul = 0
+    reference = 1
+    for amplitude in range(32767, 0, -1):
+        cumul += histogramme[amplitude]
+        if cumul > autorises:
+            reference = amplitude
+            break
+
     gain_max = 32000 / max(reference, 1)
     gain = min(gain_vise, gain_max)
 
