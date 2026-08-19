@@ -186,11 +186,32 @@ def _voix_piper(modele: str):
         log.info("Chargement du modele de synthese %s…", chemin.name)
         voix = PiperVoice.load(chemin)
     else:
-        # Nom de voix du catalogue : Piper le telecharge au premier usage et le
-        # garde. `download_dir` par defaut suffit — un chemin a nous obligerait
-        # a le recreer sur chaque machine.
+        # ⚠️ PIPER NE TELECHARGE PAS TOUT SEUL, ET LE CROIRE COUTE LA VOIX.
+        #
+        # Ce chemin disait « Piper le telecharge au premier usage ». C'est
+        # faux depuis la 1.7 : `PiperVoice.load` attend un fichier local, et
+        # un nom de catalogue produit
+        #
+        #     [Errno 2] No such file or directory: 'fr_FR-siwis-medium.json'
+        #
+        # Cette erreur remontait en 500. L'application, voyant la synthese
+        # echouer, se rabattait sur la voix du systeme — masculine. Le defaut
+        # ne se presentait donc pas comme « modele absent » mais comme « Nova
+        # a change de voix », ce qui envoie chercher la panne du mauvais cote.
+        #
+        # On dit maintenant exactement quoi taper. Et c'est un 503 : il n'y a
+        # rien a deboguer, il y a un fichier a telecharger.
         log.info("Chargement du modele de synthese %s…", modele)
-        voix = PiperVoice.load(modele, download_dir=None)
+        try:
+            voix = PiperVoice.load(modele, download_dir=None)
+        except (FileNotFoundError, OSError) as exc:
+            raise SyntheseIndisponible(
+                f"la voix Piper « {modele} » n'est pas sur cette machine.\n"
+                f"Telecharge-la :  uv run python -m piper.download_voices {modele} "
+                f"--download-dir data/voix\n"
+                f"Puis indique le fichier obtenu :  "
+                f"NOVA_VOIX_MODELE_PIPER=data/voix/{modele}.onnx"
+            ) from exc
     log.info("Synthese prete en %.1f s.", time.perf_counter() - depart)
     return voix
 

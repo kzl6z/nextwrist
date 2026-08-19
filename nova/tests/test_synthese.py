@@ -562,3 +562,37 @@ def test_piper_sans_modele_dit_quoi_ajouter(monkeypatch):
         synthese.synthetiser("bonjour")
 
     assert "NOVA_VOIX_MODELE_PIPER" in str(erreur.value)
+
+
+def test_une_voix_de_catalogue_absente_dit_quoi_telecharger(monkeypatch):
+    """⚠️ CE DEFAUT SE PRESENTAIT COMME « NOVA A CHANGE DE VOIX ».
+
+    Piper 1.7 ne telecharge pas les voix du catalogue : `PiperVoice.load`
+    attend un fichier local. Un nom de catalogue produisait donc
+
+        [Errno 2] No such file or directory: 'fr_FR-siwis-medium.json'
+
+    remonte en 500. L'application, voyant la synthese echouer, se rabattait
+    sur la voix du systeme — masculine. Le symptome visible n'avait plus
+    aucun rapport avec la cause, et envoyait chercher la panne du cote de la
+    voix plutot que du cote du fichier manquant.
+    """
+    class VoixQuiNeTelechargePas:
+        @staticmethod
+        def load(chemin, **kw):
+            raise FileNotFoundError(2, "No such file or directory", f"{chemin}.json")
+
+    module = types.ModuleType("piper")
+    module.PiperVoice = VoixQuiNeTelechargePas
+    monkeypatch.setitem(sys.modules, "piper", module)
+    synthese._voix_piper.cache_clear()
+    reglages = synthese.get_settings()
+    monkeypatch.setattr(reglages, "voix_moteur", "piper", raising=False)
+    monkeypatch.setattr(reglages, "voix_modele_piper", "fr_FR-siwis-medium", raising=False)
+
+    with pytest.raises(synthese.SyntheseIndisponible) as erreur:
+        synthese.synthetiser("bonjour")
+
+    message = str(erreur.value)
+    assert "download_voices" in message, "il faut donner la commande, pas le constat"
+    assert "fr_FR-siwis-medium" in message
