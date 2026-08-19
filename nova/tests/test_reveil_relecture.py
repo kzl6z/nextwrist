@@ -78,7 +78,15 @@ def test_la_commande_vient_de_la_relecture_pas_de_la_detection():
     pass  # remplace par le test parametre ci-dessous
 
 
-def test_le_second_passage_utilise_le_modele_de_dictee(faux):
+def test_le_second_passage_utilise_le_modele_de_dictee(faux, monkeypatch):
+    """La relecture a lieu QUAND LES DEUX OUTILS DIFFERENT — la condition
+    n'etait pas ecrite, et elle est devenue fausse le jour ou les deux
+    reglages ont converge vers `base`. Voir le banc suivant.
+    """
+    from nova.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "whisper_model", "small", raising=False)
+    monkeypatch.setattr(get_settings(), "whisper_wake_model", "base", raising=False)
     double = faux(
         reveil="Nova, quelle est-il de germetre de la terre ?",
         dictee="Nova, quel est le diametre de la Terre ?",
@@ -90,6 +98,50 @@ def test_le_second_passage_utilise_le_modele_de_dictee(faux):
     assert double.appels[1] is None, "la relecture doit utiliser celui de la dictee"
     assert "diametre" in resultat["commande"]
     assert "germetre" not in resultat["commande"]
+
+
+def test_un_seul_passage_quand_les_deux_outils_sont_identiques(faux, monkeypatch):
+    """⚠️ LA MEME LECTURE, PAYEE DEUX FOIS.
+
+    « Detecter vite puis relire proprement » suppose deux outils differents.
+    Rien ne l'imposait : sur la machine de reference, les deux reglages ont
+    converge vers `base` en faisceau 1 pour des raisons de memoire. La
+    relecture faisait alors tourner le MEME modele sur le MEME audio avec le
+    MEME faisceau — seule l'amorce changeait — et personne ne le voyait,
+    puisque le resultat etait correct. Seul le chronometre le disait : 2304 ms
+    entre la fin de la phrase et la reponse.
+
+    Une seule lecture suffit alors, a condition de lui donner LES DEUX
+    amorces : celle du reveil apprend le mot « Nova », celle de la dictee
+    apporte les noms propres de la memoire.
+    """
+    from nova.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "whisper_model", "base", raising=False)
+    monkeypatch.setattr(get_settings(), "whisper_wake_model", "base", raising=False)
+    monkeypatch.setattr(get_settings(), "whisper_beam", 1, raising=False)
+    monkeypatch.setattr(get_settings(), "whisper_beam_reveil", 1, raising=False)
+
+    amorces = []
+
+    class Espion(FauxWhisper):
+        def __call__(self, audio, **kw):
+            amorces.append(kw.get("amorce") or "")
+            return super().__call__(audio, **kw)
+
+    double = Espion("Nova, ouvre YouTube.", "Nova, ouvre YouTube.")
+    monkeypatch.setattr(transcribe, "transcrire", double)
+
+    resultat = appeler()
+
+    assert len(double.appels) == 1, "le meme audio a ete lu deux fois pour rien"
+    # Le pipeline de comprehension ecrit « You Tube » ; ce qui compte ici
+    # est qu'une commande soit ressortie de la lecture unique.
+    assert "youtube" in resultat["commande"].lower().replace(" ", "")
+    # Les deux amorces sont bien la : sans celle du reveil, « Nova » redevient
+    # « Nouveau » ; sans celle de la dictee, les noms propres sont massacres.
+    assert "Nova" in amorces[0]
+    assert len(amorces[0]) > len(get_settings().whisper_amorce)
 
 
 def test_le_mot_de_reveil_est_retire_de_la_commande(faux):

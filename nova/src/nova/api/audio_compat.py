@@ -98,16 +98,47 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
     """
     audio = file.file.read()
     reglages = get_settings()
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  ⚠️ DEUX LECTURES DU MEME AUDIO — SOUVENT PAR LE MEME MODELE.
+    #
+    #  Le decoupage « detecter vite, puis relire proprement » suppose deux
+    #  outils differents : un petit modele glouton pour chercher un mot, un
+    #  meilleur pour comprendre la phrase. Mais rien ne l'IMPOSE, et sur la
+    #  machine de reference les deux reglages ont converge vers la meme
+    #  valeur — `base`, faisceau 1 — pour les raisons mesurees dans
+    #  `settings.py` (un modele resident se paie deux fois).
+    #
+    #  La deuxieme lecture faisait donc tourner LE MEME MODELE sur LE MEME
+    #  AUDIO avec LE MEME faisceau. Seule l'amorce changeait. Releve dans le
+    #  journal : 2304 ms et 4096 ms entre la fin de la phrase et la reponse,
+    #  dont environ la moitie pour ce doublon.
+    #
+    #  Quand les deux outils sont identiques, une seule lecture suffit — a
+    #  condition de lui donner les DEUX amorces. Celle du reveil apprend le
+    #  mot « Nova », celle de la dictee apporte les noms propres de la
+    #  memoire : les concatener ne coute rien et ne perd ni l'un ni l'autre.
+    #
+    #  Quand ils different (dictee en `small`, reveil en `base`), on garde
+    #  les deux lectures : la relecture apporte alors reellement autre chose.
+    # ══════════════════════════════════════════════════════════════════════
+    meme_outil = (
+        reglages.whisper_wake_model == reglages.whisper_model
+        and reglages.whisper_beam_reveil == reglages.whisper_beam
+    )
+    amorce = reglages.whisper_amorce
+    if meme_outil:
+        amorce = f"{reglages.whisper_amorce} {orchestrator.amorce_dictee()}"
+
     try:
-        texte = str(
-            transcribe.transcrire(
-                audio,
-                langue="fr",
-                modele=reglages.whisper_wake_model,
-                amorce=reglages.whisper_amorce,
-                beam=reglages.whisper_beam_reveil,
-            )
+        premiere = transcribe.transcrire(
+            audio,
+            langue="fr",
+            modele=reglages.whisper_wake_model,
+            amorce=amorce,
+            beam=reglages.whisper_beam_reveil,
         )
+        texte = str(premiere)
     except transcribe.TranscriptionIndisponible as exc:
         raise HTTPException(503, str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
@@ -161,11 +192,18 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
         return {"wake": True, "text": texte, "commande": "", "confiance": None}
 
     try:
-        soignee = transcribe.transcrire(
-            audio,
-            langue="fr",
-            amorce=orchestrator.amorce_dictee(),
-            beam=reglages.whisper_beam,
+        # La lecture unique a deja tout ce qu'il faut : meme modele, meme
+        # faisceau, et les deux amorces. Relire serait payer une seconde fois
+        # pour obtenir le meme texte.
+        soignee = (
+            premiere
+            if meme_outil
+            else transcribe.transcrire(
+                audio,
+                langue="fr",
+                amorce=orchestrator.amorce_dictee(),
+                beam=reglages.whisper_beam,
+            )
         )
         comprise = orchestrator.comprendre_la_parole(soignee)
         relue = wake.commande_apres_reveil(comprise.texte) or comprise.texte
