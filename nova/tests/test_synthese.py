@@ -330,3 +330,174 @@ def test_le_modele_piper_n_est_charge_qu_une_fois(monkeypatch, tmp_path):
         synthese.synthetiser(phrase, voix=str(modele))
 
     assert len(charges) == 1
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  LE NETTOYAGE DES BORDS
+#
+#  Le modele affine reproduit l'inspiration qui precedait chaque prise du
+#  corpus : ce n'est pas un defaut du moteur mais un motif APPRIS, donc aucun
+#  reglage de synthese ne l'enleve. On le coupe apres coup, ou c'est
+#  deterministe — et ou un banc peut le prouver.
+# ══════════════════════════════════════════════════════════════════════════
+def _wav(echantillons, taux=22050, canaux=1, largeur=2) -> bytes:
+    import io
+    from array import array
+
+    pcm = array("h", echantillons)
+    if sys.byteorder == "big":
+        pcm.byteswap()
+    tampon = io.BytesIO()
+    with wave.open(tampon, "wb") as f:
+        f.setnchannels(canaux)
+        f.setsampwidth(largeur)
+        f.setframerate(taux)
+        f.writeframes(pcm.tobytes())
+    return tampon.getvalue()
+
+
+def _echantillons(wav: bytes):
+    import io
+    from array import array
+
+    with wave.open(io.BytesIO(wav), "rb") as f:
+        pcm = array("h")
+        pcm.frombytes(f.readframes(f.getnframes()))
+    if sys.byteorder == "big":
+        pcm.byteswap()
+    return pcm
+
+
+def _souffle_parole_souffle(taux=22050):
+    """Ce que rend le modele : un souffle, la phrase, un souffle."""
+    souffle = [200 if i % 2 else -200 for i in range(int(taux * 0.25))]
+    parole = [12000 if i % 2 else -12000 for i in range(int(taux * 0.60))]
+    return souffle + parole + list(souffle), len(souffle), len(parole)
+
+
+def test_le_souffle_des_extremites_disparait():
+    """⚠️ C'EST LE DEFAUT QUI A MOTIVE TOUT CE BLOC.
+
+    Chaque prise du corpus commencait par une inspiration ; le modele a appris
+    qu'un enonce commence ainsi et le reproduit a chaque phrase.
+    """
+    brut, souffle, parole = _souffle_parole_souffle()
+    taux = 22050
+
+    net = _echantillons(synthese._nettoyer_bords(_wav(brut, taux)))
+
+    # La parole est gardee, les deux souffles de 250 ms sont partis — a deux
+    # choses pres, qui sont voulues : la marge, et la granularite du balayage.
+    # Le debut detecte se cale sur une frontiere de fenetre, donc jusqu'a
+    # 10 ms de souffle survivent de chaque cote. Le fondu les recouvre.
+    marge = int(taux * synthese._MARGE_S)
+    fenetre = int(taux * synthese._FENETRE_S)
+    assert parole <= len(net) <= parole + 2 * (marge + fenetre)
+    assert max(abs(v) for v in net) >= 11000, "la parole a ete abimee"
+
+
+def test_les_extremites_sont_fondues_et_pas_coupees_net():
+    """Une coupe franche fabrique le claquement qu'on voulait supprimer."""
+    brut, _, _ = _souffle_parole_souffle()
+
+    net = _echantillons(synthese._nettoyer_bords(_wav(brut)))
+
+    assert abs(net[0]) < 500, "debut coupe net"
+    assert abs(net[-1]) < 500, "fin coupee net"
+
+
+def test_un_second_passage_ne_ronge_pas_l_audio():
+    """⚠️ UN NETTOYAGE QUI S'APPLIQUE DEUX FOIS DOIT RESTER STABLE.
+
+    Le fondu laisse des extremites faibles. Si le seuil les prenait pour du
+    souffle, chaque passage raccourcirait un peu plus la phrase — une erreur
+    qui ne se verrait qu'apres coup, sur une voix devenue trop breve.
+
+    On n'exige pas l'egalite stricte : le balayage par fenetres perd un
+    echantillon d'alignement par passage. Ce qu'on exige est que ca ne
+    s'emballe pas — cinq passages doivent couter moins d'une milliseconde.
+    """
+    taux = 22050
+    brut, _, _ = _souffle_parole_souffle(taux)
+
+    wav = synthese._nettoyer_bords(_wav(brut, taux))
+    depart = len(_echantillons(wav))
+    for _ in range(5):
+        wav = synthese._nettoyer_bords(wav)
+
+    perdu = depart - len(_echantillons(wav))
+    assert 0 <= perdu < taux * 0.001, f"{perdu} echantillons ronges en cinq passages"
+
+
+def test_un_fichier_entierement_silencieux_est_rendu_tel_quel():
+    """Mieux vaut un WAV muet qu'un WAV vide : c'est une reponse valide."""
+    muet = _wav([0] * 22050)
+
+    assert synthese._nettoyer_bords(muet) == muet
+
+
+def test_un_format_inattendu_traverse_sans_dommage():
+    """⚠️ ON NE REECRIT PAS CE QU'ON NE SAIT PAS LIRE.
+
+    Un jour un moteur rendra du stereo ou du 24 bits. Le nettoyage doit alors
+    s'abstenir, pas produire un fichier abime que rien ne signalera.
+    """
+    stereo = _wav([1000] * 44100, canaux=2)
+    pas_un_wav = b"ceci n'est pas un WAV"
+
+    assert synthese._nettoyer_bords(stereo) == stereo
+    assert synthese._nettoyer_bords(pas_un_wav) == pas_un_wav
+
+
+def test_un_enonce_trop_court_n_est_pas_touche():
+    """Sous 0,1 s, le fondu recouvrirait tout le fichier."""
+    court = _wav([12000, -12000] * 100)
+
+    assert synthese._nettoyer_bords(court) == court
+
+
+def test_le_taux_du_fichier_est_conserve():
+    """Reecrire a un taux suppose donnerait une voix trop lente, sans erreur."""
+    brut, _, _ = _souffle_parole_souffle(taux=16000)
+
+    net = synthese._nettoyer_bords(_wav(brut, taux=16000))
+
+    import io
+
+    with wave.open(io.BytesIO(net), "rb") as f:
+        assert f.getframerate() == 16000
+
+
+def test_le_nettoyage_peut_etre_desactive(monkeypatch):
+    """Pour comparer a l'oreille avec et sans, comme on a compare les voix."""
+    brut, _, _ = _souffle_parole_souffle()
+    taux = 22050
+    _piper_double(monkeypatch, taux=taux, echantillons=0)
+
+    class VoixSoufflante:
+        def synthesize_wav(self, texte, fichier, **kw):
+            from array import array
+
+            fichier.setnchannels(1)
+            fichier.setsampwidth(2)
+            fichier.setframerate(taux)
+            fichier.writeframes(array("h", brut).tobytes())
+
+        @staticmethod
+        def load(chemin, **kw):
+            return VoixSoufflante()
+
+    module = types.ModuleType("piper")
+    module.PiperVoice = VoixSoufflante
+    monkeypatch.setitem(sys.modules, "piper", module)
+    synthese._voix_piper.cache_clear()
+    monkeypatch.setattr(synthese.get_settings(), "voix_moteur", "piper", raising=False)
+
+    monkeypatch.setattr(synthese.get_settings(), "voix_nettoyer_bords", False, raising=False)
+    sans = len(_echantillons(synthese.synthetiser("bonjour")))
+
+    monkeypatch.setattr(synthese.get_settings(), "voix_nettoyer_bords", True, raising=False)
+    avec = len(_echantillons(synthese.synthetiser("bonjour")))
+
+    assert sans == len(brut)
+    assert avec < sans

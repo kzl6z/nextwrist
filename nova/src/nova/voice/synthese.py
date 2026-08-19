@@ -244,6 +244,135 @@ def _synthetiser_kokoro(texte: str, voix: str, langue: str) -> bytes:
     return _en_wav(valeurs)
 
 
+# ══════════════════════════════════════════════════════════════════════════
+#  NETTOYAGE DES BORDS
+#
+#  ⚠️ CE DEFAUT VIENT DU CORPUS, PAS DU MOTEUR — ET AUCUN REGLAGE NE L'ENLEVE.
+#
+#  Le modele affine a ete entraine sur 244 prises. Chacune commencait par une
+#  inspiration et un bruit de bouche, et la preparation gardait 60 ms de marge
+#  autour de la parole pour ne pas manger l'attaque des consonnes. Le modele a
+#  donc appris qu'un enonce COMMENCE et FINIT par un petit souffle, et il le
+#  reproduit fidelement — c'est meme la preuve qu'il a bien appris.
+#
+#  On a d'abord cherche du cote des reglages de synthese (`noise_scale`,
+#  `noise_w`) : ils lissent les durees et le grain, ils ne suppriment pas un
+#  motif appris. Ce qui est dans les poids ne se corrige pas dans la fiche.
+#
+#  Restaient deux voies : ré-entrainer sur un corpus renettoye — deux heures
+#  et un resultat incertain — ou couper ces bords ici, ou c'est deterministe
+#  et verifiable. On coupe ici.
+#
+#  ⚠️ CE QUE CA NE CORRIGE PAS : un bruit AU MILIEU d'une phrase. Le nettoyage
+#  ne touche qu'aux extremites, deliberement — chercher du silence a
+#  l'interieur reviendrait a couper entre les mots, et c'est exactement le
+#  hachage qu'on essaie de faire disparaitre.
+# ══════════════════════════════════════════════════════════════════════════
+
+#: Fenetre d'analyse. Assez courte pour situer le debut de la parole au
+#: centieme de seconde pres, assez longue pour ne pas prendre une alternance
+#: du signal pour un silence.
+_FENETRE_S = 0.010
+
+#: Seuil, en fraction du pic du fichier. Une inspiration se situe 30 a 40 dB
+#: sous la parole ; 2 % valent -34 dB, donc au-dessus du souffle et bien en
+#: dessous d'une consonne sourde. Un seuil absolu ne marcherait pas : le
+#: niveau depend de la phrase.
+_SEUIL_RELATIF = 0.02
+
+#: Marge conservee de part et d'autre de la parole detectee. Une fricative
+#: (« f », « s ») monte progressivement : couper au ras du seuil lui volerait
+#: son attaque, et on remplacerait un souffle par un mot decapite.
+_MARGE_S = 0.030
+
+#: Fondu applique aux nouvelles extremites. Sans lui, la coupe cree une
+#: discontinuite — c'est-a-dire exactement le claquement qu'on veut supprimer,
+#: fabrique par le remede.
+_FONDU_S = 0.015
+
+#: En dessous, on ne touche a rien.
+#:
+#: ⚠️ CE GARDE-FOU A ETE AJOUTE PARCE QU'UN TEST L'A EXIGE.
+#:
+#: Le banc de saturation travaille sur quatre echantillons. Un fondu de 15 ms
+#: y recouvre tout le fichier : le remede detruisait le signal au lieu d'en
+#: nettoyer les bords. Aucun enonce reel ne dure 0,1 s — meme « Oui. » en fait
+#: quatre fois plus — donc en dessous il n'y a rien a nettoyer, et beaucoup a
+#: abimer.
+_DUREE_MIN_S = 0.10
+
+
+def _nettoyer_bords(wav: bytes) -> bytes:
+    """Retire le souffle en tete et en queue, puis fond les extremites.
+
+    Rend le WAV inchange si le format n'est pas du 16 bits mono, ou si le
+    fichier est entierement sous le seuil : mieux vaut un souffle qu'un
+    fichier abime, et un WAV muet est une reponse valide pour un texte vide.
+    """
+    import wave
+    from array import array
+
+    try:
+        with wave.open(io.BytesIO(wav), "rb") as f:
+            canaux, largeur, taux = f.getnchannels(), f.getsampwidth(), f.getframerate()
+            brut = f.readframes(f.getnframes())
+    except Exception:  # noqa: BLE001
+        return wav
+
+    if canaux != 1 or largeur != 2 or not brut:
+        return wav
+
+    pcm = array("h")
+    pcm.frombytes(brut)
+    if sys.byteorder == "big":
+        pcm.byteswap()
+
+    if len(pcm) < taux * _DUREE_MIN_S:
+        return wav
+
+    pic = max((abs(v) for v in pcm), default=0)
+    if pic == 0:
+        return wav
+
+    seuil = pic * _SEUIL_RELATIF
+    fenetre = max(1, int(taux * _FENETRE_S))
+
+    # On cherche la premiere et la derniere fenetre qui portent du signal.
+    # Le maximum plutot que la moyenne : une fenetre de 10 ms contenant une
+    # seule impulsion de parole doit compter comme de la parole.
+    debut, fin = None, None
+    for gauche in range(0, len(pcm), fenetre):
+        if max((abs(v) for v in pcm[gauche : gauche + fenetre]), default=0) >= seuil:
+            if debut is None:
+                debut = gauche
+            fin = min(len(pcm), gauche + fenetre)
+
+    if debut is None:  # tout est sous le seuil : on ne touche a rien
+        return wav
+
+    marge = int(taux * _MARGE_S)
+    debut = max(0, debut - marge)
+    fin = min(len(pcm), fin + marge)
+    garde = pcm[debut:fin]
+
+    fondu = min(int(taux * _FONDU_S), len(garde) // 2)
+    for i in range(fondu):
+        facteur = i / fondu
+        garde[i] = int(garde[i] * facteur)
+        garde[-1 - i] = int(garde[-1 - i] * facteur)
+
+    if sys.byteorder == "big":
+        garde.byteswap()
+
+    tampon = io.BytesIO()
+    with wave.open(tampon, "wb") as fichier:
+        fichier.setnchannels(1)
+        fichier.setsampwidth(2)
+        fichier.setframerate(taux)   # celui du fichier, jamais un taux suppose
+        fichier.writeframes(garde.tobytes())
+    return tampon.getvalue()
+
+
 def _duree_wav(wav: bytes) -> float:
     """Duree reelle, lue dans l'en-tete — jamais deduite d'un taux suppose."""
     import wave
@@ -279,6 +408,9 @@ def synthetiser(texte: str, *, voix: str | None = None, langue: str | None = Non
         wav = _synthetiser_piper(texte, voix)
     else:
         wav = _synthetiser_kokoro(texte, voix, langue)
+
+    if reglages.voix_nettoyer_bords:
+        wav = _nettoyer_bords(wav)
 
     duree = _duree_wav(wav)
     ecoule = time.perf_counter() - depart

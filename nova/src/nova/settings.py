@@ -241,6 +241,15 @@ class Settings(BaseSettings):
     # phonemiseur, pas seulement l'accent — se tromper ici ne donne pas une
     # voix a l'accent etranger, ca donne du charabia.
     voix_langue: str = "f"
+    # Retire l'inspiration en tete et en queue de chaque enonce, puis fond les
+    # extremites. Un modele affine reproduit ce que son corpus contenait, et le
+    # corpus contenait un souffle avant chaque phrase : ce n'est pas un defaut
+    # du moteur, c'est un motif appris — donc aucun reglage de synthese ne
+    # l'enleve. Voir `voice/synthese.py`.
+    #
+    # Reglable pour une seule raison : pouvoir comparer a l'oreille avec et
+    # sans, comme on a compare les voix.
+    voix_nettoyer_bords: bool = True
     # Vocabulaire declare a la main, separe par des virgules. Sert aux noms
     # que Nova ne peut pas deviner : marques, personnes, jargon de metier.
     #
