@@ -230,13 +230,25 @@ class Settings(BaseSettings):
     # Le jour ou le clone existe, il n'y a rien a rebrancher :
     #
     #     NOVA_VOIX_MOTEUR=piper
-    #     NOVA_VOIX_MODELE=/chemin/vers/nova.onnx
+    #     NOVA_VOIX_MODELE_PIPER=/chemin/vers/nova.onnx
     #
     # Le defaut reste `kokoro` : c'est ce qui est installe et ecoute
     # aujourd'hui, et un defaut ne doit pas changer sous les pieds de qui met
     # simplement le projet a jour.
     voix_moteur: str = "kokoro"
-    voix_modele: str = "ff_siwis"
+    # ⚠️ UN REGLAGE PAR MOTEUR, ET CE N'EST PAS DE LA SYMETRIE GRATUITE.
+    #
+    # Il n'y en avait qu'un au depart, lu par les deux moteurs. Passer de
+    # `piper` a `kokoro` laissait donc un chemin `.onnx` comme NOM de voix
+    # Kokoro — une valeur qui n'a aucun sens pour lui, dans un reglage qu'on
+    # venait de renseigner exprès. Changer de moteur demandait de se souvenir
+    # de changer aussi le modele, sans que rien ne le rappelle.
+    #
+    # Avec deux reglages, les deux voix restent configurees en permanence et
+    # `NOVA_VOIX_MOTEUR` suffit a basculer. C'est ce qui permet de comparer a
+    # l'oreille — la seule facon dont une voix a jamais ete choisie ici.
+    voix_modele: str = "ff_siwis"          # nom de voix Kokoro
+    voix_modele_piper: str = ""            # chemin .onnx, ou nom du catalogue
     # Code de langue de Kokoro : « f » pour le francais. Il choisit le
     # phonemiseur, pas seulement l'accent — se tromper ici ne donne pas une
     # voix a l'accent etranger, ca donne du charabia.

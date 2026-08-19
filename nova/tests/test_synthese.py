@@ -255,6 +255,12 @@ def _piper_double(monkeypatch, taux=22050, echantillons=2205):
     module.PiperVoice = FausseVoix
     monkeypatch.setitem(sys.modules, "piper", module)
     synthese._voix_piper.cache_clear()
+    # Piper a son propre reglage de modele depuis qu'un reglage partage avait
+    # fait passer un chemin .onnx pour un nom de voix Kokoro. Les bancs qui ne
+    # precisent pas de modele en ont donc besoin d'un.
+    monkeypatch.setattr(
+        synthese.get_settings(), "voix_modele_piper", "fr_FR-siwis-medium", raising=False
+    )
     return charges
 
 
@@ -312,6 +318,9 @@ def test_piper_absent_ne_parle_pas_d_espeak(monkeypatch):
     monkeypatch.setitem(sys.modules, "piper", None)
     synthese._voix_piper.cache_clear()
     monkeypatch.setattr(synthese.get_settings(), "voix_moteur", "piper", raising=False)
+    monkeypatch.setattr(
+        synthese.get_settings(), "voix_modele_piper", "fr_FR-siwis-medium", raising=False
+    )
 
     with pytest.raises(synthese.SyntheseIndisponible) as erreur:
         synthese.synthetiser("bonjour")
@@ -501,3 +510,55 @@ def test_le_nettoyage_peut_etre_desactive(monkeypatch):
 
     assert sans == len(brut)
     assert avec < sans
+
+
+def test_chaque_moteur_a_son_propre_reglage_de_modele(monkeypatch, tmp_path):
+    """⚠️ UN REGLAGE PARTAGE FAISAIT PASSER UN CHEMIN .ONNX A KOKORO.
+
+    Il a suffi de basculer `NOVA_VOIX_MOTEUR` de `piper` a `kokoro` pour que
+    le nom de voix devienne « /Users/.../nova.onnx ». Le reglage restait
+    renseigne, correctement, pour l'autre moteur — et rien ne rappelait qu'il
+    fallait le changer aussi.
+    """
+    modele = tmp_path / "nova.onnx"
+    modele.write_bytes(b"faux modele")
+    charges = _piper_double(monkeypatch)
+    vues = {}
+
+    class FauxPipeline:
+        def __init__(self, lang_code):
+            pass
+
+        def __call__(self, texte, voice=None):
+            vues["voix"] = voice
+            yield (None, None, [0.1])
+
+    module = types.ModuleType("kokoro")
+    module.KPipeline = FauxPipeline
+    monkeypatch.setitem(sys.modules, "kokoro", module)
+    synthese._pipeline.cache_clear()
+
+    reglages = synthese.get_settings()
+    monkeypatch.setattr(reglages, "voix_modele", "ff_siwis", raising=False)
+    monkeypatch.setattr(reglages, "voix_modele_piper", str(modele), raising=False)
+
+    monkeypatch.setattr(reglages, "voix_moteur", "piper", raising=False)
+    synthese.synthetiser("bonjour")
+    monkeypatch.setattr(reglages, "voix_moteur", "kokoro", raising=False)
+    synthese.synthetiser("bonjour")
+
+    assert charges == [str(modele)], "piper n'a pas recu son .onnx"
+    assert vues["voix"] == "ff_siwis", f"kokoro a recu « {vues['voix']} »"
+
+
+def test_piper_sans_modele_dit_quoi_ajouter(monkeypatch):
+    """Un reglage manquant n'est pas une panne : il y a une ligne a ecrire."""
+    _piper_double(monkeypatch)
+    reglages = synthese.get_settings()
+    monkeypatch.setattr(reglages, "voix_moteur", "piper", raising=False)
+    monkeypatch.setattr(reglages, "voix_modele_piper", "", raising=False)
+
+    with pytest.raises(synthese.SyntheseIndisponible) as erreur:
+        synthese.synthetiser("bonjour")
+
+    assert "NOVA_VOIX_MODELE_PIPER" in str(erreur.value)

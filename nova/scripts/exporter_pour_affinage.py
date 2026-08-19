@@ -457,7 +457,7 @@ files.download('/content/nova.onnx.json')
 #      cd ~/Desktop/nova-git/nova
 #      cat >> .env <<'FIN'
 #      NOVA_VOIX_MOTEUR=piper
-#      NOVA_VOIX_MODELE=~/Desktop/nova-git/nova/data/voix/nova.onnx
+#      NOVA_VOIX_MODELE_PIPER=~/Desktop/nova-git/nova/data/voix/nova.onnx
 #      FIN
 #
 #  Puis relancer `make serve`. Rien d'autre a changer : le moteur Piper est

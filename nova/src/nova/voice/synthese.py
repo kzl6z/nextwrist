@@ -163,7 +163,7 @@ def _voix_piper(modele: str):
     acceptant un chemin ici, on rend son installation aussi simple que :
 
         NOVA_VOIX_MOTEUR=piper
-        NOVA_VOIX_MODELE=/chemin/vers/nova.onnx
+        NOVA_VOIX_MODELE_PIPER=/chemin/vers/nova.onnx
 
     Sans ca, il aurait fallu publier le modele quelque part pour que Piper le
     telecharge — pour un fichier qui n'existe que sur cette machine.
@@ -394,7 +394,19 @@ def synthetiser(texte: str, *, voix: str | None = None, langue: str | None = Non
     """
     reglages = get_settings()
     langue = langue or reglages.voix_langue
-    voix = voix or reglages.voix_modele
+
+    # ⚠️ CHAQUE MOTEUR A SON REGLAGE. Un seul, partage, laissait un chemin
+    # `.onnx` servir de nom de voix Kokoro apres un simple changement de
+    # moteur — voir `settings.py`.
+    if reglages.voix_moteur == "piper":
+        voix = voix or reglages.voix_modele_piper
+        if not voix:
+            raise SyntheseIndisponible(
+                "NOVA_VOIX_MOTEUR=piper mais aucun modele n'est indique.\n"
+                "Ajoute dans .env :  NOVA_VOIX_MODELE_PIPER=/chemin/vers/voix.onnx"
+            )
+    else:
+        voix = voix or reglages.voix_modele
 
     texte = (texte or "").strip()
     if not texte:
