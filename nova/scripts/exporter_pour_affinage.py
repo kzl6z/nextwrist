@@ -294,16 +294,28 @@ print("✓ relu en mode strict")
 
 # ⚠️ Cette recopie n'a lieu QUE si l'entrainement va au bout. Interrompre la
 # cellule interrompt aussi la sauvegarde — dans ce cas, relancer ce bloc seul.
+#
+# ⚠️ ET ON SAUVEGARDE AUSSI `nova.json`, PAS QUE LES POINTS DE REPRISE.
+#
+# Cette fiche decrit le taux d'echantillonnage et les phonemes ; sans elle,
+# Piper refuse de charger la voix. Elle ne pese que quelques kilo-octets face
+# aux 846 Mo du point de reprise, ce qui la rend facile a oublier — et elle
+# est partie avec la session la premiere fois. La reconstruire depuis la
+# fiche du modele de base marche, mais c'est une demi-heure pour un fichier
+# qu'on avait sous la main.
 import glob
 import shutil
 from pathlib import Path
 
 sauvegarde = Path("/content/drive/MyDrive/nova-affinage")
 sauvegarde.mkdir(parents=True, exist_ok=True)
-for point in glob.glob("/content/sortie/**/*.ckpt", recursive=True):
-    destination = sauvegarde / Path(point).name
-    shutil.copy2(point, destination)
-    print("sauvegarde :", destination, f"({Path(point).stat().st_size / 1e6:.0f} Mo)")
+a_garder = glob.glob("/content/sortie/**/*.ckpt", recursive=True) + ["/content/nova.json"]
+for chemin in a_garder:
+    if not Path(chemin).exists():
+        continue
+    destination = sauvegarde / Path(chemin).name
+    shutil.copy2(chemin, destination)
+    print("sauvegarde :", destination, f"({Path(chemin).stat().st_size / 1e6:.1f} Mo)")
 
 # ── 5. Exporter en .onnx ──────────────────────────────────────────────────
 #
@@ -314,7 +326,9 @@ for point in glob.glob("/content/sortie/**/*.ckpt", recursive=True):
 # Un chemin fige exporterait silencieusement le mauvais entrainement — et
 # rien, dans un .onnx, ne dit de quelle epoque il vient.
 points = sorted(
-    glob.glob("/content/sortie/**/*.ckpt", recursive=True), key=lambda p: Path(p).stat().st_mtime
+    glob.glob("/content/sortie/**/*.ckpt", recursive=True)
+    + glob.glob("/content/drive/MyDrive/nova-affinage/*.ckpt"),
+    key=lambda p: Path(p).stat().st_mtime,
 )
 for p in points:
     print(p)
@@ -322,15 +336,114 @@ assert points, "aucun point de reprise : l'entrainement n'a rien ecrit"
 recent = points[-1]
 print("\\nle plus recent :", recent)
 
-!python -m piper.train.export_onnx \\
-  --checkpoint "{recent}" \\
-  --output-file /content/nova.onnx
-!cp /content/nova.json /content/nova.onnx.json
+# ⚠️ DEUX OBSTACLES DANS L'EXPORT, TOUS DEUX VENUS DE PYTORCH.
+#
+#   1. `torch.onnx.export` a besoin de `onnxscript`, que Piper ne declare pas.
+#      Sans lui : ModuleNotFoundError, au bout de trente secondes.
+#
+#   2. Depuis PyTorch 2.6 cet export passe par `torch.export` (dynamo), qui
+#      ANALYSE le code sans l'executer et refuse les branchements dependant
+#      des donnees. `transforms.py` de Piper contient
+#      `assert (discriminant >= 0).all()`, dont la valeur n'est connue qu'a
+#      l'execution : l'export echoue sur `GuardOnDataDependentSymNode`.
+#      L'ancien exportateur TorchScript trace une execution reelle, donc la
+#      question ne se pose pas. On le force autour de Piper, sans toucher aux
+#      fichiers installes.
+!pip install -q onnx onnxscript
+
+Path("/content/export_nova.py").write_text(f'''
+import runpy
+import sys
+
+import torch
+
+_export = torch.onnx.export
+
+
+def export(*args, **kwargs):
+    kwargs["dynamo"] = False
+    return _export(*args, **kwargs)
+
+
+torch.onnx.export = export
+
+sys.argv = [
+    "export_onnx",
+    "--checkpoint", "{recent}",
+    "--output-file", "/content/nova.onnx",
+]
+runpy.run_module("piper.train.export_onnx", run_name="__main__")
+''')
+
+!python /content/export_nova.py
 !ls -lh /content/nova.onnx
+
+# ── 5 bis. La fiche qui accompagne le modele ──────────────────────────────
+#
+# Si `nova.json` a survecu, on le copie. Sinon on le reconstruit depuis la
+# fiche du modele de base : meme architecture, meme taux, meme jeu de
+# phonemes — c'est exactement ce qui rend l'affinage possible avec quinze
+# minutes de voix. Ce qu'on a change est le timbre, et le timbre n'est pas
+# decrit ici : il est dans les poids.
+import json
+import urllib.request
+
+fiche = None
+for candidat in ("/content/nova.json", "/content/drive/MyDrive/nova-affinage/nova.json"):
+    if Path(candidat).exists():
+        fiche = json.loads(Path(candidat).read_text())
+        print("fiche reprise de :", candidat)
+        break
+
+if fiche is None:
+    modele = "fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx.json"
+    for url in (
+        f"https://huggingface.co/rhasspy/piper-voices/resolve/main/{modele}",
+        f"https://huggingface.co/datasets/rhasspy/piper-voices/resolve/main/{modele}",
+    ):
+        try:
+            fiche = json.loads(urllib.request.urlopen(url).read())
+            print("fiche reconstruite depuis :", url)
+            break
+        except Exception as erreur:
+            print("  echec :", erreur)
+assert fiche, "aucune fiche : Piper refusera de charger la voix"
+
+# ⚠️ Ces trois valeurs ne provoquent AUCUNE erreur si elles divergent. La
+# voix sort simplement trop grave, trop aigue, ou mal prononcee — et on
+# chercherait la cause du cote de l'entrainement.
+print("taux      :", fiche["audio"]["sample_rate"])
+print("espeak    :", fiche["espeak"]["voice"])
+print("locuteurs :", fiche["num_speakers"])
+assert fiche["audio"]["sample_rate"] == 22050, "taux different de l'entrainement"
+assert fiche["espeak"]["voice"] == "fr", "langue espeak differente"
+assert fiche["num_speakers"] == 1, "modele multi-locuteurs, pas le notre"
+
+fiche["dataset"] = "nova"
+Path("/content/nova.onnx.json").write_text(json.dumps(fiche, ensure_ascii=False, indent=2))
+print("✓ /content/nova.onnx.json")
+
+# ── 5 ter. ECOUTER AVANT DE TELECHARGER ───────────────────────────────────
+#
+# Soixante mega-octets de telechargement, puis une installation sur le Mac,
+# pour decouvrir a la fin que ce n'est pas la bonne voix : l'ecoute coute
+# dix secondes et se fait ici.
+!echo "Bonjour, je suis Nova. Qu'est-ce qu'un trou noir ?" \\
+  | python -m piper --model /content/nova.onnx --output-file /content/essai.wav
+from IPython.display import Audio
+
+Audio("/content/essai.wav")
 
 # ── 6. Recuperer les deux fichiers ────────────────────────────────────────
 # `nova.onnx` ET `nova.onnx.json` : le second decrit le taux et les phonemes.
 # Sans lui, Piper refuse de charger le modele.
+#
+# Sur le Drive d'abord, telechargement ensuite : c'est la copie sur le Drive
+# qui a sauve l'entrainement quand la session a ete recyclee.
+for fichier in ("/content/nova.onnx", "/content/nova.onnx.json"):
+    shutil.copy2(fichier, sauvegarde / Path(fichier).name)
+    print("sur le Drive :", sauvegarde / Path(fichier).name)
+
 from google.colab import files
 files.download('/content/nova.onnx')
 files.download('/content/nova.onnx.json')
