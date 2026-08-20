@@ -156,7 +156,9 @@ class Settings(BaseSettings):
     # Sans elle, « Nova » — qui n'est pas un mot francais courant — est
     # transcrit « Nouveau », « Au revoir », « No va »… Constate en conditions
     # reelles. Avec elle, le modele sait que ce mot existe et le reconnait.
-    whisper_amorce: str = "Nova. Nova, quelle heure est-il ? Nova, ouvre un projet."
+    # Repetee plutot que mise en phrase : le mot doit etre appris, sans qu'une
+    # phrase copiable soit fournie au passage. Voir `whisper_amorce_dictee`.
+    whisper_amorce: str = "Nova. Nova. Nova."
     # Amorce de la DICTEE. Elle ne joue pas le meme role que celle du reveil :
     # ici on ne cherche pas un mot, on transcrit une phrase entiere. L'amorce
     # sert alors a fixer le registre — francais soutenu, ponctuation complete,
@@ -197,14 +199,30 @@ class Settings(BaseSettings):
     # l'amorce corrigerait les trous noirs et rien d'autre ; montrer trois
     # « qu'est-ce qu'un X » de domaines differents apprend a Whisper que cette
     # charniere est attendue, quel que soit le X qui suit.
+    # ⚠️ UNE AMORCE N'EST PAS UN JEU D'EXEMPLES. WHISPER LA RECOPIE.
+    #
+    # Cette amorce contenait treize phrases completes, dont « Nova, qu'est-ce
+    # qu'un trou noir ? ». Sur un audio peu clair — un bruit, un raclement de
+    # gorge — Whisper ne rend pas le vide : il rend ce qu'il a lu dans son
+    # amorce. Releve en conditions reelles, personne n'ayant parle :
+    #
+    #     Transcription : 2.05 s d'audio → « No, no, va, qu'est-ce qu'un
+    #                                        trou noir »
+    #
+    # Nova a repondu. Longuement. A une question que personne n'avait posee.
+    #
+    # Le probleme n'est pas la longueur de l'amorce mais sa NATURE : des
+    # phrases entieres sont copiables telles quelles, un vocabulaire ne l'est
+    # pas. On amorce donc le domaine et les noms propres, sans jamais fournir
+    # une phrase que Whisper puisse rendre en croyant l'avoir entendue.
+    #
+    # Ce qu'on perd : les tournures interrogatives etaient mieux reconnues
+    # avec les exemples. C'est un vrai recul, assume — une question mal
+    # transcrite coute une reformulation, une question INVENTEE coute la
+    # confiance dans l'assistant.
     whisper_amorce_dictee: str = (
-        "Nova, quelle heure est-il ? Nova, que sais-tu de moi ? "
-        "Nova, ouvre un nouveau projet. Nova, resume-moi ce document. "
-        "Nova, monte le son a 80 %. Nova, baisse le son. Nova, ferme Discord. "
-        "Quel jour sommes-nous aujourd'hui ? "
-        "Nova, qu'est-ce qu'un trou noir ? Nova, qu'est-ce qu'une eclipse ? "
-        "Nova, qu'est-ce que la relativite ? Nova, explique-moi la photosynthese. "
-        "Nova, pourquoi le ciel est-il bleu ?"
+        "Conversation avec Nova, assistante vocale francaise. "
+        "Culture generale, applications, dates, heures, noms propres."
     )
     # ── Synthese vocale locale ────────────────────────────────────────────
     #

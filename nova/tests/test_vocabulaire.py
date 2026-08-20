@@ -75,31 +75,47 @@ def test_sans_terme_l_amorce_reste_intacte():
 
 
 # ══════════════════════════════════════════════════════════════════════════
-#  L'AMORCE DE DICTEE DOIT MONTRER LES QUESTIONS, PAS SEULEMENT LES ORDRES
+#  L'AMORCE NE DOIT CONTENIR AUCUNE PHRASE RECOPIABLE
 #
-#  Releve en conditions reelles, la MEME question posee deux fois de suite :
+#  ⚠️ CE BANC REMPLACE SON EXACT CONTRAIRE, ET LE RENVERSEMENT A UN COUT.
 #
-#      dit      « Nova, qu'est-ce qu'un trou noir ? »
-#      entendu  « Nova, qu'est-ce qu'en trois noirs ? »
-#      entendu  « Nova, qu'est-ce qu'apprends moi ? »
+#  Il exigeait des questions d'exemple completes — « Nova, qu'est-ce qu'un
+#  trou noir ? » et quatre autres — pour montrer a Whisper la charniere
+#  interrogative. Le raisonnement etait bon et la correction marchait : la
+#  construction « qu'est-ce qu'un X » etait mieux reconnue.
 #
-#  L'amorce ne contenait que des ordres — ouvre, monte le son, ferme Discord.
-#  Whisper imite ce qu'on lui montre : une question de connaissance arrivait
-#  hors registre.
+#  Mais une phrase montree est une phrase COPIABLE. Sur un audio peu clair,
+#  Whisper ne rend pas le vide : il rend ce qu'il vient de lire. Releve en
+#  conditions reelles, personne n'ayant parle :
 #
-#  Ce test verifie la CHARNIERE, pas les mots. Ecrire « trou noir » dans
-#  l'amorce corrigerait les trous noirs et rien d'autre ; c'est la
-#  construction « qu'est-ce qu'un X » qui etait absente, et elle est la plus
-#  courante du francais parle.
+#      Transcription : 2.05 s d'audio → « No, no, va, qu'est-ce qu'un trou noir »
+#
+#  Nova a repondu, longuement, sur ce trou noir. Une transcription fausse
+#  coute une reformulation ; une transcription INVENTEE coute la confiance
+#  dans l'assistant — on ne peut plus se fier a rien de ce qu'il entend.
+#
+#  Ce qu'on perd est reel et assume : les tournures interrogatives sont moins
+#  bien reconnues sans exemples. Le garde-fou de `transcribe.py` couvre le cas
+#  ou une amorce future en reintroduirait ; ce banc couvre la source.
 # ══════════════════════════════════════════════════════════════════════════
-def test_l_amorce_de_dictee_montre_des_questions_de_connaissance():
+def test_l_amorce_ne_fournit_aucune_phrase_a_recopier():
     from nova.settings import Settings
 
-    amorce = Settings().whisper_amorce_dictee
+    reglages = Settings()
 
-    assert amorce.count("qu'est-ce qu") >= 3, (
-        "la charniere interrogative doit etre montree plusieurs fois, et sur "
-        "des domaines differents — sinon Whisper apprend le mot, pas la forme"
-    )
-    # Les ordres restent : ils corrigeaient « montre le son » -> « monte le son ».
-    assert "monte le son" in amorce
+    for champ, amorce in (
+        ("dictee", reglages.whisper_amorce_dictee),
+        ("reveil", reglages.whisper_amorce),
+    ):
+        assert "?" not in amorce, (
+            f"l'amorce de {champ} contient une question — Whisper la rendra "
+            "un jour comme si elle avait ete prononcee"
+        )
+        assert len(amorce) < 200, (
+            f"l'amorce de {champ} fait {len(amorce)} caracteres : plus elle est "
+            "longue, plus elle offre de matiere a recopier"
+        )
+
+    # Le mot de reveil reste amorce : sans lui, « Nova » devient « Nouveau ».
+    assert "Nova" in reglages.whisper_amorce
+    assert "Nova" in reglages.whisper_amorce_dictee

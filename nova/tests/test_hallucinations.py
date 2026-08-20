@@ -92,3 +92,88 @@ def test_une_vraie_phrase_traverse(monkeypatch):
     _whisper_qui_rend(monkeypatch, "Nova, ouvre le dossier du projet.")
 
     assert "dossier" in transcribe.transcrire(b"\0" * 5000).texte
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  L'ECHO DE L'AMORCE
+#
+#  ⚠️ CE DEFAUT FAIT REPONDRE NOVA A UNE QUESTION QUE PERSONNE N'A POSEE.
+#
+#  Releve en conditions reelles, personne n'ayant parle :
+#
+#      Transcription : 2.05 s d'audio → « No, no, va, qu'est-ce qu'un trou noir »
+#      Relecture : « quelle heure est-il » → « qu'est-ce qu'un trou noir »
+#
+#  « qu'est-ce qu'un trou noir » etait un exemple de l'amorce, mot pour mot.
+#  Nova a repondu, longuement, sur ce trou noir.
+# ══════════════════════════════════════════════════════════════════════════
+AMORCE = (
+    "Conversation avec Nova, assistante vocale francaise. "
+    "Nova, qu'est-ce qu'un trou noir ? Nova, ouvre un nouveau projet."
+)
+
+
+def test_une_amorce_recopiee_avec_doute_est_du_silence():
+    """Le cas exact du journal : le texte vient de l'amorce, la confiance est basse."""
+    assert transcribe.est_echo_de_l_amorce(
+        "qu'est-ce qu'un trou noir", AMORCE, logprob=-0.62
+    )
+
+
+def test_la_meme_phrase_dite_clairement_traverse():
+    """⚠️ L'AMORCE CONTIENT LE VOCABULAIRE QU'ON EMPLOIE VRAIMENT.
+
+    « ouvre un nouveau projet » appartient a l'amorce et reste une commande
+    parfaitement legitime. Ce qui separe l'echo de la parole n'est pas le
+    texte mais le DOUTE du modele.
+    """
+    assert not transcribe.est_echo_de_l_amorce(
+        "ouvre un nouveau projet", AMORCE, logprob=-0.18
+    )
+
+
+def test_une_phrase_absente_de_l_amorce_traverse_meme_dans_le_doute():
+    """Un audio difficile n'est pas une raison de jeter ce qui a ete dit."""
+    assert not transcribe.est_echo_de_l_amorce(
+        "rappelle-moi d'appeler le plombier", AMORCE, logprob=-0.80
+    )
+
+
+def test_sans_confiance_connue_on_ne_jette_rien():
+    """Dans le doute sur le doute, on garde la parole."""
+    assert not transcribe.est_echo_de_l_amorce(
+        "qu'est-ce qu'un trou noir", AMORCE, logprob=None
+    )
+
+
+def test_une_longue_phrase_n_est_jamais_un_echo():
+    """Au-dela, il y a une vraie phrase autour et la coincidence n'en est plus une."""
+    longue = (
+        "qu'est-ce qu'un trou noir et pourquoi la lumiere n'en ressort jamais "
+        "meme quand elle arrive tres vite depuis une etoile lointaine"
+    )
+    assert not transcribe.est_echo_de_l_amorce(longue, AMORCE + longue, logprob=-0.9)
+
+
+def test_l_echo_est_filtre_de_bout_en_bout(monkeypatch):
+    """Le garde-fou doit agir dans `transcrire`, pas seulement en theorie."""
+    _whisper_qui_rend(monkeypatch, "qu'est-ce qu'un trou noir")
+
+    class _SegmentDouteux(_FauxSegment):
+        def __init__(self, texte):
+            super().__init__(texte)
+            self.avg_logprob = -0.62
+
+    def transcribe_douteux(chemin, **kw):
+        return [_SegmentDouteux("qu'est-ce qu'un trou noir")], types.SimpleNamespace(
+            duration=2.05
+        )
+
+    class FauxModele:
+        transcribe = staticmethod(transcribe_douteux)
+
+    monkeypatch.setattr(transcribe, "_modele", lambda nom=None: FauxModele())
+
+    resultat = transcribe.transcrire(b"\0" * 5000, amorce=AMORCE)
+
+    assert resultat.texte == "", "l'amorce recopiee est repartie vers le modele"

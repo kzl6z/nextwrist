@@ -111,6 +111,50 @@ def est_hallucination(texte: str) -> bool:
     return any(motif in reduit for motif in _HALLUCINATIONS)
 
 
+#: En dessous de cette confiance, le modele a devine. 0 = certain, -1 = il a
+#: invente. La valeur observee sur l'echo reel etait -0,62 ; une phrase
+#: reellement prononcee et clairement articulee se situe au-dessus de -0,45.
+SEUIL_ECHO = -0.45
+
+
+def est_echo_de_l_amorce(texte: str, amorce: str | None, logprob: float | None) -> bool:
+    """Whisper a-t-il RECOPIE son amorce au lieu de transcrire ?
+
+    ⚠️ CE DEFAUT FAIT REPONDRE NOVA A UNE QUESTION QUE PERSONNE N'A POSEE.
+
+    L'amorce oriente le vocabulaire. Sur un audio peu clair — un bruit, un
+    raclement de gorge — Whisper ne rend pas le vide : il rend ce qu'il vient
+    de lire. Releve en conditions reelles, personne n'ayant parle :
+
+        Transcription : 2.05 s d'audio → « No, no, va, qu'est-ce qu'un
+                                           trou noir »
+
+    « qu'est-ce qu'un trou noir » etait un des exemples de l'amorce, mot pour
+    mot. Nova a repondu, longuement, sur ce trou noir.
+
+    ⚠️ POURQUOI LA CONFIANCE EST INDISPENSABLE ICI.
+
+    Un simple test d'appartenance ne suffit pas : l'amorce contient — et doit
+    contenir — le vocabulaire que l'utilisateur emploie vraiment. « Nova »
+    seul, dit clairement, appartient a l'amorce sans etre un echo. Ce qui
+    separe les deux cas n'est pas le texte mais le DOUTE du modele : un echo
+    arrive quand il n'a rien entendu de net, donc avec une confiance basse.
+
+    On exige donc les deux : le texte est deja dans l'amorce, ET le modele
+    dit lui-meme qu'il a devine.
+    """
+    if not amorce or not texte:
+        return False
+    if logprob is None or logprob >= SEUIL_ECHO:
+        return False
+    reduit = _reduire(texte)
+    # Au-dela, il y a une vraie phrase autour et la coincidence n'en est plus
+    # une : on ne jette pas une demande legitime.
+    if not reduit or len(reduit) > 90:
+        return False
+    return reduit in _reduire(amorce)
+
+
 def _modele(nom: str | None = None):
     """Charge le modele une seule fois, puis le garde en memoire.
 
@@ -293,6 +337,14 @@ def transcrire(
 
         if est_hallucination(texte):
             log.info("Formule de sous-titrage ignoree (aucune parole) : « %s »", texte)
+            return Transcription(texte="", logprob=logprob, duree=info.duration)
+
+        if est_echo_de_l_amorce(texte, amorce, logprob):
+            log.info(
+                "Amorce recopiee (confiance %.2f), aucune parole : « %s » — ignore",
+                logprob,
+                texte,
+            )
             return Transcription(texte="", logprob=logprob, duree=info.duration)
 
         # Homophones : « sais », « c'est », « ces », « ses » et « s'est » se
