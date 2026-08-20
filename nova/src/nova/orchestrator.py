@@ -154,9 +154,20 @@ def analyser(texte: str) -> tuple[Plan, str | None]:
 #: est la pour les cas ou on ne veut pas attendre du tout.
 DUREE_CACHE_VOCABULAIRE = 60.0
 
-#: (instant de calcul, termes). Volontairement un simple tuple protege par un
-#: verrou plutot qu'un `lru_cache` : il faut pouvoir l'invalider a la demande.
-_vocabulaire_cache: tuple[float, tuple[str, ...]] | None = None
+#: (instant de calcul, termes, bloc memoire). Volontairement un simple tuple
+#: protege par un verrou plutot qu'un `lru_cache` : il faut pouvoir
+#: l'invalider a la demande.
+#:
+#: ⚠️ LE BLOC MEMOIRE EST ICI PARCE QU'IL VIENT DE LA MEME LECTURE.
+#:
+#: `facts.render_for_prompt()` refaisait sa propre requete `list_facts` a
+#: CHAQUE question, en bloquant, pour des donnees qui changent quelques fois
+#: par jour. Deux allers-retours en base par question la ou un seul, mis en
+#: cache, suffit — et surtout : cette lecture-la etait sur le chemin critique
+#: de la parole. Le meme defaut avait deja ete corrige pour le vocabulaire,
+#: avec la mesure qui va avec : « base injoignable, 30 secondes avant la
+#: premiere transcription ». Le bloc memoire y etait reste exposé.
+_vocabulaire_cache: tuple[float, tuple[str, ...], str] | None = None
 _verrou_vocabulaire = threading.Lock()
 
 #: Empeche dix requetes simultanees de lancer dix relectures de la base.
@@ -173,15 +184,35 @@ def rafraichir_le_vocabulaire() -> tuple[str, ...]:
     global _vocabulaire_cache
 
     with _verrou_vocabulaire:
+        termes: tuple[str, ...] = ()
+        bloc = ""
         try:
-            contenus = [f.content for f in facts.list_facts(status="confirmed")]
-            termes = tuple(vocabulaire.extraire_termes(contenus))
+            confirmes = facts.list_facts(status="confirmed")
         except Exception as exc:  # noqa: BLE001
             # Memoire indisponible : vocabulaire vide, donc une transcription
             # moins fine sur les noms propres. Jamais une panne.
-            log.warning("Vocabulaire de la memoire indisponible : %s", exc)
-            termes = ()
-        _vocabulaire_cache = (time.monotonic(), termes)
+            log.warning("Memoire indisponible : %s", exc)
+            _vocabulaire_cache = (time.monotonic(), termes, bloc)
+            return termes
+
+        # ⚠️ LES DEUX PRODUITS SONT CALCULES SEPAREMENT, ET C'EST VOULU.
+        #
+        # Une premiere version les enveloppait dans le meme `try`. Un echec du
+        # rendu effacait alors AUSSI le vocabulaire — deux capacites
+        # independantes tombant ensemble parce qu'elles partageaient une
+        # accolade. Le banc du cache l'a attrape, en montrant un lexique vide
+        # pour une raison qui n'avait rien a voir avec lui.
+        try:
+            termes = tuple(vocabulaire.extraire_termes([f.content for f in confirmes]))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Vocabulaire non extrait de la memoire : %s", exc)
+        try:
+            # La MEME liste : deux consommateurs, une seule requete.
+            bloc = facts.render_for_prompt(confirmes)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Bloc memoire non rendu : %s", exc)
+
+        _vocabulaire_cache = (time.monotonic(), termes, bloc)
         return termes
 
 
@@ -212,6 +243,34 @@ def _termes_de_la_memoire() -> tuple[str, ...]:
     if time.monotonic() - cache[0] >= DUREE_CACHE_VOCABULAIRE:
         _demander_un_rafraichissement()
     return cache[1]
+
+
+def _bloc_memoire() -> str:
+    """Les faits confirmes, prets pour le prompt, SANS attendre la base.
+
+    ⚠️ LE CACHE FROID SE LIT EN BLOQUANT, ET C'EST DELIBERE.
+
+    Pour le vocabulaire, un cache vide se contente de rendre () : Nova entend
+    un peu moins bien les noms propres pendant une minute. Ici la degradation
+    ne serait pas du meme ordre — un bloc vide, c'est Nova qui repond a la
+    premiere question sans se souvenir de qui tu es. Une perte de memoire ne
+    s'echange pas contre dix millisecondes.
+
+    On ne paie donc l'attente qu'une fois, au tout premier appel, et encore :
+    le fil d'entretien amorce le cache au demarrage, avant que quiconque ait
+    parle. Les appels suivants sont servis instantanement et la relecture se
+    fait derriere.
+    """
+    cache = _vocabulaire_cache
+    if cache is None:
+        rafraichir_le_vocabulaire()
+        cache = _vocabulaire_cache
+        if cache is None:  # la lecture a echoue : pas de memoire, pas de panne
+            return ""
+
+    if time.monotonic() - cache[0] >= DUREE_CACHE_VOCABULAIRE:
+        _demander_un_rafraichissement()
+    return cache[2]
 
 
 def _demander_un_rafraichissement() -> None:
@@ -491,7 +550,10 @@ def build_system_prompt(
         ajouter("no_think", "/no_think")
 
     # 2. Lent — ne bouge que quand la memoire evolue.
-    ajouter("memoire", facts.render_for_prompt())
+    #
+    # Servi depuis le cache partage avec le vocabulaire : la lecture en base
+    # se fait dans le fil d'entretien, pas dans la question de l'utilisateur.
+    ajouter("memoire", _bloc_memoire())
 
     # 3. Volatil — change a chaque minute, puis a chaque question.
     #

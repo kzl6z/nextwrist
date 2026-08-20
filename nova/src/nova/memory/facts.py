@@ -138,14 +138,28 @@ def tenir_dans_le_budget(contenus: list[str], budget: int) -> list[str]:
     return gardes
 
 
-def render_for_prompt() -> str:
+def render_for_prompt(faits: list | None = None) -> str:
     """Rend les faits confirmes sous forme de bloc injectable dans le prompt.
 
     Groupes par categorie : un modele suit nettement mieux une liste structuree
     qu'un paragraphe continu.
+
+    ⚠️ `faits` EXISTE POUR NE PAS RELIRE LA BASE DEUX FOIS.
+
+    L'orchestrateur lit deja les faits confirmes pour en tirer le vocabulaire
+    de transcription. Sans ce parametre, cette fonction refaisait la MEME
+    requete, sur le chemin critique de la parole cette fois. Deux allers-
+    retours en base par question, pour des donnees qui changent quelques fois
+    par jour.
+
+    Le passer n'est donc pas une micro-optimisation de confort : c'est ce qui
+    permet a un seul cache de servir les deux consommateurs, et donc de sortir
+    entierement cette lecture du chemin critique.
     """
     reglages = get_tuning()
-    facts = list_facts(status="confirmed")[: reglages.faits_max]
+    facts = (list_facts(status="confirmed") if faits is None else list(faits))[
+        : reglages.faits_max
+    ]
     if not facts:
         return ""
 

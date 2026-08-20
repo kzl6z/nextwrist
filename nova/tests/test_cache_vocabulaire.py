@@ -26,8 +26,17 @@ from nova import orchestrator
 
 
 class FaitFictif:
-    def __init__(self, contenu: str) -> None:
+    """Un fait de la memoire.
+
+    `category` n'etait pas la : le double ne portait que ce dont le
+    vocabulaire avait besoin. Le jour ou le bloc du prompt est venu de la meme
+    lecture, le rendu a echoue sur cet attribut absent — un double incomplet
+    fait echouer le code correct.
+    """
+
+    def __init__(self, contenu: str, categorie: str = "profil") -> None:
         self.content = contenu
+        self.category = categorie
 
 
 def attendre_la_relecture(delai: float = 3.0) -> None:
@@ -182,3 +191,60 @@ def test_dix_appels_simultanes_ne_lancent_pas_dix_lectures(memoire_comptee):
     assert memoire_comptee["lectures"] <= 2, (
         f"{memoire_comptee['lectures']} lectures pour dix appels rapproches"
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  LE BLOC MEMOIRE VIENT DE LA MEME LECTURE
+#
+#  `facts.render_for_prompt()` refaisait sa propre requete a CHAQUE question,
+#  en bloquant, sur le chemin critique de la parole. Le meme defaut avait deja
+#  ete corrige pour le vocabulaire — avec sa mesure : « base injoignable,
+#  30 secondes avant la premiere transcription » — mais le bloc memoire y
+#  etait reste expose.
+# ══════════════════════════════════════════════════════════════════════════
+def test_le_bloc_memoire_ne_relit_pas_la_base_a_chaque_question(memoire_comptee):
+    """Une seule lecture doit servir le vocabulaire ET le prompt."""
+    orchestrator.rafraichir_le_vocabulaire()
+    assert memoire_comptee["lectures"] == 1
+
+    for _ in range(5):
+        orchestrator._bloc_memoire()
+
+    assert memoire_comptee["lectures"] == 1, (
+        "le bloc memoire relit la base au lieu d'utiliser le cache"
+    )
+
+
+def test_le_bloc_memoire_est_servi_meme_sur_un_cache_froid(memoire_comptee):
+    """⚠️ UN BLOC VIDE, C'EST NOVA QUI NE SE SOUVIENT PLUS DE TOI.
+
+    Pour le vocabulaire, un cache froid rend () : Nova entend moins bien les
+    noms propres pendant une minute. Ici la degradation n'est pas du meme
+    ordre, donc on paie l'attente une fois plutot que de repondre sans
+    memoire.
+    """
+    orchestrator._vocabulaire_cache = None
+
+    bloc = orchestrator._bloc_memoire()
+
+    assert memoire_comptee["lectures"] == 1
+    assert "Ollama" in bloc
+
+
+def test_un_rendu_qui_echoue_n_efface_pas_le_vocabulaire(memoire_comptee, monkeypatch):
+    """⚠️ DEUX CAPACITES INDEPENDANTES NE DOIVENT PAS TOMBER ENSEMBLE.
+
+    Une premiere version les enveloppait dans le meme `try` : un echec du
+    rendu vidait aussi le lexique, pour une raison qui n'avait rien a voir
+    avec lui.
+    """
+    def rendu_casse(faits=None):
+        raise RuntimeError("rendu impossible")
+
+    monkeypatch.setattr(orchestrator.facts, "render_for_prompt", rendu_casse)
+    orchestrator._vocabulaire_cache = None
+
+    termes = orchestrator.rafraichir_le_vocabulaire()
+
+    assert "Ollama" in " ".join(termes), "le vocabulaire est tombe avec le rendu"
+    assert orchestrator._bloc_memoire() == ""
