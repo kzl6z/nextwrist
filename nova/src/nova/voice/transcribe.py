@@ -22,11 +22,13 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+import time
 import unicodedata
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
+from nova.core import chrono
 from nova.logging_setup import get_logger
 from nova.settings import get_settings
 from nova.voice import corrections as corrections_homophones
@@ -205,11 +207,17 @@ def transcrire(
         return Transcription(texte="", logprob=None, duree=0.0)
 
     settings = get_settings()
-    moteur = _modele(modele)
+    # Le chargement du modele est mesure SEPAREMENT du decodage : un cout
+    # fixe de plusieurs secondes qui n'apparait qu'au premier appel ne se
+    # corrige pas comme un decodage lent, et les melanger a deja fait
+    # chercher au mauvais endroit (voir `api/app.py`).
+    with chrono.mesurer("whisper — chargement"):
+        moteur = _modele(modele)
     with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as fichier:
         fichier.write(audio)
         chemin = Path(fichier.name)
 
+    debut_decodage = time.perf_counter()
     try:
         segments, info = moteur.transcribe(
             str(chemin),
@@ -319,6 +327,11 @@ def transcrire(
                 )
         return Transcription(texte=texte, logprob=logprob, duree=info.duration)
     finally:
+        # Dans le `finally` : une transcription qui echoue au bout de huit
+        # secondes a coute ces huit secondes, exactement comme une reussie.
+        chrono.enregistrer(
+            "whisper — decodage", (time.perf_counter() - debut_decodage) * 1000
+        )
         chemin.unlink(missing_ok=True)
 
 

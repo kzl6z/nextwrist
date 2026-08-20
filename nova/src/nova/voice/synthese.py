@@ -45,6 +45,7 @@ import sys
 import time
 from functools import lru_cache
 
+from nova.core import chrono
 from nova.logging_setup import get_logger
 from nova.settings import get_settings
 
@@ -437,13 +438,15 @@ def synthetiser(texte: str, *, voix: str | None = None, langue: str | None = Non
         return _en_wav([])
 
     depart = time.perf_counter()
-    if reglages.voix_moteur == "piper":
-        wav = _synthetiser_piper(texte, voix)
-    else:
-        wav = _synthetiser_kokoro(texte, voix, langue)
+    with chrono.mesurer(f"synthese — {reglages.voix_moteur}"):
+        if reglages.voix_moteur == "piper":
+            wav = _synthetiser_piper(texte, voix)
+        else:
+            wav = _synthetiser_kokoro(texte, voix, langue)
 
     if reglages.voix_nettoyer_bords:
-        wav = _nettoyer_bords(wav)
+        with chrono.mesurer("synthese — nettoyage des bords"):
+            wav = _nettoyer_bords(wav)
 
     duree = _duree_wav(wav)
     ecoule = time.perf_counter() - depart

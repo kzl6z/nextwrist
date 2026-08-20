@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from nova import orchestrator
+from nova.core import chrono, plateforme
 from nova.db import connection
 from nova.documents import ingest, search
 from nova.llm.client import LLMClient
@@ -49,6 +50,43 @@ def health() -> dict:
     status["llm"] = LLMClient().health()
     status["ok"] = status["database"] and status["llm"]
     return status
+
+
+@router.get("/performance")
+def performance() -> dict:
+    """Ou sont passees les millisecondes, depuis le demarrage de Nova Core.
+
+    ⚠️ CETTE ROUTE NE MESURE RIEN ELLE-MEME.
+
+    Elle LIT ce que le chemin critique a deja note en passant. C'est ce qui
+    la rend honnete : les chiffres viennent de vraies requetes, pas d'un banc
+    qui reproduit approximativement ce que fait Nova. Un banc mesure ce qu'on
+    a pense a lui faire mesurer ; un releve en production mesure ce qui s'est
+    reellement produit, y compris ce qu'on n'avait pas prevu.
+
+    Consequence a connaitre : tant que personne n'a parle a Nova, le releve
+    est vide. Ce n'est pas une panne — c'est la difference entre une mesure
+    et une simulation.
+    """
+    return {
+        "etapes": chrono.releve(),
+        "depuis_secondes": round(chrono.depuis_secondes(), 1),
+        "machine": {
+            "resume": plateforme.resume(),
+            "pagination": str(plateforme.pression_memoire()),
+        },
+    }
+
+
+@router.post("/performance/reset", status_code=204)
+def reinitialiser_performance() -> None:
+    """Repart de zero — pour comparer AVANT et APRES un changement.
+
+    Sans ce bouton, une optimisation se noie dans les mesures qui l'ont
+    precedee : la mediane des deux cents derniers appels bouge a peine quand
+    les vingt derniers sont deux fois plus rapides.
+    """
+    chrono.vider()
 
 
 @router.get("/facts")

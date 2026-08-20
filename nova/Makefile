@@ -1,4 +1,4 @@
-.PHONY: install migrate serve up down logs test lint ingest ui diagnostic
+.PHONY: install migrate serve up down logs test lint ingest ui diagnostic perf
 
 install:          ## Installe les dependances dans un environnement local
 	uv sync --extra dev
@@ -8,6 +8,9 @@ ui:               ## Installe les modules Nova dans l'application de bureau
 
 diagnostic:       ## Pourquoi c'est lent : pagination, empreinte, voisins
 	uv run python scripts/diagnostic.py
+
+perf:             ## Ou passent les millisecondes (Nova doit tourner)
+	uv run python scripts/performance.py
 
 migrate:          ## Applique les migrations SQL
 	uv run nova db migrate

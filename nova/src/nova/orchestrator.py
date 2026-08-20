@@ -28,7 +28,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from nova import prompts
-from nova.core import plateforme
+from nova.core import chrono, plateforme
 from nova.core.contrats import Demande, Modele, Plan
 from nova.core.planificateur import planifier
 from nova.core.routeur import Routeur
@@ -518,6 +518,7 @@ def build_system_prompt(
             # robuste quand on en ajoutera dix autres.
             log.warning("Recherche documentaire indisponible : %s", exc)
         ms_recherche = (time.perf_counter() - debut_recherche) * 1000
+        chrono.enregistrer("recherche documentaire", ms_recherche)
 
     if hits:
         ajouter(
@@ -573,7 +574,8 @@ def answer_stream(
     user_messages = [m for m in messages if m.get("role") == "user"]
     last_user = user_messages[-1]["content"] if user_messages else ""
 
-    system_prompt, hits = build_system_prompt(last_user, mode=mode, contrat=contrat)
+    with chrono.mesurer("construction du prompt"):
+        system_prompt, hits = build_system_prompt(last_user, mode=mode, contrat=contrat)
     history = [m for m in messages if m.get("role") != "system"]
 
     conversation_id = conversations.get_or_create(conversation_external_id)
@@ -600,9 +602,10 @@ def answer_stream(
     passe: list[Message] = []
     if len(history) <= 1:
         try:
-            passe = conversations.derniers_echanges(
-                conversation_id, budget_caracteres=get_tuning().historique_budget
-            )
+            with chrono.mesurer("rappel de l'historique"):
+                passe = conversations.derniers_echanges(
+                    conversation_id, budget_caracteres=get_tuning().historique_budget
+                )
         except Exception as exc:  # noqa: BLE001
             # Un contexte indisponible degrade la conversation ; il ne doit
             # jamais empecher de repondre. Chaque capacite est facultative.
@@ -650,6 +653,11 @@ def answer_stream(
             # mais suffisante pour distinguer 3 jetons/s de 15.
             jetons = max(1, len(sortie) / 4)
             generation = max(total - premier_morceau, 1e-6)
+            # Les deux moities de l'attente, separees : lire la question et
+            # ecrire la reponse ne se corrigent pas du meme cote.
+            chrono.enregistrer("modele — premier jeton", premier_morceau * 1000)
+            chrono.enregistrer("modele — generation", generation * 1000)
+            chrono.enregistrer("modele — total", total * 1000)
             log.info(
                 "Modele %s : prompt %d car. → premier mot %.1f s, total %.1f s "
                 "(%d car. produits, ~%.1f jetons/s)",
