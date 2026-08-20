@@ -254,6 +254,35 @@ def transcrire(
             else None
         )
 
+        # ══════════════════════════════════════════════════════════════════
+        #  ⚠️ SANS UN SEUL MOT, CE N'EST PAS UNE DEMANDE.
+        #
+        #  Sur du silence, Whisper ne rend pas toujours une chaine vide : il
+        #  rend parfois de la ponctuation seule. Releve en conditions reelles,
+        #  a partir d'un enregistrement declenche par un bruit :
+        #
+        #      [NOVA/ecoute] transcrit en 3284 ms : « . . . »
+        #      [NOVA] User Input Received « . . . »
+        #      [NOVA] LECTURE de la question : 8313 ms
+        #
+        #  Ces trois points sont partis au modele de langue, qui a mis huit
+        #  secondes a repondre — et a repondu quelque chose, puisqu'un modele
+        #  repond toujours. Nova a donc parle toute seule, longuement, sur une
+        #  phrase que personne n'avait prononcee.
+        #
+        #  Le filtre d'hallucinations ne couvrait pas ce cas : il compare a des
+        #  formules de sous-titrage, et « ... » n'en est pas une. Il se
+        #  declarait meme explicitement incompetent, puisque `_reduire("...")`
+        #  vaut la chaine vide et que `est_hallucination` rend False dessus.
+        #
+        #  Un texte sans aucun caractere alphanumerique ne peut etre ni une
+        #  question ni une commande. C'est du silence, quelle que soit la
+        #  ponctuation qui l'habille.
+        # ══════════════════════════════════════════════════════════════════
+        if texte and not _reduire(texte):
+            log.info("Ponctuation seule, aucune parole : « %s » — ignore", texte)
+            return Transcription(texte="", logprob=logprob, duree=info.duration)
+
         if est_hallucination(texte):
             log.info("Formule de sous-titrage ignoree (aucune parole) : « %s »", texte)
             return Transcription(texte="", logprob=logprob, duree=info.duration)
