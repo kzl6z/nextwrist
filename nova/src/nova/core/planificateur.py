@@ -58,13 +58,21 @@ log = get_logger(__name__)
 # coute plus que ca ne rapporte. Seuil grossier, mais mesurable et modifiable.
 LONGUEUR_COMPLEXE = 40
 
-#: Patrons deterministes : une famille de demandes, ses declencheurs, son plan.
+#: Patrons deterministes : une famille de demandes, sa NATURE, ses
+#: declencheurs, son plan.
+#:
 #: Les ecrire ici plutot que de les faire deviner a un modele donne trois
 #: choses qu'aucun modele local ne donne : la vitesse, la reproductibilite,
 #: et la possibilite de les tester.
-PATRONS: tuple[tuple[str, tuple[str, ...], tuple[tuple[str, str], ...]], ...] = (
+#:
+#: La nature a ete ajoutee apres coup : le planificateur reconnaissait la
+#: famille, s'en servait pour choisir les etapes, puis la jetait. L'appelant
+#: qui voulait savoir a quoi il avait affaire devait redeviner ce que le
+#: planificateur savait deja.
+PATRONS: tuple[tuple[str, str, tuple[str, ...], tuple[tuple[str, str], ...]], ...] = (
     (
         "presentation",
+        "creation",
         ("expose", "presentation", "diapo", "powerpoint", "slide", "soutenance"),
         (
             ("Comprendre le sujet et l'angle attendu", "raisonnement"),
@@ -78,6 +86,7 @@ PATRONS: tuple[tuple[str, tuple[str, ...], tuple[tuple[str, str], ...]], ...] = 
     ),
     (
         "developpement",
+        "creation",
         ("application", "appli", "site web", "programme", "logiciel", "coder", "developper"),
         (
             ("Clarifier le besoin et les contraintes", "raisonnement"),
@@ -89,6 +98,7 @@ PATRONS: tuple[tuple[str, tuple[str, ...], tuple[tuple[str, str], ...]], ...] = 
     ),
     (
         "voyage",
+        "tache_multi_etapes",
         ("voyage", "partir a", "vol", "hotel", "sejour", "itineraire", "je pars"),
         (
             ("Preciser dates, budget et contraintes", "raisonnement"),
@@ -99,6 +109,7 @@ PATRONS: tuple[tuple[str, tuple[str, ...], tuple[tuple[str, str], ...]], ...] = 
     ),
     (
         "document",
+        "analyse",
         ("resume", "resumer", "pdf", "rapport", "document", "relire", "corriger le texte"),
         (
             ("Lire le document", "extraction"),
@@ -107,6 +118,7 @@ PATRONS: tuple[tuple[str, tuple[str, ...], tuple[tuple[str, str], ...]], ...] = 
         ),
     ),
     (
+        "recherche",
         "recherche",
         ("cherche", "recherche", "compare", "qui est", "qu'est-ce que", "explique"),
         (
@@ -117,6 +129,7 @@ PATRONS: tuple[tuple[str, tuple[str, ...], tuple[tuple[str, str], ...]], ...] = 
     ),
     (
         "analyse_media",
+        "analyse",
         ("video", "image", "photo", "camera", "filme", "scanne"),
         (
             ("Analyser le media", "vision"),
@@ -126,6 +139,7 @@ PATRONS: tuple[tuple[str, tuple[str, ...], tuple[tuple[str, str], ...]], ...] = 
     ),
     (
         "impression_3d",
+        "tache_multi_etapes",
         ("impression 3d", "imprimante 3d", "modele 3d", "stl", "piece a imprimer"),
         (
             ("Comprendre la piece voulue", "raisonnement"),
@@ -135,6 +149,34 @@ PATRONS: tuple[tuple[str, tuple[str, ...], tuple[tuple[str, str], ...]], ...] = 
         ),
     ),
     (
+        # ⚠️ CETTE FAMILLE COMBLE UNE CONTRADICTION MESUREE.
+        #
+        # « Nova, analyse cette trottinette et dis-moi pourquoi elle ne
+        # fonctionne plus » passait la porte `merite_un_plan` — soixante-
+        # seize caracteres — et ne correspondait a aucun patron. Le
+        # planificateur declarait donc que la demande meritait un plan, puis
+        # rendait une seule etape « Repondre ». Rien ne signalait l'ecart :
+        # le plan direct est un resultat parfaitement valide.
+        #
+        # `analyse_media` ne l'attrapait pas : elle se declenche sur le
+        # SUPPORT (video, photo), pas sur l'INTENTION de diagnostiquer.
+        "diagnostic",
+        "analyse",
+        (
+            "ne fonctionne plus", "ne marche plus", "en panne", "diagnostic",
+            "diagnostique", "pourquoi elle ne", "pourquoi il ne", "repare",
+            "reparer", "analyse cette", "analyse ce ", "analyse mon",
+        ),
+        (
+            ("Observer l'objet et son etat", "vision"),
+            ("Identifier l'objet et ses composants", "extraction"),
+            ("Rechercher les pannes connues", "recherche"),
+            ("Etablir les causes probables", "raisonnement"),
+            ("Presenter le diagnostic", "redaction"),
+        ),
+    ),
+    (
+        "automatisation",
         "automatisation",
         ("automatise", "automatiser", "chaque jour", "chaque semaine", "rappelle-moi", "planifie"),
         (
@@ -145,9 +187,6 @@ PATRONS: tuple[tuple[str, tuple[str, ...], tuple[tuple[str, str], ...]], ...] = 
     ),
 )
 
-CONVERSATION = Plan(demande="", etapes=(Etape("Repondre", "conversation"),))
-
-
 def _normaliser(texte: str) -> str:
     sans_accents = "".join(
         c for c in unicodedata.normalize("NFD", texte) if unicodedata.category(c) != "Mn"
@@ -155,9 +194,105 @@ def _normaliser(texte: str) -> str:
     return re.sub(r"\s+", " ", sans_accents.lower()).strip()
 
 
+# ══════════════════════════════════════════════════════════════════════════
+#  LES ACTIONS QUI SORTENT DE LA MACHINE
+#
+#  ⚠️ LA CAPACITE « action » NE SUFFIT PAS A DECIDER.
+#
+#  « Presenter l'espace de travail » est une action : elle affiche quelque
+#  chose. « Envoyer le message a Paul » aussi. La premiere est annulable d'un
+#  clic, la seconde ne l'est pas — un message parti est parti.
+#
+#  Ce qui les separe n'est pas la capacite mais la CONSEQUENCE : est-ce que
+#  quelqu'un d'autre que l'utilisateur voit le resultat, ou est-ce que quelque
+#  chose disparait ? On liste donc les verbes de consequence, et on marque
+#  toute etape qui en porte un.
+#
+#  On prefere marquer a tort que laisser passer : une confirmation inutile
+#  coute un clic, un achat non voulu coute de l'argent.
+CONSEQUENCES_EXTERNES: tuple[str, ...] = (
+    "envoy", "envoie", "ecris a", "message a", "mail", "courriel", "sms",
+    "appel", "appelle", "telephon",
+    "reserv", "achet", "commande", "paie", "payer", "paiement",
+    "supprim", "efface", "detruit", "desinstall",
+    "publie", "publier", "poste sur", "partage avec",
+    # ⚠️ « imprim » NE COUVRE PAS « impression » : le radical change.
+    # « Lancer l'impression » n'etait pas marquee, et c'est pourtant l'etape
+    # qui met une machine en mouvement. Attrapee par le banc de la famille
+    # impression 3d.
+    "imprim", "impress",
+    "installe",
+)
+
+
+def action_a_confirmer(intitule: str, capacite: str) -> bool:
+    """Cette etape modifie-t-elle quelque chose hors de la machine ?
+
+    Deux conditions, et les deux sont necessaires. La capacite « action »
+    seule marquerait « presenter l'espace de travail » ; un verbe de
+    consequence seul marquerait « comprendre ce qu'il faut envoyer », qui ne
+    fait rien du tout.
+    """
+    if capacite != "action":
+        return False
+    normalise = _normaliser(intitule)
+    return any(verbe in normalise for verbe in CONSEQUENCES_EXTERNES)
+
+
+CONVERSATION = Plan(demande="", etapes=(Etape("Repondre", "conversation"),))
+
+
+#: Marques d'une demande qui porte sur l'utilisateur lui-meme.
+#:
+#: ⚠️ « -moi » ACCROCHE A UN VERBE N'EN EST PAS UNE.
+#:
+#: « parle-moi de Mars » ne parle pas de toi : le pronom y est le complement
+#: du verbe, pas le sujet de la demande. Sans cette exclusion, la moitie des
+#: questions de culture generale seraient marquees comme personnelles, et le
+#: signal ne signalerait plus rien.
+_PERSONNEL = re.compile(
+    r"(?<!-)\b(mon|ma|mes|mien|mienne|je|j'|m'appelle|nous|notre|nos)\b|(?<!-)\bmoi\b",
+    re.IGNORECASE,
+)
+
+
+def memoire_utile(demande: str) -> bool:
+    """La memoire personnelle sert-elle a repondre a ceci ?
+
+    « quel est mon prenom » oui, « qu'est-ce qu'un trou noir » non. Signal
+    deterministe, sans appel ni lecture : c'est ce qui permet de le calculer
+    a chaque demande sans en payer le prix.
+    """
+    return bool(_PERSONNEL.search(demande))
+
+
 def plan_direct(demande: str) -> Plan:
-    """Le plan d'une simple reponse. Pas d'orchestration."""
-    return Plan(demande=demande, etapes=(Etape("Repondre", "conversation"),))
+    """Le plan d'une simple reponse. Pas d'orchestration.
+
+    ⚠️ « question_simple » ET « conversation » NE SONT PAS LE MEME PLAN.
+
+    Les deux tiennent en une etape et se repondent pareil, mais l'appelant a
+    besoin de les distinguer : « merci » n'appelle ni memoire, ni recherche,
+    ni espace de travail, alors qu'une question peut appeler les trois plus
+    tard. Un seul type pour les deux forcerait a redeviner lequel c'est.
+    """
+    texte = demande.strip()
+    interrogative = texte.endswith("?") or bool(
+        re.match(
+            # ⚠️ LA BORNE DE MOT N'EST PAS DECORATIVE : sans elle, « ou »
+            # correspond au debut de « oui », et une approbation devenait une
+            # question. Le banc des civilites l'a attrape.
+            r"^(qu|quel|quelle|quels|quelles|qui|quand|ou|comment|pourquoi"
+            r"|combien|est-ce)\b",
+            _normaliser(texte),
+        )
+    )
+    return Plan(
+        demande=demande,
+        etapes=(Etape("Repondre", "conversation", resultat_attendu="Une reponse dite"),),
+        type="question_simple" if interrogative else "conversation",
+        memoire_utile=memoire_utile(demande),
+    )
 
 
 def planifier_deterministe(demande: Demande) -> Plan:
@@ -168,17 +303,32 @@ def planifier_deterministe(demande: Demande) -> Plan:
     """
     texte = _normaliser(demande.texte)
 
-    for famille, declencheurs, etapes in PATRONS:
+    for famille, nature, declencheurs, etapes in PATRONS:
         if any(d in texte for d in declencheurs):
-            log.info("Plan deterministe « %s » — %d etapes", famille, len(etapes))
-            return Plan(
-                demande=demande.texte,
-                etapes=tuple(
-                    Etape(intitule, capacite, depend_de=(i - 1,) if i else ())
-                    for i, (intitule, capacite) in enumerate(etapes)
-                ),
-                origine="deterministe",
+            construites = tuple(
+                Etape(
+                    intitule,
+                    capacite,
+                    depend_de=(i - 1,) if i else (),
+                    confirmation_requise=action_a_confirmer(intitule, capacite),
+                )
+                for i, (intitule, capacite) in enumerate(etapes)
             )
+            plan = Plan(
+                demande=demande.texte,
+                etapes=construites,
+                origine="deterministe",
+                type=nature,
+                memoire_utile=memoire_utile(demande.texte),
+            )
+            log.info(
+                "Plan deterministe « %s » (%s) — %d etapes%s",
+                famille,
+                nature,
+                len(etapes),
+                " · confirmation requise" if plan.demande_confirmation else "",
+            )
+            return plan
 
     return plan_direct(demande.texte)
 
@@ -193,7 +343,7 @@ def merite_un_plan(demande: Demande) -> bool:
     if len(demande.texte.strip()) >= LONGUEUR_COMPLEXE:
         return True
     texte = _normaliser(demande.texte)
-    return any(d in texte for _, declencheurs, _ in PATRONS for d in declencheurs)
+    return any(d in texte for _, _, declencheurs, _ in PATRONS for d in declencheurs)
 
 
 def lire_plan(brut: str, demande: str) -> Plan | None:

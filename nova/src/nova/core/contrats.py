@@ -37,7 +37,7 @@ c'est ce qui les rendra encore vrais quand tout le reste aura change.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol, runtime_checkable
 
 # ── Vocabulaire commun ────────────────────────────────────────────────────
@@ -78,9 +78,43 @@ class Demande:
     pieces: dict[str, Any] = field(default_factory=dict)
 
 
+#: Les natures de demande que le planificateur sait nommer.
+#:
+#: Distinguer la nature de la demande de la FAMILLE de son plan : « voyage »
+#: est une famille (quelles etapes), « tache_multi_etapes » est une nature
+#: (comment la traiter). Deux familles differentes peuvent partager une
+#: nature, et c'est la nature qui interesse l'appelant.
+TYPES_CONNUS: frozenset[str] = frozenset(
+    {
+        "question_simple",      # une reponse suffit
+        "conversation",         # bonjour, merci, oui
+        "recherche",            # il faut aller chercher
+        "creation",             # produire quelque chose
+        "analyse",              # examiner un objet, un media, une panne
+        "automatisation",       # mettre en place un declencheur
+        "tache_multi_etapes",   # plusieurs etapes, plusieurs capacites
+    }
+)
+
+#: Etats d'une etape. Le planificateur ne produit que « en_attente » : il
+#: planifie, il n'execute pas. Les autres existent pour l'executeur a venir,
+#: et sont ecrits ici pour qu'il n'ait pas a inventer son vocabulaire.
+STATUTS_CONNUS: frozenset[str] = frozenset(
+    {"en_attente", "en_cours", "faite", "echouee", "ignoree", "a_confirmer"}
+)
+
+
 @dataclass(frozen=True)
 class Etape:
-    """Une etape d'un plan. Ce qu'il faut faire, et par quoi."""
+    """Une etape d'un plan. Ce qu'il faut faire, et par quoi.
+
+    ⚠️ `intitule` EST L'OBJECTIF. IL N'Y A PAS DE CHAMP `objectif` SEPARE.
+    
+    Une description et un objectif seraient deux formulations de la meme
+    chose, et deux champs a garder d'accord. Le jour ou ils divergeraient,
+    aucun des deux ne serait fiable. `intitule` dit ce qu'il faut obtenir ;
+    `resultat_attendu` dit a quoi on saura que c'est obtenu.
+    """
 
     intitule: str
     capacite: str
@@ -90,6 +124,28 @@ class Etape:
     #: suite. C'est ce qui permettra plus tard de paralleliser sans rien
     #: reecrire ici.
     depend_de: tuple[int, ...] = ()
+    #: Rang dans le plan, a partir de 1. RENSEIGNE PAR `Plan`, jamais a la
+    #: main : voir `Plan.__post_init__`. Un numero saisi separement des
+    #: indices de `depend_de` finirait par ne plus correspondre.
+    numero: int = 0
+    #: A quoi on reconnaitra que l'etape est faite. Vide = pas encore ecrit.
+    resultat_attendu: str = ""
+    #: ⚠️ CE DRAPEAU EST UNE PROMESSE FAITE A L'UTILISATEUR.
+    #:
+    #: Une etape qui modifie le monde en dehors de la machine — envoyer,
+    #: appeler, reserver, acheter, supprimer — ne doit jamais s'executer sans
+    #: accord explicite. Le planificateur ne peut pas l'empecher : il ne
+    #: s'execute pas lui-meme. Il peut en revanche le DIRE, et c'est ce que
+    #: l'executeur a venir devra respecter.
+    confirmation_requise: bool = False
+    #: Toujours « en_attente » a la sortie du planificateur : planifier n'est
+    #: pas faire. Le champ existe pour que l'executeur n'ait pas a recreer
+    #: la structure.
+    statut: str = "en_attente"
+    #: Reserve au futur gestionnaire d'agents, qui pourra ordonner ce qui est
+    #: parallelisable. Uniforme aujourd'hui — le dire plutot que de laisser
+    #: croire a un tri qui n'existe pas.
+    priorite: int = 1
 
 
 @dataclass(frozen=True)
@@ -106,6 +162,45 @@ class Plan:
     #: Comment ce plan a ete obtenu : « modele », « deterministe », « repli ».
     #: Sans cette trace, un plan bizarre est indebogable.
     origine: str = "deterministe"
+    #: La NATURE de la demande, parmi `TYPES_CONNUS`. Elle etait calculee puis
+    #: jetee : le planificateur reconnaissait « voyage » ou « presentation »,
+    #: s'en servait pour choisir des etapes, et n'en gardait aucune trace. Un
+    #: appelant qui voulait savoir a quoi il avait affaire devait redeviner ce
+    #: que le planificateur savait deja.
+    type: str = "conversation"
+    #: La memoire personnelle sert-elle a cette demande ?
+    #:
+    #: ⚠️ C'EST UN SIGNAL, PAS ENCORE UNE PORTE.
+    #:
+    #: « quel est mon prenom » en a besoin, « qu'est-ce qu'un trou noir » non.
+    #: Le champ est renseigne et journalise, mais il ne coupe rien pour
+    #: l'instant : le bloc memoire pese 260 caracteres, soit ~70 jetons, et
+    #: risquer que Nova oublie qui tu es pour economiser 70 jetons serait un
+    #: mauvais echange. Il attend le moteur de memoire, qui aura de vrais
+    #: volumes a filtrer.
+    memoire_utile: bool = False
+
+    def __post_init__(self) -> None:
+        """Numerote les etapes. UNE SEULE SOURCE DE VERITE POUR LE RANG.
+
+        Le numero d'une etape et les indices de `depend_de` decrivent la meme
+        position. Les laisser saisir separement, c'est garantir qu'ils
+        finiront par se contredire — et un plan dont les dependances pointent
+        ailleurs que ce qu'il affiche est pire qu'un plan sans numeros.
+        """
+        object.__setattr__(
+            self,
+            "etapes",
+            tuple(
+                etape if etape.numero == rang + 1 else replace(etape, numero=rang + 1)
+                for rang, etape in enumerate(self.etapes)
+            ),
+        )
+
+    @property
+    def demande_confirmation(self) -> bool:
+        """Ce plan contient-il une action a confirmer avant execution ?"""
+        return any(e.confirmation_requise for e in self.etapes)
 
     @property
     def direct(self) -> bool:

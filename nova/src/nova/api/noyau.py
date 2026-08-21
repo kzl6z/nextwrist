@@ -52,12 +52,28 @@ def plan(entree: DemandeEntrante) -> dict:
         "demande": plan.demande,
         "direct": plan.direct,
         "origine": plan.origine,
+        # La NATURE de la demande. Elle etait calculee par le planificateur
+        # puis jetee : l'interface devait redeviner a quoi elle avait affaire.
+        "type": plan.type,
+        # ⚠️ CE DRAPEAU EST UNE PROMESSE FAITE A L'UTILISATEUR.
+        #
+        # Un plan qui contient un envoi, un achat ou une suppression ne doit
+        # pas s'executer sans accord explicite. Le planificateur ne peut pas
+        # l'empecher — il ne s'execute pas. Il peut le DIRE, et l'interface
+        # peut le montrer avant que quoi que ce soit ne parte.
+        "confirmation_requise": plan.demande_confirmation,
+        "memoire_utile": plan.memoire_utile,
         "espace": espace,
         "etapes": [
             {
+                "numero": etape.numero,
                 "intitule": etape.intitule,
                 "capacite": etape.capacite,
                 "depend_de": list(etape.depend_de),
+                "statut": etape.statut,
+                "priorite": etape.priorite,
+                "resultat_attendu": etape.resultat_attendu,
+                "confirmation_requise": etape.confirmation_requise,
             }
             for etape in plan.etapes
         ],
