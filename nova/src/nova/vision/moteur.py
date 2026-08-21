@@ -111,11 +111,21 @@ class MoteurOllama:
     description = "Analyse d'images par un modele multimodal local"
     capacites = frozenset({"vision", "extraction"})
 
-    def __init__(self, racine: Path, *, client: Any = None, modele: str | None = None) -> None:
+    def __init__(
+        self,
+        racine: Path,
+        *,
+        client: Any = None,
+        modele: str | None = None,
+        cote_max: int | None = None,
+    ) -> None:
         reglages = get_settings()
         self.racine = Path(racine).resolve()
         self.modele = modele or reglages.vision_modele
-        self.cote_max = reglages.vision_cote_max
+        # Surchargeable pour que le banc puisse balayer plusieurs tailles dans
+        # une seule session, sans editer `.env` entre chaque essai — donc sans
+        # risquer de conclure sur un reglage qu'on croit avoir change.
+        self.cote_max = cote_max or reglages.vision_cote_max
         self._client = client
 
     # -- plomberie ---------------------------------------------------------
