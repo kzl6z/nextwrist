@@ -70,8 +70,35 @@ class Conversationnel:
     def peut_traiter(self, etape: Etape) -> bool:
         return etape.capacite in self.capacites
 
-    def executer(self, etape: Etape, demande: Demande) -> Any:
-        return self._repondre(demande.texte)
+    def executer(self, etape: Etape, demande: Demande, acquis: Any = None) -> Any:
+        """Repond, en tenant compte de ce que les etapes precedentes ont produit.
+
+        ⚠️ C'EST ICI QUE LA CHAINE DEVENAIT UNE SUITE DE DEMANDES SANS LIEN.
+
+        Cet agent ignorait `etape` et repondait a `demande.texte`. Sur un plan
+        de cinq etapes, la derniere — « Presenter le diagnostic » — redigeait
+        donc a partir de la question d'origine, sans jamais voir ce que
+        l'etape « Observer l'objet » avait constate. Le compte rendu affichait
+        cinq etapes `faite` et la reponse finale n'avait aucun rapport avec
+        l'image.
+
+        ⚠️ SANS ACQUIS, LE COMPORTEMENT NE CHANGE PAS D'UN CARACTERE.
+
+        L'ecrasante majorite des demandes sont des plans directs a une seule
+        etape : « Qu'est-ce qu'un trou noir ? » n'a aucun acquis, et doit
+        continuer de coûter exactement ce qu'elle coutait. Une amelioration
+        qui ralentit le cas courant pour servir le cas rare est l'echange que
+        ce projet a deja paye trois fois.
+        """
+        contexte = acquis.texte() if acquis is not None else ""
+        if not contexte:
+            return self._repondre(demande.texte)
+        return self._repondre(
+            "Voici ce qui a deja ete etabli aux etapes precedentes :\n\n"
+            f"{contexte}\n\n"
+            f"En t'appuyant UNIQUEMENT la-dessus, et en francais, "
+            f"{etape.intitule.lower()} pour repondre a : {demande.texte}"
+        )
 
 
 class Documentaire:

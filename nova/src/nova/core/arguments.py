@@ -18,11 +18,18 @@ dictionnaire d'arguments ; `executer_outil` conserve seul le droit de decider
 si l'appel a lieu, en consultant le bareme de risque. Deduire les arguments
 d'une suppression de fichier ne rend pas la suppression autorisee.
 
-TROIS ETAGES, DU MOINS CHER AU PLUS RISQUE
+QUATRE ETAGES, DU MOINS CHER AU PLUS RISQUE
 
     1. l'INTENTION deja reconnue   « ouvre Spotify » → cible=Spotify
-    2. le NOM du parametre          question, requete, texte → la demande
-    3. le MODELE                    tout le reste, et seulement lui
+    2. l'ACQUIS des etapes d'avant  l'etape 1 a rendu chemin=… → chemin
+    3. le NOM du parametre          question, requete, texte → la demande
+    4. le MODELE                    tout le reste, et seulement lui
+
+Le deuxieme etage est arrive avec la circulation des resultats, et il evite
+le pire des gaspillages : redemander a un modele, par probabilite, ce qu'une
+etape precedente a etabli de source sure. L'agent de vision rend
+`{"chemin": "/…/piece.jpg"}` ; l'etape suivante attend un `chemin`. Le
+deviner serait absurde.
 
 Le premier etage n'est pas une optimisation : `voice/intentions.py` fait
 exactement ce travail depuis longtemps, de facon deterministe et testee. Le
@@ -175,8 +182,10 @@ def _retenir(propositions: dict[str, Any], attendus: tuple[Parametre, ...]) -> d
     return retenus
 
 
-def deduire_sans_modele(outil: Any, etape: Etape, demande: Demande) -> dict[str, Any]:
-    """Les deux premiers etages : l'intention reconnue, puis le nom.
+def deduire_sans_modele(
+    outil: Any, etape: Etape, demande: Demande, acquis: Any = None
+) -> dict[str, Any]:
+    """Les trois premiers etages : l'intention, l'acquis, puis le nom.
 
     Cout nul, resultat reproductible, testable sans moteur. Rend ce qu'il a
     trouve — possiblement rien, ce qui n'est pas un echec a ce stade.
@@ -194,7 +203,21 @@ def deduire_sans_modele(outil: Any, etape: Etape, demande: Demande) -> dict[str,
             propositions["cible"] = intention.cible
         propositions.update(intention.arguments)
 
-    # 2. Le nom du parametre, quand il dit lui-meme ce qu'il attend.
+    # 2. Ce qu'une etape precedente a produit.
+    #
+    #    ⚠️ DE SOURCE SURE, DONC AVANT LE MODELE ET AVANT LA DEMANDE.
+    #
+    #    L'agent de vision rend `{"chemin": "/…/piece.jpg"}` ; l'etape
+    #    suivante attend un `chemin`. Le redemander a un modele reviendrait a
+    #    redecouvrir par probabilite ce qu'on tient deja.
+    if acquis is not None:
+        for parametre in attendus:
+            if parametre.nom in propositions:
+                continue
+            if (valeur := acquis.champ(parametre.nom)) is not None:
+                propositions[parametre.nom] = valeur
+
+    # 3. Le nom du parametre, quand il dit lui-meme ce qu'il attend.
     for parametre in attendus:
         if parametre.nom in propositions:
             continue
@@ -215,12 +238,12 @@ PARAMETRES
 
 Etape    : ETAPE
 Demande  : DEMANDE
-
+ACQUIS
 Exemple de forme attendue : {"chemin": "/Users/x/notes.txt"}
 """
 
 
-def consigne(outil: Any, etape: Etape, demande: Demande) -> str:
+def consigne(outil: Any, etape: Etape, demande: Demande, acquis: Any = None) -> str:
     """La consigne donnee au modele.
 
     Construite par substitution de marqueurs et jamais par `str.format` : la
@@ -234,12 +257,17 @@ def consigne(outil: Any, etape: Etape, demande: Demande) -> str:
         f"{' (obligatoire)' if p.obligatoire else ' (facultatif)'}"
         for p in parametres(outil)
     )
+    # Ce que les etapes precedentes ont produit. Le modele n'a plus a deviner
+    # ce qui est deja etabli — il lui reste a le reconnaitre, ce qui est une
+    # tache beaucoup plus sure.
+    contexte = acquis.texte() if acquis is not None else ""
     return (
         CONSIGNE.replace("NOM", outil.nom)
         .replace("DESCRIPTION", getattr(outil, "description", ""))
         .replace("PARAMETRES", lignes or "  (aucun)")
         .replace("ETAPE", etape.intitule)
         .replace("DEMANDE", demande.texte)
+        .replace("ACQUIS", f"\nDeja etabli :\n{contexte}\n" if contexte else "")
     )
 
 
@@ -269,6 +297,7 @@ def deduire(
     demande: Demande,
     *,
     proposer: Callable[[str], str] | None = None,
+    acquis: Any = None,
 ) -> dict[str, Any]:
     """Les arguments a passer a l'outil. Leve si un obligatoire manque.
 
@@ -283,12 +312,14 @@ def deduire(
     ajouterait une seconde d'attente pour reobtenir ce qu'on savait deja.
     """
     attendus = parametres(outil)
-    trouves = deduire_sans_modele(outil, etape, demande)
+    trouves = deduire_sans_modele(outil, etape, demande, acquis)
 
     manquants = [p for p in attendus if p.obligatoire and p.nom not in trouves]
     if manquants and proposer is not None:
         try:
-            propose = lire_arguments(proposer(consigne(outil, etape, demande)), outil)
+            propose = lire_arguments(
+                proposer(consigne(outil, etape, demande, acquis)), outil
+            )
             # ⚠️ LE MODELE COMPLETE, IL NE CORRIGE PAS.
             #
             # `trouves.update(propose)` laissait la proposition ecraser ce que

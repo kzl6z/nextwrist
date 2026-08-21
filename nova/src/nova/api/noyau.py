@@ -93,6 +93,26 @@ class ExecutionEntrante(BaseModel):
     executer_vraiment: bool = False
 
 
+def _publiable(valeur: object) -> object:
+    """Ce qu'un outil a rendu, ramene a ce que JSON sait porter.
+
+    ⚠️ UN OUTIL PEUT RENDRE N'IMPORTE QUOI.
+
+    Les outils du projet rendent des dictionnaires et des chaines, mais rien
+    ne l'impose et rien ne le verifiera : un outil ajoute demain peut rendre
+    un objet, un `Path`, une date. Laisser FastAPI s'en apercevoir au moment
+    de serialiser transformerait un travail entierement reussi en erreur 500
+    — le compte rendu perdu pour un detail d'encodage.
+    """
+    import json
+
+    try:
+        json.dumps(valeur)
+    except (TypeError, ValueError):
+        return str(valeur)
+    return valeur
+
+
 def _proposer_des_arguments(consigne: str) -> str:
     """Le troisieme etage de la deduction : le modele, appele en dernier.
 
@@ -175,6 +195,14 @@ def executer_le_plan(entree: ExecutionEntrante) -> dict:
                 "statut": r.statut,
                 "detail": r.detail,
                 "executant": r.executant,
+                # ⚠️ CE CHAMP MANQUAIT, ET SON ABSENCE RENDAIT LE RESTE MUET.
+                #
+                # Le compte rendu disait qu'une etape etait `faite` sans
+                # jamais dire CE QU'ELLE AVAIT PRODUIT. Une execution de cinq
+                # etapes reussies ne rendait donc rien d'exploitable — la
+                # description de l'image, le diagnostic, tout restait dans le
+                # processus.
+                "valeur": _publiable(r.valeur),
             }
             for r in execution.resultats
         ],

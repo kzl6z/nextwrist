@@ -61,7 +61,18 @@ log = get_logger(__name__)
 #: Il leve `ConfirmationRequise` (de `nova.outils`) si l'accord manque, et
 #: n'importe quelle exception s'il echoue. Rien d'autre n'est impose : un
 #: outil, un agent, un modele ou un double de test satisfont ce contrat.
-Executant = Callable[[Etape], Any]
+#:
+#: ⚠️ DEUX FORMES ACCEPTEES, ET CE N'EST PAS DE LA COMPLAISANCE.
+#:
+#:     executant(etape)           ne regarde pas ce qui precede
+#:     executant(etape, acquis)   en tient compte
+#:
+#: La premiere reste legitime : lire l'heure ne depend d'aucune etape
+#: anterieure, et exiger un second parametre inutilise de tous les executants
+#: du projet — bancs compris — pour le benefice de quelques-uns aurait ete du
+#: bruit. La forme est detectee UNE FOIS, a l'entree de `executer`, jamais a
+#: chaque etape.
+Executant = Callable[..., Any]
 
 
 class Interrompue(RuntimeError):
@@ -86,6 +97,132 @@ class Resultat:
     @property
     def accomplie(self) -> bool:
         return self.statut == "faite"
+
+
+#: Combien de caracteres d'acquis on transmet au plus.
+#:
+#: ⚠️ UN BUDGET, PARCE QUE LA CHAINE EST TRANSITIVE.
+#:
+#: Une etape voit ce dont elle depend, et ce dont CELA depend. Sur un plan de
+#: sept etapes, la derniere voit les six precedentes — et si chacune a rendu
+#: un paragraphe, le prompt double avant d'avoir commence. Le meme
+#: raisonnement que `extraits_budget` et `faits_budget` : ce qui entre dans un
+#: prompt se paie deux fois, en memoire puis en lenteur.
+BUDGET_ACQUIS = 2000
+
+
+@dataclass(frozen=True)
+class Acquis:
+    """Ce que les etapes precedentes ont REELLEMENT produit.
+
+    ⚠️ LA PIECE QUI MANQUAIT POUR QUE LE PLAN SOIT UNE CHAINE.
+
+    L'executeur parcourait les etapes dans l'ordre, mais chaque executant ne
+    recevait que son etape. Un plan de cinq etapes n'etait donc pas une
+    chaine : c'etaient cinq demandes independantes posees a la suite.
+    « Rechercher les pannes connues » ne savait pas ce que « Observer l'objet »
+    avait vu, et « Presenter le diagnostic » redigeait a partir de rien.
+
+    Rien ne le signalait. Chaque etape rendait `faite`, le compte rendu etait
+    complet, et le resultat final etait une reponse plausible sans rapport
+    avec l'image. C'est exactement la forme de mensonge que l'executeur avait
+    ete ecrit pour rendre impossible — et elle passait par le seul endroit
+    qu'il ne regardait pas.
+
+    ⚠️ ON N'Y MET QUE DES ETAPES `faite`.
+
+    Une etape `echouee` ou `ignoree` n'a rien produit. La faire figurer avec
+    une valeur vide donnerait a l'etape suivante l'impression d'avoir une base
+    — et c'est le meme mensonge, deplace d'un cran.
+    """
+
+    resultats: tuple[Resultat, ...] = ()
+
+    def __bool__(self) -> bool:
+        return bool(self.resultats)
+
+    def valeur(self, numero: int) -> Any:
+        """Ce qu'a rendu l'etape numero N, ou `None` si elle n'a rien rendu."""
+        for resultat in self.resultats:
+            if resultat.numero == numero:
+                return resultat.valeur
+        return None
+
+    def champ(self, nom: str) -> Any:
+        """La derniere valeur portant ce nom parmi les resultats structures.
+
+        Les agents et outils du projet rendent des dictionnaires — la vision
+        rend `{"image": …, "chemin": …, "description": …}`. Quand une etape
+        suivante attend un `chemin`, il est deja la : le redemander a un
+        modele serait redecouvrir par probabilite ce qu'on sait de source
+        sure.
+
+        La DERNIERE et non la premiere : sur une chaine, la valeur la plus
+        recente est celle qui a ete calculee en connaissance des precedentes.
+        """
+        trouve = None
+        for resultat in self.resultats:
+            if isinstance(resultat.valeur, dict) and nom in resultat.valeur:
+                trouve = resultat.valeur[nom]
+        return trouve
+
+    def texte(self, budget: int = BUDGET_ACQUIS) -> str:
+        """Les acquis rendus lisibles, pour un modele ou pour un journal.
+
+        Les etapes RECENTES d'abord quand il faut couper : sur une chaine,
+        c'est la derniere qui porte le travail des precedentes.
+        """
+        if not self.resultats:
+            return ""
+
+        blocs: list[str] = []
+        reste = budget
+        for resultat in reversed(self.resultats):
+            # ⚠️ ON TESTE LA VALEUR, PAS LE BLOC.
+            #
+            # Tester le bloc ne filtrait rien : l'en-tete « [Etape 1 — … ] »
+            # n'est jamais vide. Une etape sans resultat produisait donc un
+            # en-tete suivi de rien, ce qui laisse croire qu'elle a produit
+            # quelque chose d'illisible plutot que rien.
+            lisible = _lisible(resultat.valeur).strip()
+            if not lisible:
+                continue
+            bloc = f"[Etape {resultat.numero} — {resultat.intitule}]\n{lisible}"
+            if len(bloc) > reste:
+                bloc = bloc[: max(reste, 0)]
+            blocs.append(bloc)
+            reste -= len(bloc)
+            if reste <= 0:
+                break
+        return "\n\n".join(reversed(blocs))
+
+
+def _lisible(valeur: Any) -> str:
+    """Une valeur rendue lisible sans jamais lever.
+
+    ⚠️ CETTE FONCTION EST APPELEE SUR CE QU'UN OUTIL A RENDU.
+
+    Donc sur n'importe quoi : un dictionnaire, un objet, une exception mise en
+    valeur par erreur. Elle ne doit pas pouvoir faire tomber une execution qui
+    a par ailleurs reussi — sinon un defaut d'affichage detruit un travail
+    reel.
+    """
+    if valeur is None:
+        return ""
+    if isinstance(valeur, str):
+        return valeur
+    if isinstance(valeur, dict):
+        return "\n".join(
+            f"{cle} : {_lisible(v)}"
+            for cle, v in valeur.items()
+            if v not in (None, "")
+        )
+    if isinstance(valeur, (list, tuple)):
+        return "\n".join(f"- {_lisible(v)}" for v in valeur)
+    try:
+        return str(valeur)
+    except Exception:  # noqa: BLE001
+        return "(valeur illisible)"
 
 
 @dataclass(frozen=True)
@@ -166,6 +303,44 @@ def vagues(plan: Plan) -> tuple[tuple[int, ...], ...]:
     return tuple(resultat)
 
 
+def socle(plan: Plan, rang: int) -> tuple[int, ...]:
+    """Tous les rangs dont cette etape depend, directement ou non.
+
+    ⚠️ TRANSITIF, ET C'EST LE COEUR DE LA DECISION.
+
+    Le plan de diagnostic est une chaine :
+
+        1. Observer l'objet          (vision)
+        2. Identifier les composants (extraction)
+        3. Rechercher les pannes     (recherche)
+        4. Etablir les causes        (raisonnement)
+        5. Presenter le diagnostic   (redaction)
+
+    L'etape 5 ne declare qu'une dependance : l'etape 4. S'en tenir aux
+    dependances DIRECTES lui donnerait les causes probables et lui cacherait
+    l'observation d'origine — celle qui dit ce qu'on regarde. Elle redigerait
+    un diagnostic sans savoir de quel objet il s'agit.
+
+    Une etape depend de ce sur quoi son resultat repose. Ce que sa dependance
+    a elle-meme consomme en fait partie : perdre l'observation initiale en
+    cours de chaine est precisement le defaut qu'on repare.
+
+    Sur un plan en losange — deux branches independantes qui se rejoignent —
+    la fermeture ne rend que la branche concernee. C'est la difference avec
+    « toutes les etapes precedentes », qui melangerait des travaux sans
+    rapport et ferait passer un budget de prompt dans du bruit.
+    """
+    vus: set[int] = set()
+    a_voir = list(plan.etapes[rang].depend_de) if 0 <= rang < len(plan.etapes) else []
+    while a_voir:
+        besoin = a_voir.pop()
+        if besoin in vus or not (0 <= besoin < len(plan.etapes)):
+            continue
+        vus.add(besoin)
+        a_voir.extend(plan.etapes[besoin].depend_de)
+    return tuple(sorted(vus))
+
+
 def bloquees(plan: Plan) -> tuple[int, ...]:
     """Les rangs qu'aucune vague n'atteint : cycle ou dependance absente."""
     atteints = {rang for vague in vagues(plan) for rang in vague}
@@ -212,6 +387,7 @@ def executer(
     par_rang: dict[int, Resultat] = {}
     en_attente: list[int] = []
     arret = False
+    appeler = _adapter(executant) if executant is not None else None
 
     with chrono.mesurer("executeur — parcours"):
         for vague in vagues(plan):
@@ -246,7 +422,7 @@ def executer(
                 elif executant is None:
                     resultat = _sans_executant(etape)
                 else:
-                    resultat = _tenter(etape, executant)
+                    resultat = _tenter(etape, appeler, _acquis(plan, rang, par_rang))
                     if resultat.statut == "a_confirmer":
                         en_attente.append(etape.numero)
                         arret = True
@@ -280,7 +456,69 @@ def executer(
     return execution
 
 
-def _tenter(etape: Etape, executant: Executant) -> Resultat:
+def _acquis(plan: Plan, rang: int, par_rang: dict[int, Resultat]) -> Acquis:
+    """Ce que cette etape a le droit de voir : son socle, et rien d'autre."""
+    return Acquis(
+        tuple(
+            par_rang[besoin]
+            for besoin in socle(plan, rang)
+            # ⚠️ `accomplie` FILTRE ICI ET NON A L'AFFICHAGE.
+            #
+            # Une etape echouee dont on transmettrait la ligne donnerait a la
+            # suivante l'impression d'avoir une base. En pratique ce cas ne se
+            # presente pas — une dependance non aboutie fait deja passer
+            # l'etape en `ignoree` avant qu'on arrive ici — mais s'appuyer sur
+            # cet enchainement serait s'appuyer sur un ordre, pas sur une
+            # regle.
+            if besoin in par_rang and par_rang[besoin].accomplie
+        )
+    )
+
+
+def _adapter(executant: Executant) -> Callable[[Etape, Acquis], Any]:
+    """Ramene un executant a une forme unique, UNE FOIS pour toute l'execution.
+
+    ⚠️ LA DETECTION EST FAITE ICI, PAS A CHAQUE ETAPE.
+
+    `inspect.signature` n'est pas gratuit, et surtout : une forme qui pourrait
+    changer d'une etape a l'autre serait un comportement, pas une compatibilite.
+
+    Un executant dont la signature est illisible — un objet appelable exotique,
+    un `functools.partial` sur du code natif — est suppose ne PAS vouloir les
+    acquis. C'est le repli qui ne casse rien : au pire il ignore un contexte
+    qu'il n'aurait peut-etre pas utilise, au lieu de lever un `TypeError` qui
+    ferait echouer une etape parfaitement executable.
+    """
+    import inspect
+
+    def sans_acquis(etape: Etape, _: Acquis) -> Any:
+        return executant(etape)
+
+    # ⚠️ LE NOM DOIT SURVIVRE A L'ENVELOPPE.
+    #
+    # `_tenter` lit `executant.nom` pour dire QUI a fait le travail, et le
+    # gestionnaire pose ce nom sur sa fonction. Une enveloppe anonyme aurait
+    # rendu « executant : None » sur toutes les etapes — un compte rendu qui
+    # perd l'auteur du travail, pour un detail d'adaptation de signature.
+    sans_acquis.nom = getattr(executant, "nom", None)  # type: ignore[attr-defined]
+
+    try:
+        parametres = list(inspect.signature(executant).parameters.values())
+    except (TypeError, ValueError):
+        return sans_acquis
+
+    if any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in parametres):
+        return executant
+    positionnels = [
+        p
+        for p in parametres
+        if p.kind
+        in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    return executant if len(positionnels) >= 2 else sans_acquis
+
+
+def _tenter(etape: Etape, executant: Callable[[Etape, Acquis], Any], acquis: Acquis) -> Resultat:
     """Appelle l'executant et traduit ce qui en sort. Ne leve jamais.
 
     ⚠️ UN ECHEC EST UN RESULTAT, PAS UNE PANNE.
@@ -292,7 +530,7 @@ def _tenter(etape: Etape, executant: Executant) -> Resultat:
     from nova.outils import ConfirmationRequise
 
     try:
-        valeur = executant(etape)
+        valeur = executant(etape, acquis)
     except ConfirmationRequise as attente:
         return Resultat(
             etape.numero,

@@ -127,6 +127,37 @@ def _sans_argument_obligatoire(outil: Any) -> bool:
     )
 
 
+def _accepte_acquis(executer: Callable[..., Any]) -> bool:
+    """Cet `executer(etape, demande, …)` accepte-t-il un troisieme argument ?
+
+    Meme detection que du cote de l'executeur, meme repli : une signature
+    illisible est supposee ne pas vouloir l'acquis. Ignorer un contexte coute
+    moins cher qu'un `TypeError` qui fait echouer une etape executable.
+    """
+    import inspect
+
+    try:
+        parametres = list(inspect.signature(executer).parameters.values())
+    except (TypeError, ValueError):
+        return False
+    if any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in parametres):
+        return True
+    return (
+        len(
+            [
+                p
+                for p in parametres
+                if p.kind
+                in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            ]
+        )
+        >= 3
+    )
+
+
 def choisir(etape: Etape) -> tuple[str, str] | None:
     """Qui traitera cette etape : `("agent", nom)`, `("outil", nom)`, ou rien.
 
@@ -198,7 +229,7 @@ def executant_pour(
 
     accordees = set(confirmees)
 
-    def traiter(etape: Etape) -> Any:
+    def traiter(etape: Etape, acquis: Any = None) -> Any:
         choix = choisir(etape)
         if choix is None:
             # ⚠️ ON LEVE PLUTOT QUE DE RENDRE `None`.
@@ -216,6 +247,15 @@ def executant_pour(
         if genre == "agent":
             agent = registre_agents.exiger(nom)
             log.info("Etape %d confiee a l'agent « %s »", etape.numero, nom)
+            # ⚠️ L'ACQUIS EST OPTIONNEL POUR LES AGENTS AUSSI.
+            #
+            # Meme raison que du cote de l'executeur : un agent qui n'en a pas
+            # besoin — la vision regarde une image, pas un contexte — ne doit
+            # pas etre force de declarer un parametre qu'il ignore. On le
+            # passe a ceux qui l'acceptent, et le contrat `Agent` reste
+            # satisfait par les deux formes.
+            if acquis is not None and _accepte_acquis(agent.executer):
+                return agent.executer(etape, demande, acquis)
             return agent.executer(etape, demande)
 
         outil = registre_outils.exiger(nom)
@@ -225,7 +265,7 @@ def executant_pour(
         # droit de decider si l'appel a lieu, en consultant le bareme de
         # risque. Avoir su deduire le chemin d'un fichier ne rend pas sa
         # suppression autorisee.
-        arguments = deduire(outil, etape, demande, proposer=proposer)
+        arguments = deduire(outil, etape, demande, proposer=proposer, acquis=acquis)
         log.info("Etape %d confiee a l'outil « %s »", etape.numero, nom)
         return executer_outil(
             outil.nom, confirme=etape.numero in accordees, **arguments
