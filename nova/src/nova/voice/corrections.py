@@ -196,8 +196,52 @@ INVERSIONS: tuple[tuple[str, str], ...] = (
     (r"\bà-t-(?:il|elle|on)\b", "a-t-\\g<0>"),
 )
 
+# ── L'ORDRE ADRESSE A NOVA ────────────────────────────────────────────────
+#
+# ⚠️ CELUI-CI N'EST PAS UNE FAUTE DE CONJUGAISON : C'EST UN DECOUPAGE.
+#
+# Les regles ci-dessus corrigent une graphie apres un pronom. Ici, Whisper
+# entend la bonne suite de sons et la coupe au mauvais endroit :
+#
+#     dit      « parle-moi de Mars »
+#     entendu  « par le mois de mars »
+#     dit      « parle-moi des trous noirs »
+#     entendu  « par le mois des trous noirs »
+#
+# /paʁ lə mwa də/ et /paʁl mwa də/ sont le meme son. Aucun modele, quelle que
+# soit sa taille, ne peut trancher a l'oreille — seule la grammaire le peut.
+#
+# Et elle le peut sans ambiguite : « par le mois de X » n'existe pas en
+# francais. On dit « au mois de mars », « en mars ». La forme entendue est
+# donc TOUJOURS fausse, ce qui est exactement le critere que ce module
+# s'impose — on ne corrige que ce qui ne peut pas etre juste.
+#
+# Le cout de l'erreur est eleve et silencieux : Nova ne repond pas a cote, elle
+# repond serieusement a une question inventee. Releve en conditions reelles,
+# sur « parle-moi de Mars » :
+#
+#     « Le mois de mars est une periode de transition pour… »
+IMPERATIFS: tuple[tuple[str, str], ...] = (
+    # « par le mois de » / « par le moi de » → « parle-moi de »
+    #
+    # ⚠️ LA BORNE DE MOT N'EST PAS DECORATIVE.
+    #
+    # Sans elle, le « de » de « dernier » correspond : « par le mois dernier »
+    # devenait « parle-moi dernier ». La regle censee reparer un decoupage en
+    # inventait un autre — et sur une phrase qui, elle, etait plausible.
+    (r"\bpar\s+le\s+mo(?:is|i)\s+(des|du|de)(?![a-z\u00e0-\u00ff])", r"parle-moi \1"),
+    (r"\bpar\s+le\s+mo(?:is|i)\s+(d')", r"parle-moi \1"),
+    # Sans complement : « par le moi » en fin d'enonce.
+    (r"\bpar\s+le\s+mo(?:is|i)\b(?!\s+(?:de|des|du|d'|dernier|prochain))", "parle-moi"),
+    # Le trait d'union manquant, purement cosmetique mais gratuit.
+    (r"\bparle\s+moi\b", "parle-moi"),
+)
+
 # Les deux formes ci-dessus qui referencent le pronom sont trop delicates a
 # ecrire en une passe : on les traite separement, pronom par pronom.
+_IMPERATIFS = tuple(
+    (re.compile(motif, re.IGNORECASE), remplacement) for motif, remplacement in IMPERATIFS
+)
 _INVERSIONS_SIMPLES = tuple(
     (re.compile(motif, re.IGNORECASE), remplacement)
     for motif, remplacement in INVERSIONS
@@ -248,6 +292,10 @@ def corriger(texte: str) -> tuple[str, list[str]]:
     for motif, verbe in _INVERSIONS_T:
         appliquer(motif, rf"{verbe}-t-\1")
     for motif, remplacement in _APRES_PRONOM:
+        appliquer(motif, remplacement)
+    # En dernier : les ordres adresses a Nova operent sur un decoupage, pas
+    # sur une conjugaison, et n'ont donc rien a voir avec ce qui precede.
+    for motif, remplacement in _IMPERATIFS:
         appliquer(motif, remplacement)
 
     return corrige, changements

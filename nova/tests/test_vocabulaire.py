@@ -10,6 +10,8 @@ noms propres que l'utilisateur prononce sont exactement ceux que Nova a
 deja en memoire.
 """
 
+import re
+
 from nova.voice.vocabulaire import BUDGET_AMORCE, construire_amorce, extraire_termes
 
 
@@ -111,9 +113,28 @@ def test_l_amorce_ne_fournit_aucune_phrase_a_recopier():
             f"l'amorce de {champ} contient une question — Whisper la rendra "
             "un jour comme si elle avait ete prononcee"
         )
-        assert len(amorce) < 200, (
-            f"l'amorce de {champ} fait {len(amorce)} caracteres : plus elle est "
-            "longue, plus elle offre de matiere a recopier"
+        # ⚠️ LE CRITERE EST LA REPRODUCTIBILITE, PAS LA LONGUEUR.
+        #
+        # Une premiere version de ce banc bornait l'amorce a 200 caracteres.
+        # C'etait une approximation : ce qui rend une amorce dangereuse n'est
+        # pas sa taille mais le fait qu'un morceau puisse en sortir comme une
+        # demande. « qu'est-ce qu'un » est inoffensif quelle que soit la
+        # longueur du reste ; « ouvre un nouveau projet » ne l'est pas, meme
+        # dans une amorce courte.
+        #
+        # On interdit donc les ordres COMPLETS — un verbe suivi de son
+        # complement — et on laisse les verbes nus, qui orientent le decodage
+        # sans pouvoir etre executes.
+        executable = re.search(
+            r"\b(ouvre|ferme|lance|explique-moi|parle-moi|montre-moi)\s+"
+            r"(un|une|le|la|les|des|mon|ma|mes|ce|cette)\b",
+            amorce,
+            re.IGNORECASE,
+        )
+        assert not executable, (
+            f"l'amorce de {champ} contient un ordre complet : "
+            f"« {executable.group(0) if executable else ''} » — Whisper le "
+            "rendra un jour comme s'il avait ete prononce"
         )
 
     # Le mot de reveil reste amorce : sans lui, « Nova » devient « Nouveau ».

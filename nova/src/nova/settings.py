@@ -220,8 +220,26 @@ class Settings(BaseSettings):
     # avec les exemples. C'est un vrai recul, assume — une question mal
     # transcrite coute une reformulation, une question INVENTEE coute la
     # confiance dans l'assistant.
+    # ⚠️ DES FRAGMENTS, PAS DES PHRASES. LA NUANCE EST TOUT LE SUJET.
+    #
+    # Version 1 : treize questions completes. Whisper les recopiait sur un
+    # audio peu clair, et Nova repondait a des questions jamais posees.
+    # Version 2 : plus aucune tournure. L'echo a disparu, et avec lui la
+    # reconnaissance des interrogations — « quelle heure est-il » est devenu
+    # « qu'est la retile ».
+    #
+    # Ce qui separe les deux n'est ni la longueur ni le nombre : c'est qu'une
+    # phrase complete est REPRODUCTIBLE telle quelle. Un fragment ne l'est
+    # pas. « qu'est-ce qu'un » oriente le decodage vers la bonne charniere
+    # sans jamais pouvoir sortir comme une demande — il n'en est pas une.
+    #
+    # Le garde-fou de `transcribe.py` reste par-dessus : un texte deja present
+    # dans l'amorce, rendu avec une confiance basse, est refuse quoi qu'il
+    # arrive.
     whisper_amorce_dictee: str = (
-        "Conversation avec Nova, assistante vocale francaise. "
+        "Nova, assistante vocale francaise. Tournures : qu'est-ce qu'un, "
+        "qu'est-ce que, quelle heure, quel jour, pourquoi, explique-moi, "
+        "parle-moi de, ouvre, ferme, monte le son, baisse le son. "
         "Culture generale, applications, dates, heures, noms propres."
     )
     # ── Synthese vocale locale ────────────────────────────────────────────
