@@ -24,20 +24,26 @@ qu'un module absent : la revue du code le compte comme fait.
 LA CHAINE DE RECOURS, ET SON DERNIER MAILLON
 
     1. un AGENT declare capable de cette capacite
-    2. sinon un OUTIL de la meme capacite, s'il s'appelle sans argument
+    2. sinon un OUTIL de la meme capacite — celui qui s'appelle sans argument
+       d'abord, les autres ensuite
     3. sinon RIEN — et on le nomme
 
 Le troisieme maillon est le plus important. Il serait facile d'appeler un
 outil au hasard pour eviter un trou dans le compte rendu ; ce serait
 exactement le mensonge que l'executeur est fait pour rendre impossible.
 
-⚠️ CE MODULE NE DEDUIT PAS D'ARGUMENTS.
+CE MODULE NE DEDUIT PAS LES ARGUMENTS LUI-MEME — IL LES DEMANDE
 
 Passer de « Rechercher la matiere » a `chercher_documents(question="…")`
-demande un modele et un jugement. Tant que ce n'est pas fait proprement, on
-n'appelle que les outils qui n'exigent rien, et on dit pourquoi pour les
-autres. Un outil appele avec des arguments devines est un outil appele au
-hasard — et certains modifient la machine.
+demande un jugement, et parfois un modele : c'est le travail de
+`core.arguments`, qui sait aussi REFUSER en nommant le parametre manquant.
+Le gestionnaire l'appelle et transmet le resultat ; il ne devine rien.
+
+⚠️ DEDUIRE N'EST PAS AUTORISER.
+
+`core.arguments` produit un dictionnaire. `executer_outil` garde seul le
+droit de decider si l'appel a lieu, en consultant le bareme de risque. Avoir
+su deduire le chemin d'un fichier ne rend pas sa suppression autorisee.
 """
 
 from __future__ import annotations
@@ -132,9 +138,23 @@ def choisir(etape: Etape) -> tuple[str, str] | None:
     if agent := choisir_agent(etape):
         return ("agent", agent.nom)
 
-    for outil in registre_outils.par_capacite(etape.capacite):
+    # ⚠️ CE FILTRE EST DEVENU UN DEPARTAGE, IL N'EXCLUT PLUS.
+    #
+    # Il ecartait les outils exigeant des arguments, faute de savoir les
+    # deduire : mieux valait « aucun executant » qu'un TypeError accusant
+    # l'outil. Maintenant que `core.arguments` sait deduire — ou refuser en
+    # nommant ce qui manque — les ecarter reviendrait a se priver d'outils
+    # utilisables.
+    #
+    # On prefere toujours celui qu'on peut appeler a coup sur, et on retombe
+    # sur les autres. Un echec « je n'ai pas su deduire chemin » vaut mieux
+    # qu'une capacite declaree non couverte alors qu'un outil existe.
+    candidats = registre_outils.par_capacite(etape.capacite)
+    for outil in candidats:
         if _sans_argument_obligatoire(outil):
             return ("outil", outil.nom)
+    if candidats:
+        return ("outil", candidats[0].nom)
 
     return None
 
@@ -143,6 +163,7 @@ def executant_pour(
     demande: Demande,
     *,
     confirmees: Iterable[int] = (),
+    proposer: Callable[[str], str] | None = None,
 ) -> Callable[[Etape], Any]:
     """L'executant a passer a `executeur.executer(plan, executant=…)`.
 
@@ -154,6 +175,7 @@ def executant_pour(
     qui s'autorise lui-meme n'est pas un controle.
     """
     from nova.agents import registre_agents
+    from nova.core.arguments import deduire
     from nova.outils import executer_outil, registre_outils
 
     accordees = set(confirmees)
@@ -179,11 +201,17 @@ def executant_pour(
             return agent.executer(etape, demande)
 
         outil = registre_outils.exiger(nom)
+        # ⚠️ LA DEDUCTION PRECEDE LE CONTROLE, ELLE NE LE REMPLACE PAS.
+        #
+        # `deduire` produit un dictionnaire ; `executer_outil` garde seul le
+        # droit de decider si l'appel a lieu, en consultant le bareme de
+        # risque. Avoir su deduire le chemin d'un fichier ne rend pas sa
+        # suppression autorisee.
+        arguments = deduire(outil, etape, demande, proposer=proposer)
         log.info("Etape %d confiee a l'outil « %s »", etape.numero, nom)
-        # `executer_outil` verifie le niveau de risque et leve
-        # `ConfirmationRequise` si l'accord manque. L'executeur sait deja la
-        # traduire en etape `a_confirmer` : rien a refaire ici.
-        return executer_outil(outil.nom, confirme=etape.numero in accordees)
+        return executer_outil(
+            outil.nom, confirme=etape.numero in accordees, **arguments
+        )
 
     traiter.nom = "gestionnaire"  # type: ignore[attr-defined]
     return traiter
@@ -204,11 +232,11 @@ def inventaire() -> dict[str, list[str]]:
     couverture: dict[str, list[str]] = {}
     for capacite in sorted(CAPACITES_CONNUES):
         noms = [a.nom for a in registre_agents.tout() if capacite in a.capacites]
-        noms += [
-            o.nom
-            for o in registre_outils.par_capacite(capacite)
-            if _sans_argument_obligatoire(o)
-        ]
+        # Tous les outils de la capacite, y compris ceux qui exigent des
+        # arguments : `core.arguments` sait les deduire, ou dire pourquoi il
+        # n'a pas su. Les omettre declarerait une capacite non couverte alors
+        # qu'un outil existe.
+        noms += [o.nom for o in registre_outils.par_capacite(capacite)]
         couverture[capacite] = noms
     return couverture
 

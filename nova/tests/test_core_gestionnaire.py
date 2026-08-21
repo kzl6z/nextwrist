@@ -85,16 +85,61 @@ def test_une_capacite_sans_personne_ne_rend_rien():
     assert choisir(Etape("Illustrer", "vision")) is None
 
 
-def test_un_outil_qui_exige_des_arguments_n_est_pas_choisi():
-    """⚠️ « JE NE SAIS PAS DEDUIRE LES ARGUMENTS » EST UN DIAGNOSTIC.
+def test_l_outil_appelable_sans_argument_passe_devant():
+    """⚠️ CE FILTRE ETAIT UNE EXCLUSION, IL EST DEVENU UN DEPARTAGE.
 
-    « TypeError: missing argument chemin » n'en est pas un : il accuse
-    l'outil alors que c'est l'appelant qui n'a pas su quoi lui donner.
+    Il ecartait les outils exigeant des arguments, faute de savoir les
+    deduire : mieux valait « aucun executant » qu'un `TypeError` accusant
+    l'outil. Depuis `core.arguments`, les ecarter reviendrait a se priver
+    d'outils utilisables — mais on prefere toujours celui qu'on peut appeler
+    a coup sur.
+
+    ⚠️ CE BANC A D'ABORD PASSE SEUL ET ECHOUE EN GROUPE.
+
+    Ecrit sur « action », il choisissait `monter_le_son` des qu'un autre banc
+    avait enregistre les actions systeme : le departage n'etait pas exerce,
+    l'ordre d'enregistrement l'etait. Une capacite que rien d'autre ne couvre
+    isole la propriete.
     """
     class Exigeant:
         nom = "exigeant"
         description = "demande un chemin"
-        capacite = "extraction"
+        capacite = "vision"
+        niveau = 0
+
+        def executer(self, chemin: str) -> str:
+            return chemin
+
+    class Simple:
+        nom = "simple"
+        description = "ne demande rien"
+        capacite = "vision"
+        niveau = 0
+
+        def executer(self) -> str:
+            return "fait"
+
+    registre_outils.enregistrer(Exigeant())
+    registre_outils.enregistrer(Simple())
+    try:
+        assert choisir(Etape("Illustrer", "vision")) == ("outil", "simple")
+    finally:
+        registre_outils._entrees.pop("exigeant", None)  # noqa: SLF001
+        registre_outils._entrees.pop("simple", None)  # noqa: SLF001
+
+
+def test_un_outil_qui_exige_des_arguments_reste_choisi_faute_de_mieux():
+    """⚠️ « JE N'AI PAS SU DEDUIRE `chemin` » EST UN DIAGNOSTIC.
+
+    « aucun executant pour la capacite vision » alors qu'un outil existe n'en
+    est pas un : il decrit le systeme comme plus pauvre qu'il n'est. Maintenant
+    que la deduction sait refuser en nommant ce qui manque, mieux vaut essayer
+    et dire pourquoi ca n'a pas marche.
+    """
+    class Exigeant:
+        nom = "exigeant"
+        description = "demande un chemin"
+        capacite = "vision"
         niveau = 0
 
         def executer(self, chemin: str) -> str:
@@ -102,8 +147,7 @@ def test_un_outil_qui_exige_des_arguments_n_est_pas_choisi():
 
     registre_outils.enregistrer(Exigeant())
     try:
-        choix = choisir(Etape("Lire", "extraction"))
-        assert choix != ("outil", "exigeant")
+        assert choisir(Etape("Illustrer", "vision")) == ("outil", "exigeant")
     finally:
         registre_outils._entrees.pop("exigeant", None)  # noqa: SLF001
 
@@ -182,6 +226,72 @@ def test_l_absence_d_executant_est_une_exception_pas_un_silence():
         executant_pour(Demande(texte="x"))(Etape("Illustrer", "vision"))
 
     assert "vision" in str(absence.value)
+
+
+def test_le_gestionnaire_transmet_les_arguments_deduits():
+    """⚠️ IL LES DEMANDE, IL NE LES DEVINE PAS.
+
+    Le gestionnaire appelle `core.arguments` et transmet le resultat. La
+    cible vient ici de la reconnaissance d'intention, sans modele : le
+    branchement complet doit donc marcher hors ligne.
+    """
+    recus: list[str] = []
+
+    class Ouvrir:
+        nom = "ouvrir_banc"
+        description = "Ouvre une application"
+        capacite = "action"
+        niveau = 0
+
+        def executer(self, cible: str) -> str:
+            recus.append(cible)
+            return f"ouvert : {cible}"
+
+    registre_outils.enregistrer(Ouvrir())
+    try:
+        etape = Plan(
+            demande="x", etapes=(Etape("Ouvrir Spotify", "action", executant="ouvrir_banc"),)
+        ).etapes[0]
+
+        resultat = executant_pour(Demande(texte="ouvre Spotify"))(etape)
+
+        assert recus == ["Spotify"]
+        assert resultat == "ouvert : Spotify"
+    finally:
+        registre_outils._entrees.pop("ouvrir_banc", None)  # noqa: SLF001
+
+
+def test_une_deduction_impossible_devient_une_etape_expliquee():
+    """⚠️ ET PAS UN `TypeError` QUI ACCUSE L'OUTIL.
+
+    Sans modele injecte, `chemin` reste introuvable. Le compte rendu doit
+    nommer le parametre manquant : c'est ce qui distingue un defaut qu'on
+    corrige d'un defaut qu'on cherche.
+    """
+    class Exigeant:
+        nom = "exigeant"
+        description = "demande un chemin"
+        capacite = "action"
+        niveau = 0
+
+        def executer(self, chemin: str) -> str:  # pragma: no cover - jamais atteint
+            return chemin
+
+    registre_outils.enregistrer(Exigeant())
+    try:
+        demande = Demande(texte="fais le necessaire")
+        plan = Plan(
+            demande=demande.texte,
+            etapes=(Etape("Agir", "action", executant="exigeant"),),
+        )
+
+        execution = executer(plan, executant=executant_pour(demande))
+
+        assert execution.resultats[0].statut == "echouee"
+        assert "chemin" in execution.resultats[0].detail
+        assert "TypeError" not in execution.resultats[0].detail
+    finally:
+        registre_outils._entrees.pop("exigeant", None)  # noqa: SLF001
 
 
 def test_un_outil_consequent_reste_soumis_a_confirmation():

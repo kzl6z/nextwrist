@@ -84,13 +84,35 @@ class ExecutionEntrante(BaseModel):
     texte: str
     #: Numeros d'etapes que l'UTILISATEUR a approuvees. Jamais le modele.
     confirmees: list[int] = []
-    #: ⚠️ FAUX PAR DEFAUT, ET CE DEFAUT EST LE SUJET.
+    #: ⚠️ FAUX PAR DEFAUT, ET CE DEFAUT NE CHANGERA PAS.
     #:
-    #: Tant que le gestionnaire d'agents n'existe pas, personne ne sait
-    #: deduire les arguments d'une etape ecrite en francais. Executer pour de
-    #: vrai reviendrait a appeler des outils au hasard — dont certains
-    #: modifient la machine. On simule, sauf demande explicite.
+    #: Il l'etait d'abord faute de savoir deduire les arguments : executer
+    #: pour de vrai revenait a appeler des outils au hasard. `core.arguments`
+    #: sait maintenant les deduire — mais un chemin d'execution reelle
+    #: s'ouvre sur demande explicite, jamais par defaut.
     executer_vraiment: bool = False
+
+
+def _proposer_des_arguments(consigne: str) -> str:
+    """Le troisieme etage de la deduction : le modele, appele en dernier.
+
+    ⚠️ SANS CE BRANCHEMENT, `core.arguments` N'AURAIT QUE DEUX ETAGES EN VRAI.
+
+    Le module accepte un `proposer` injecte pour rester testable sans moteur.
+    L'oublier ici laisserait un troisieme etage complet, teste, et jamais
+    appele en production — exactement le genre de code que la revue compte
+    comme fait alors que rien ne l'exerce. C'est le defaut qui avait laisse
+    `Conversationnel` inscrit nulle part.
+
+    `temperature=0` : on ne veut pas de creativite pour remplir un chemin de
+    fichier. Le mode JSON n'est pas demande — `lire_arguments` est deja
+    tolerant sur la forme, et l'exiger reduirait le choix des modeles.
+    """
+    from nova.llm.client import LLMClient
+
+    return LLMClient().chat(
+        [{"role": "user", "content": consigne}], temperature=0.0
+    )
 
 
 @router.post("/executer")
@@ -120,7 +142,11 @@ def executer_le_plan(entree: ExecutionEntrante) -> dict:
     # cherche d'abord un agent, retombe sur un outil appelable sans argument,
     # et nomme le trou quand il n'y a ni l'un ni l'autre.
     executant = (
-        executant_pour(Demande(texte=entree.texte), confirmees=entree.confirmees)
+        executant_pour(
+            Demande(texte=entree.texte),
+            confirmees=entree.confirmees,
+            proposer=_proposer_des_arguments,
+        )
         if entree.executer_vraiment
         else None
     )
