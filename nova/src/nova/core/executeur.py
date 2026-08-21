@@ -35,11 +35,13 @@ Il ne connait ni les outils, ni les agents, ni les modeles. Il recoit un
 sans moteur, sans reseau et sans machine, donc encore verifiable quand les
 moteurs d'aujourd'hui auront disparu.
 
-Sans executant, il ne fait rien et le DIT. C'est le comportement d'aujourd'hui,
-puisque le gestionnaire d'agents n'existe pas encore : appeler `executer` sur
-un plan de voyage rend un compte rendu ou chaque etape porte « aucun executant
-pour la capacite recherche ». C'est exactement ce qu'il faut afficher — pas un
-succes, pas une erreur : un manque, nomme.
+Sans executant, il ne fait rien et le DIT : chaque etape porte « aucun
+executant pour la capacite … ». Ni un succes, ni une erreur : un manque,
+nomme. C'est le mode par defaut de `/v1/executer`.
+
+`core.gestionnaire.executant_pour(demande)` fournit l'executant reel — agents
+d'abord, outils ensuite, rien nomme en dernier recours. L'executeur ne le
+connait pas et n'a pas a le connaitre.
 """
 
 from __future__ import annotations
@@ -339,36 +341,3 @@ def _statut_global(resultats: Iterable[Resultat], attend: bool) -> str:
     if liste and all(r.accomplie for r in liste):
         return "terminee"
     return "incomplete"
-
-
-# ══════════════════════════════════════════════════════════════════════════
-#  BRANCHER LES OUTILS EXISTANTS
-# ══════════════════════════════════════════════════════════════════════════
-def executant_par_outils(confirmees: Iterable[int] = ()) -> Executant:
-    """Un executant qui cherche un outil correspondant a la capacite demandee.
-
-    ⚠️ CE N'EST PAS LE GESTIONNAIRE D'AGENTS, ET CA N'Y PRETEND PAS.
-
-    Il fait la chose la plus simple qui soit honnete : chercher dans le
-    registre un outil declarant la capacite de l'etape, et l'appeler sans
-    argument. Cela suffit pour les etapes qui n'en demandent pas — lire
-    l'heure, lister la memoire — et echoue proprement pour les autres.
-
-    Deduire les arguments d'une etape ecrite en francais demande un modele et
-    un jugement : c'est precisement le travail du gestionnaire d'agents, et
-    le simuler ici produirait des appels au hasard sur des outils qui
-    modifient la machine.
-    """
-    from nova.outils import executer_outil, registre_outils
-
-    accordees = set(confirmees)
-
-    def executer_l_etape(etape: Etape) -> Any:
-        candidats = registre_outils.par_capacite(etape.capacite)
-        if not candidats:
-            return None
-        outil = candidats[0]
-        return executer_outil(outil.nom, confirme=etape.numero in accordees)
-
-    executer_l_etape.nom = "outils"  # type: ignore[attr-defined]
-    return executer_l_etape

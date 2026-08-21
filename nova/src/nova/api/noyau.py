@@ -107,11 +107,22 @@ def executer_le_plan(entree: ExecutionEntrante) -> dict:
     `a_confirmer`. L'interface peut alors demander l'accord, puis rappeler ce
     point d'entree avec les numeros dans `confirmees`.
     """
-    from nova.core.executeur import executant_par_outils, executer, vagues
+    from nova.core.contrats import Demande
+    from nova.core.executeur import executer, vagues
+    from nova.core.gestionnaire import (
+        capacites_sans_executant,
+        executant_pour,
+        inventaire,
+    )
 
     plan, espace = orchestrator.analyser(entree.texte)
+    # Le gestionnaire remplace le branchement provisoire par outils : il
+    # cherche d'abord un agent, retombe sur un outil appelable sans argument,
+    # et nomme le trou quand il n'y a ni l'un ni l'autre.
     executant = (
-        executant_par_outils(entree.confirmees) if entree.executer_vraiment else None
+        executant_pour(Demande(texte=entree.texte), confirmees=entree.confirmees)
+        if entree.executer_vraiment
+        else None
     )
     execution = executer(plan, executant=executant, confirmees=entree.confirmees)
 
@@ -126,6 +137,11 @@ def executer_le_plan(entree: ExecutionEntrante) -> dict:
         # Les vagues disent ce qui pourrait demarrer en meme temps. Aujourd'hui
         # une etape par vague ; la structure n'attend que des executants.
         "vagues": [list(v) for v in vagues(plan)],
+        # Qui sait faire quoi, et surtout ce que personne ne sait faire : une
+        # capacite sans executant est une promesse du planificateur que rien
+        # ne tiendra.
+        "couverture": inventaire(),
+        "sans_executant": list(capacites_sans_executant()),
         "resultats": [
             {
                 "numero": r.numero,

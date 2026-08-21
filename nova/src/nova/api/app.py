@@ -164,6 +164,37 @@ async def lifespan(app: FastAPI):
         # d'une ligne sans toucher au reste.
         enregistrer_actions_systeme(registre_outils)
         log.info("Outils disponibles : %s", ", ".join(registre_outils.noms()))
+
+        # ⚠️ LES AGENTS N'ETAIENT INSCRITS NULLE PART.
+        #
+        # `Conversationnel` et `Documentaire` existaient, avec leurs bancs, et
+        # aucun code ne les enregistrait. `/v1/capacites` annoncait donc zero
+        # agent : un inventaire exact d'un systeme vide, alors que le code
+        # etait la. Un module teste que rien n'appelle est plus trompeur qu'un
+        # module absent — la revue le compte comme fait.
+        from nova.core.gestionnaire import (
+            capacites_sans_executant,
+            enregistrer_agents_standard,
+        )
+
+        # `orchestrator` est importe ICI et pas en tete : il tire la memoire,
+        # la recherche documentaire et le client de modele. Le demarrage ne
+        # doit pas les payer avant d'en avoir besoin.
+        def repondre(question: str) -> str:
+            from nova import orchestrator
+
+            return orchestrator.answer(question)
+
+        enregistrer_agents_standard(repondre)
+        if manquantes := capacites_sans_executant():
+            # Le planificateur peut produire ces capacites ; personne ne sait
+            # les executer. Le dire au demarrage evite de le decouvrir au
+            # milieu d'un plan de sept etapes.
+            log.info(
+                "Capacites sans executant : %s — les etapes correspondantes "
+                "seront signalees, jamais simulees.",
+                ", ".join(manquantes),
+            )
     except Exception as exc:  # noqa: BLE001
         log.warning("Outils indisponibles : %s", exc)
 

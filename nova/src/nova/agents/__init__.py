@@ -28,6 +28,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from nova.core import contrats
 from nova.core.contrats import Demande, Etape
 from nova.core.registre import Registre
 from nova.logging_setup import get_logger
@@ -51,6 +52,17 @@ class Conversationnel:
     nom = "conversationnel"
     description = "Repond a une question ou tient la conversation"
     capacites = frozenset({"conversation", "raisonnement", "redaction"})
+    # ⚠️ CET ATTRIBUT MANQUAIT, ET SON ABSENCE RENDAIT L'AGENT INUTILISABLE.
+    #
+    # Le registre exige que tout ce qui s'execute declare ce qu'il en coute si
+    # Nova se trompe. Ces agents ont ete ecrits avant ce bareme et jamais mis
+    # a jour : `registre_agents.enregistrer` les REFUSAIT donc, silencieusement
+    # du point de vue de l'utilisateur, puisque personne ne les enregistrait.
+    # Le systeme se presentait comme ayant zero agent — un inventaire exact
+    # d'un systeme vide, alors que le code etait la et teste.
+    #
+    # LECTURE : il parle. Il ne touche a rien.
+    niveau = contrats.LECTURE
 
     def __init__(self, repondre: Callable[[str], str]) -> None:
         self._repondre = repondre
@@ -74,6 +86,8 @@ class Documentaire:
     nom = "documentaire"
     description = "Cherche dans tes documents et repond en citant ses sources"
     capacites = frozenset({"recherche", "extraction"})
+    #: LECTURE : il lit des documents deja ingeres, il n'en modifie aucun.
+    niveau = contrats.LECTURE
 
     def peut_traiter(self, etape: Etape) -> bool:
         return etape.capacite in self.capacites
