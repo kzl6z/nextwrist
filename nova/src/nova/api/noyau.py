@@ -80,6 +80,65 @@ def plan(entree: DemandeEntrante) -> dict:
     }
 
 
+class ExecutionEntrante(BaseModel):
+    texte: str
+    #: Numeros d'etapes que l'UTILISATEUR a approuvees. Jamais le modele.
+    confirmees: list[int] = []
+    #: ⚠️ FAUX PAR DEFAUT, ET CE DEFAUT EST LE SUJET.
+    #:
+    #: Tant que le gestionnaire d'agents n'existe pas, personne ne sait
+    #: deduire les arguments d'une etape ecrite en francais. Executer pour de
+    #: vrai reviendrait a appeler des outils au hasard — dont certains
+    #: modifient la machine. On simule, sauf demande explicite.
+    executer_vraiment: bool = False
+
+
+@router.post("/executer")
+def executer_le_plan(entree: ExecutionEntrante) -> dict:
+    """Parcourt le plan d'une demande et rend ce qui s'est reellement passe.
+
+    ⚠️ CE POINT D'ENTREE NE MENT JAMAIS SUR CE QUI A ETE FAIT.
+
+    En simulation — le defaut — aucune etape ne peut ressortir « faite » :
+    chacune porte « aucun executant pour la capacite … ». C'est un compte
+    rendu honnete de l'etat du systeme, pas un echec.
+
+    Une etape aux consequences externes arrete le parcours et remonte dans
+    `a_confirmer`. L'interface peut alors demander l'accord, puis rappeler ce
+    point d'entree avec les numeros dans `confirmees`.
+    """
+    from nova.core.executeur import executant_par_outils, executer, vagues
+
+    plan, espace = orchestrator.analyser(entree.texte)
+    executant = (
+        executant_par_outils(entree.confirmees) if entree.executer_vraiment else None
+    )
+    execution = executer(plan, executant=executant, confirmees=entree.confirmees)
+
+    return {
+        "demande": plan.demande,
+        "type": plan.type,
+        "espace": espace,
+        "simulation": not entree.executer_vraiment,
+        "statut": execution.statut,
+        "accomplie": execution.accomplie,
+        "a_confirmer": list(execution.a_confirmer),
+        # Les vagues disent ce qui pourrait demarrer en meme temps. Aujourd'hui
+        # une etape par vague ; la structure n'attend que des executants.
+        "vagues": [list(v) for v in vagues(plan)],
+        "resultats": [
+            {
+                "numero": r.numero,
+                "intitule": r.intitule,
+                "statut": r.statut,
+                "detail": r.detail,
+                "executant": r.executant,
+            }
+            for r in execution.resultats
+        ],
+    }
+
+
 @router.get("/capacites")
 def capacites() -> dict:
     """L'inventaire de Nova : outils, agents, espaces, modeles, machine.

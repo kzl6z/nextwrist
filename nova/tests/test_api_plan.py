@@ -141,3 +141,64 @@ def test_le_point_d_entree_repond_sans_attendre():
     # dans le chemin, une lecture de base — pas la variabilite d'une machine
     # de test partagee.
     assert par_appel_ms < 50, f"{par_appel_ms:.1f} ms par appel"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  L'EXECUTION, VUE DE L'EXTERIEUR
+#
+#  ⚠️ CE POINT D'ENTREE PEUT FAIRE CROIRE QU'UNE ACTION A EU LIEU.
+#
+#  C'est le seul de tout le projet qui en soit capable. Les bancs ci-dessous
+#  verifient surtout qu'il ne le fait PAS.
+# ══════════════════════════════════════════════════════════════════════════
+def executer_demande(texte: str, **reste) -> dict:
+    reponse = client.post("/v1/executer", json={"texte": texte, **reste})
+    assert reponse.status_code == 200, reponse.text
+    return reponse.json()
+
+
+def test_l_execution_est_simulee_par_defaut():
+    """Tant que le gestionnaire d'agents n'existe pas, on ne declenche rien.
+
+    Executer pour de vrai reviendrait a appeler des outils au hasard sur des
+    etapes ecrites en francais — dont certains modifient la machine.
+    """
+    corps = executer_demande("Prepare-moi un expose sur les trous noirs.")
+
+    assert corps["simulation"] is True
+    assert corps["accomplie"] is False
+    assert all(r["statut"] != "faite" for r in corps["resultats"])
+
+
+def test_le_compte_rendu_nomme_ce_qui_manque():
+    """« ignoree » sans raison serait indebogable — et surtout, inquietant."""
+    corps = executer_demande("Prepare-moi un expose sur les trous noirs.")
+
+    assert "aucun executant" in corps["resultats"][0]["detail"]
+
+
+def test_une_action_consequente_remonte_dans_a_confirmer():
+    """L'interface doit pouvoir demander l'accord AVANT, pas apres."""
+    corps = executer_demande("prepare cette piece pour l'impression 3d")
+
+    assert corps["accomplie"] is False
+    # En simulation rien n'est tente, donc l'arret vient du plan lui-meme :
+    # le drapeau du planificateur reste visible dans les etapes.
+    plan = demander("prepare cette piece pour l'impression 3d")
+    assert plan["confirmation_requise"] is True
+
+
+def test_toutes_les_etapes_du_plan_figurent_au_compte_rendu():
+    plan = demander("Nova, organise-moi un voyage a Chicago la semaine prochaine.")
+    corps = executer_demande("Nova, organise-moi un voyage a Chicago la semaine prochaine.")
+
+    assert len(corps["resultats"]) == len(plan["etapes"])
+    assert [r["numero"] for r in corps["resultats"]] == [e["numero"] for e in plan["etapes"]]
+
+
+def test_les_vagues_sont_publiees():
+    """Elles disent ce qui pourrait demarrer en meme temps. Une etape par
+    vague aujourd'hui ; la structure n'attend que des executants."""
+    corps = executer_demande("Prepare-moi un expose sur les trous noirs.")
+
+    assert corps["vagues"] == [[0], [1], [2], [3], [4], [5], [6]]
