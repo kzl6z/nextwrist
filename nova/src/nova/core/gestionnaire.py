@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Iterable
+from pathlib import Path
 from typing import Any
 
 from nova.core.contrats import Demande, Etape
@@ -62,7 +63,9 @@ class SansExecutant(RuntimeError):
     """Personne ne sait faire cette etape, et on prefere le dire."""
 
 
-def enregistrer_agents_standard(repondre: Callable[[str], str]) -> tuple[str, ...]:
+def enregistrer_agents_standard(
+    repondre: Callable[[str], str], racine: Path | None = None
+) -> tuple[str, ...]:
     """Inscrit les agents du projet. Rend leurs noms.
 
     `repondre` est injecte plutot qu'importe : c'est ce qui permet
@@ -71,11 +74,26 @@ def enregistrer_agents_standard(repondre: Callable[[str], str]) -> tuple[str, ..
 
     Idempotent — le registre refuse un doublon, et relancer l'application ne
     doit pas echouer sur un enregistrement deja fait.
+
+    ⚠️ L'AGENT DE VISION EST INSCRIT MEME QUAND LA VISION EST DESACTIVEE.
+
+    C'est l'inverse de ce qui semble prudent, et c'est deliberé. Un agent
+    absent produit « aucun agent ni outil pour la capacite vision » — une
+    phrase qui decrit le systeme comme incomplet. Un agent present qui leve
+    `VisionIndisponible` produit « la vision est desactivee, voici comment
+    l'activer ». Le premier se cherche, le second se corrige.
+
+    C'est la lecon des deux agents qu'aucun code n'inscrivait : ce qui existe
+    doit etre visible, y compris quand ca ne peut pas encore servir.
     """
     from nova.agents import Conversationnel, Documentaire, registre_agents
+    from nova.agents.vision import Vision
+    from nova.settings import get_settings
+
+    racine = Path(racine) if racine is not None else get_settings().root / "data"
 
     inscrits: list[str] = []
-    for agent in (Conversationnel(repondre), Documentaire()):
+    for agent in (Conversationnel(repondre), Documentaire(), Vision(racine)):
         if agent.nom in registre_agents:
             continue
         registre_agents.enregistrer(agent)

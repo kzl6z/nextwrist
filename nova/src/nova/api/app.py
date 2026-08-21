@@ -163,6 +163,12 @@ async def lifespan(app: FastAPI):
         # seules qui modifient la machine, et on doit pouvoir les retirer
         # d'une ligne sans toucher au reste.
         enregistrer_actions_systeme(registre_outils)
+        # Les outils de vision sont inscrits meme vision desactivee : ils
+        # levent alors un message qui dit comment l'activer, ce qui vaut
+        # mieux qu'une capacite annoncee non couverte.
+        from nova.outils.vision import enregistrer_outils_vision
+
+        enregistrer_outils_vision(registre_outils, settings.root / "data")
         log.info("Outils disponibles : %s", ", ".join(registre_outils.noms()))
 
         # ⚠️ LES AGENTS N'ETAIENT INSCRITS NULLE PART.
@@ -185,7 +191,15 @@ async def lifespan(app: FastAPI):
 
             return orchestrator.answer(question)
 
-        enregistrer_agents_standard(repondre)
+        enregistrer_agents_standard(repondre, settings.root / "data")
+        # La vision est desactivee par defaut : elle charge un modele qui
+        # decharge celui de la langue sur cette machine. Le dire au demarrage
+        # evite de chercher pourquoi « Nova ne voit pas ».
+        from nova.vision.moteur import disponible as vision_disponible
+
+        utilisable, raison = vision_disponible()
+        log.info("Vision : %s", "active" if utilisable else raison.splitlines()[0])
+
         if manquantes := capacites_sans_executant():
             # Le planificateur peut produire ces capacites ; personne ne sait
             # les executer. Le dire au demarrage evite de le decouvrir au

@@ -38,9 +38,16 @@ from nova.outils import enregistrer_outils_standard, registre_outils
 
 @pytest.fixture(autouse=True)
 def briques(tmp_path):
-    """Registres remplis comme au demarrage de l'application."""
+    """Registres remplis comme au demarrage de l'application.
+
+    ⚠️ `tmp_path` VA AUSSI AUX AGENTS DEPUIS L'AGENT DE VISION.
+
+    Sans la racine, celui-ci retombait sur `settings.root / "data"` — le vrai
+    dossier du projet. Un banc qui lit le disque de la machine ou il tourne
+    passe ou echoue selon ce qui traine dedans.
+    """
     enregistrer_outils_standard(tmp_path)
-    enregistrer_agents_standard(lambda question: f"reponse a « {question} »")
+    enregistrer_agents_standard(lambda question: f"reponse a « {question} »", tmp_path)
     yield
 
 
@@ -55,6 +62,12 @@ def test_les_agents_sont_reellement_inscrits():
     """
     assert "conversationnel" in registre_agents
     assert "documentaire" in registre_agents
+    # ⚠️ INSCRIT MEME VISION DESACTIVEE.
+    #
+    # Un agent absent produit « aucun executant pour la capacite vision » ;
+    # present, il produit « la vision est desactivee, voici comment
+    # l'activer ». Le premier se cherche, le second se corrige.
+    assert "vision" in registre_agents
 
 
 def test_enregistrer_deux_fois_ne_casse_pas():
@@ -82,7 +95,7 @@ def test_une_capacite_sans_personne_ne_rend_rien():
     compte rendu. Ce serait exactement le mensonge que l'executeur est fait
     pour rendre impossible.
     """
-    assert choisir(Etape("Illustrer", "vision")) is None
+    assert choisir(Etape("Ecrire un script", "code")) is None
 
 
 def test_l_outil_appelable_sans_argument_passe_devant():
@@ -104,7 +117,7 @@ def test_l_outil_appelable_sans_argument_passe_devant():
     class Exigeant:
         nom = "exigeant"
         description = "demande un chemin"
-        capacite = "vision"
+        capacite = "code"
         niveau = 0
 
         def executer(self, chemin: str) -> str:
@@ -113,7 +126,7 @@ def test_l_outil_appelable_sans_argument_passe_devant():
     class Simple:
         nom = "simple"
         description = "ne demande rien"
-        capacite = "vision"
+        capacite = "code"
         niveau = 0
 
         def executer(self) -> str:
@@ -122,7 +135,7 @@ def test_l_outil_appelable_sans_argument_passe_devant():
     registre_outils.enregistrer(Exigeant())
     registre_outils.enregistrer(Simple())
     try:
-        assert choisir(Etape("Illustrer", "vision")) == ("outil", "simple")
+        assert choisir(Etape("Ecrire un script", "code")) == ("outil", "simple")
     finally:
         registre_outils._entrees.pop("exigeant", None)  # noqa: SLF001
         registre_outils._entrees.pop("simple", None)  # noqa: SLF001
@@ -131,7 +144,7 @@ def test_l_outil_appelable_sans_argument_passe_devant():
 def test_un_outil_qui_exige_des_arguments_reste_choisi_faute_de_mieux():
     """⚠️ « JE N'AI PAS SU DEDUIRE `chemin` » EST UN DIAGNOSTIC.
 
-    « aucun executant pour la capacite vision » alors qu'un outil existe n'en
+    « aucun executant pour la capacite code » alors qu'un outil existe n'en
     est pas un : il decrit le systeme comme plus pauvre qu'il n'est. Maintenant
     que la deduction sait refuser en nommant ce qui manque, mieux vaut essayer
     et dire pourquoi ca n'a pas marche.
@@ -139,7 +152,7 @@ def test_un_outil_qui_exige_des_arguments_reste_choisi_faute_de_mieux():
     class Exigeant:
         nom = "exigeant"
         description = "demande un chemin"
-        capacite = "vision"
+        capacite = "code"
         niveau = 0
 
         def executer(self, chemin: str) -> str:
@@ -147,7 +160,7 @@ def test_un_outil_qui_exige_des_arguments_reste_choisi_faute_de_mieux():
 
     registre_outils.enregistrer(Exigeant())
     try:
-        assert choisir(Etape("Illustrer", "vision")) == ("outil", "exigeant")
+        assert choisir(Etape("Ecrire un script", "code")) == ("outil", "exigeant")
     finally:
         registre_outils._entrees.pop("exigeant", None)  # noqa: SLF001
 
@@ -176,7 +189,7 @@ def test_les_capacites_sans_executant_sont_nommees():
     """
     manquantes = capacites_sans_executant()
 
-    assert "vision" in manquantes, "personne ne sait voir, et il faut le dire"
+    assert "code" in manquantes, "personne ne sait ecrire du code, et il faut le dire"
     assert "conversation" not in manquantes
 
 
@@ -200,32 +213,40 @@ def test_une_capacite_non_couverte_devient_une_etape_expliquee():
 
     Le gestionnaire leve `SansExecutant` plutot que de rendre `None` :
     l'executeur traduirait `None` en « l'executant n'a rien produit », ce qui
-    est vrai mais se cherche. « aucun agent ni outil pour la capacite
-    vision » se corrige.
+    est vrai mais se cherche. « aucun agent ni outil pour la capacite code »
+    se corrige.
 
     ⚠️ CE BANC A D'ABORD DEPENDU DE L'ENVIRONNEMENT.
 
     Il partait d'un vrai plan de presentation, dont l'etape de recherche
     interroge la base documentaire. Sans base, cette etape echouait AVANT
-    l'etape vision, qui ressortait alors « ignoree » — et le banc echouait
-    pour une raison sans rapport avec ce qu'il annonce. Un plan construit ici
-    isole la propriete testee.
+    l'etape non couverte, qui ressortait alors « ignoree » — et le banc
+    echouait pour une raison sans rapport avec ce qu'il annonce. Un plan
+    construit ici isole la propriete testee.
+
+    ⚠️ IL A AUSSI CHANGE DE CAPACITE, ET C'EST LE SUJET.
+
+    Il s'appuyait sur « vision » comme exemple de ce que personne ne sait
+    faire. L'agent de vision l'a couverte : le banc passait alors pour une
+    raison qui n'existait plus. « code » est aujourd'hui la seule capacite
+    sans executant — et le jour ou un agent la couvrira, ce banc echouera de
+    nouveau. C'est ce qu'on lui demande.
     """
-    demande = Demande(texte="illustre ceci")
-    plan = Plan(demande=demande.texte, etapes=(Etape("Illustrer", "vision"),))
+    demande = Demande(texte="ecris-moi un script")
+    plan = Plan(demande=demande.texte, etapes=(Etape("Ecrire un script", "code"),))
 
     execution = executer(plan, executant=executant_pour(demande))
 
     assert execution.resultats[0].statut == "echouee"
-    assert "vision" in execution.resultats[0].detail
+    assert "code" in execution.resultats[0].detail
     assert not execution.accomplie
 
 
 def test_l_absence_d_executant_est_une_exception_pas_un_silence():
     with pytest.raises(SansExecutant) as absence:
-        executant_pour(Demande(texte="x"))(Etape("Illustrer", "vision"))
+        executant_pour(Demande(texte="x"))(Etape("Ecrire un script", "code"))
 
-    assert "vision" in str(absence.value)
+    assert "code" in str(absence.value)
 
 
 def test_le_gestionnaire_transmet_les_arguments_deduits():

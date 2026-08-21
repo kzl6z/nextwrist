@@ -1,38 +1,37 @@
-"""Vision : l'architecture, pas encore les fonctions.
+"""Vision : les contrats. La mise en oeuvre est dans `moteur.py`.
 
-⚠️ CE MODULE NE VOIT RIEN AUJOURD'HUI. C'EST VOLONTAIRE ET C'EST ECRIT.
+CE FICHIER A ETE ECRIT AVANT QUE LA VISION EXISTE, ET C'EST SA VALEUR
 
-Un module qui pretend faire quelque chose et ne le fait pas est pire que son
-absence : on l'appelle, il rend une valeur vide, et on cherche le bug
-ailleurs. Chaque fonction ci-dessous leve donc `PasEncoreImplemente` avec ce
-qui manque exactement pour qu'elle marche.
+Il ne decrivait que des CONTRATS — `Observation`, `Region`, les capacites,
+la place dans le registre — et levait `PasEncoreImplemente` partout, avec ce
+qui manquait exactement. Quand la vision est arrivee, elle s'est branchee
+sans rien renegocier : aucun format n'a bouge. C'est ce qui evite qu'un
+chantier commence par trois semaines de discussion sur les structures.
 
-CE QUE CE FICHIER APPORTE MALGRE TOUT
+CE QUI VOIT AUJOURD'HUI, ET CE QUI NE VOIT TOUJOURS PAS
 
-Les CONTRATS. Quand la vision arrivera, elle se branchera sans rien renegocier :
-les structures de donnees qui circulent, les capacites declarees, la place
-dans le registre. C'est ce qui evite qu'un chantier de six mois commence par
-trois semaines de discussion sur les formats.
+    decrire une image           ✅  vision/moteur.py
+    lister ce qu'elle contient  ✅  vision/moteur.py
+    localiser dans l'image      ❌  demande des coordonnees fiables
+    analyser une video          ❌  demande un decoupage en images-cles
+    trouver une documentation   ❌  demande un acces reseau et une politique
+    reconstruire en 3D          ❌  un projet, pas une fonction
 
-CE QUE LA VISION DEMANDERA, HONNETEMENT
+`MoteurVision` ci-dessous reste le contrat de reference : toutes ses methodes
+levent. `MoteurOllama` en implemente deux. Garder les deux separes permet de
+voir d'un coup d'oeil ce qui manque encore — une classe unique melangerait
+le fait et la promesse.
 
-    analyser une image        un modele multimodal resident (~4 Go)
-    analyser une video        le meme, plus un decoupage en images-cles
-    utiliser la camera        un flux, cote application, pas ici
-    reconnaitre un objet      un modele de detection, ou le multimodal
-    identifier ses composants un modele specialise, ou une recherche web
-    trouver sa documentation  un acces reseau et une politique de sortie
-    annoter                   un rendu, donc l'interface
-    reconstruire en 3D        plusieurs vues + photogrammetrie : un projet
-                              a part entiere, pas une fonction
+⚠️ CE QUE LA VISION COUTE SUR CETTE MACHINE
 
-Sur un Mac de 8 Go, un modele multimodal resident A COTE du modele de langue
-n'est pas realiste. La mesure de la session le dit sans ambiguite : chaque
-megaoctet resident se paie deux fois, en memoire puis en lenteur de tout le
-reste. La vision viendra avec plus de memoire vive, ou en deportant l'analyse.
+    nova-leger (modele de langue)   1,9 Go resident
+    un multimodal utilisable         1,7 a 3 Go
 
-Le dire maintenant evite d'y revenir dans trois mois en se demandant pourquoi
-« c'est lent ».
+Sur 8 Go partages avec macOS et l'interface, les deux ne tiennent pas
+ensemble : Ollama en decharge un pour charger l'autre, et le rechargement
+coute un forfait mesure de 21 secondes qui frappe la reponse SUIVANTE. La
+vision est donc desactivee par defaut, et `moteur.disponible()` dit pourquoi
+plutot que de rendre « non ».
 """
 
 from __future__ import annotations
@@ -135,9 +134,21 @@ class MoteurVision:
 
 
 def disponible() -> bool:
-    """La vision est-elle utilisable ? Non, et il faut pouvoir le demander.
+    """La vision est-elle utilisable ?
 
-    Toute capacite du projet expose cette question. C'est ce qui permet a
-    l'interface de griser un bouton plutot que de l'offrir puis d'echouer.
+    ⚠️ CETTE FONCTION RENDAIT `False` EN DUR, ET C'EST DEVENU FAUX.
+
+    C'etait exact tant que rien ne voyait. Depuis `vision/moteur.py`, la
+    reponse depend des reglages — et une fonction qui repond « non » alors
+    que oui est exactement le genre de mensonge que ce fichier s'engageait a
+    ne pas faire. Elle delegue donc a l'endroit qui sait.
+
+    `moteur.disponible()` rend en plus la RAISON, ce qu'un booleen ne peut
+    pas faire : « pas active » et « pas de modele » demandent deux gestes
+    differents. Les appelants qui ont besoin du remede l'utilisent
+    directement ; celui-ci reste pour qui n'a besoin que du oui ou du non.
     """
-    return False
+    from nova.vision.moteur import disponible as _detail
+
+    utilisable, _ = _detail()
+    return utilisable

@@ -33,6 +33,16 @@ speech = ["kokoro>=0.9"]
 # lequel un clone arrive. Il embarque son propre espeak-ng : contrairement a
 # `speech`, aucune dependance systeme a installer a cote.
 piper = ["piper-tts>=1.7"]
+# Vision. Pillow seul — le MODELE multimodal vit dans Ollama, pas ici.
+#
+# ⚠️ CETTE LIGNE NE SUFFIT PAS A FAIRE VOIR NOVA.
+#
+# Pillow reduit et convertit les images ; sans lui, un HEIC d'iPhone est
+# illisible et une photo de 8 Mo part telle quelle jusqu'a expirer le delai
+# du moteur. Mais voir demande en plus  ollama pull moondream  et
+# NOVA_VISION_ACTIVE=true, parce que le modele decharge celui de la langue
+# sur une machine de 8 Go.
+vision = ["pillow>=10"]
 
 [project.scripts]
 nova = "nova.cli:app"

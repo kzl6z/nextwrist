@@ -315,6 +315,38 @@ class Settings(BaseSettings):
     # llama3.2:3b. Une mesure fausse vaut mieux qu'une absence : elle se
     # corrige, alors qu'un champ vide oblige a deviner.
     vitesse_mesuree: float = 28.8
+    # ══════════════════════════════════════════════════════════════════════
+    #  VISION
+    # ══════════════════════════════════════════════════════════════════════
+    # ⚠️ DESACTIVEE PAR DEFAUT, ET CE DEFAUT EST UNE MESURE, PAS UNE PRUDENCE.
+    #
+    #     nova-leger (modele de langue)   1,9 Go resident
+    #     un multimodal utilisable         1,7 a 3 Go
+    #
+    # Sur 8 Go partages avec macOS, l'interface et un navigateur, les deux ne
+    # tiennent pas ensemble : Ollama en decharge un pour charger l'autre. Le
+    # rechargement depuis le disque coute un forfait releve sur cette machine
+    # de 21 secondes, identique quel que soit le prompt — et il frappe la
+    # reponse SUIVANTE, pas l'appel de vision. Activee sans le savoir, la
+    # vision ressemble donc a « Nova est redevenue lente », sans cause visible.
+    #
+    # Elle s'active en connaissance de cause :  NOVA_VISION_ACTIVE=true
+    vision_active: bool = False
+    # Le modele multimodal. `moondream` est le seul qui tienne vraiment a cote
+    # du modele de langue sur 8 Go (~1,7 Go) ; `llava-phi3` (~2,9 Go) voit
+    # mieux mais decharge nova-leger a chaque appel.
+    #
+    #     ollama pull moondream
+    #
+    # ⚠️ AUCUN CHIFFRE DE VITESSE N'EST DONNE ICI : je ne les ai pas mesures
+    # sur ta machine.   uv run python scripts/bench_vision.py
+    vision_modele: str = "moondream"
+    # Cote le plus long de l'image envoyee, en pixels.
+    #
+    # 1024 parce que c'est ce que les multimodaux courants utilisent en
+    # interne : envoyer plus grand fait payer l'envoi et l'attente pour une
+    # image que le moteur reduira lui-meme avant de la regarder.
+    vision_cote_max: int = 1024
     # Delai de LECTURE accorde au moteur, en secondes.
     #
     # ⚠️ REGLE : CE DELAI DOIT RESTER PLUS COURT QUE CELUI DE L'APPELANT.
