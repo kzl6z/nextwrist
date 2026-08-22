@@ -166,8 +166,44 @@ def test_le_bloc_porte_l_observation_et_reclame_du_francais(monkeypatch, tmp_pat
 
     assert "casquette.png" in sortie, "l'image regardee doit etre nommee"
     assert "a white cap" in sortie, "l'observation doit etre transmise"
-    assert "FRANCAIS" in sortie, "la reponse doit etre exigee en francais"
+    assert "francais" in sortie, "la reponse doit etre exigee en francais"
     assert "plus recente" in sortie, "et le fait de l'avoir devinee doit etre dit"
+
+
+def test_le_bloc_nomme_les_inventions_au_lieu_de_les_interdire(monkeypatch, tmp_path):
+    """⚠️ « N'AJOUTE RIEN » N'A PAS SUFFI, ET C'EST MESURE.
+
+    Releve sur la machine : la vision avait bien tourne — la lecture de la
+    question etait passee de 1939 ms a 11 631 ms, soit exactement le cout de
+    moondream — et nova-leger a repondu « une capture d'ecran de 1920x1080
+    pixels ». moondream n'enonce jamais de dimensions : le chiffre etait du
+    remplissage, greffe sur une observation par ailleurs exacte.
+
+    Une interdiction abstraite laisse un petit modele juger lui-meme ce qui
+    compte comme un ajout. Enumerer les categories qu'il invente reellement
+    lui donne une liste a reconnaitre — une tache qu'il sait faire.
+    """
+    from nova.vision import Observation, images, moteur
+
+    (tmp_path / "capture.png").write_bytes(PNG_1x1)
+
+    class MoteurDeBanc:
+        def __init__(self, *a, **k) -> None: ...
+
+        def decrire(self, cible):
+            return Observation(source=cible, description="a screenshot with text")
+
+    monkeypatch.setattr(moteur, "disponible", lambda: (True, ""))
+    monkeypatch.setattr(images, "dossiers_surveilles", lambda: (tmp_path,))
+    monkeypatch.setattr(moteur, "MoteurOllama", MoteurDeBanc)
+
+    sortie = bloc("analyse cette image")
+
+    # L'observation est delimitee : le modele doit pouvoir voir ou elle
+    # s'arrete, sans quoi « ne dis que ca » n'a pas de referent.
+    assert "<<< a screenshot with text >>>" in sortie
+    for invention in ("dimensions", "poids", "format", "dossier", "date"):
+        assert invention in sortie, f"« {invention} » doit etre nomme"
 
 
 def test_un_chemin_nomme_l_emporte_sur_la_plus_recente(monkeypatch, tmp_path):

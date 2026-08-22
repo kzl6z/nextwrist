@@ -212,12 +212,26 @@ def bloc(texte: str) -> str:
         f"Fichier : {cible.name}"
         + (f" ({quand})" if quand else "")
         + f"\n{provenance}\n\n"
-        "Observation du modele de vision :\n"
-        f"{observation.description}\n\n"
-        "⚠️ Reponds EN FRANCAIS a partir de cette observation, meme si elle "
-        "est redigee dans une autre langue. Nomme le fichier que tu as "
-        "regarde. N'ajoute rien que l'observation ne dise : si un detail n'y "
-        "figure pas, dis que tu ne le distingues pas."
+        "Observation du modele de vision — c'est la SEULE chose qui a ete "
+        "vue :\n"
+        f"<<< {observation.description} >>>\n\n"
+        "Ta reponse : traduis et reformule ce qui est entre <<< >>> en "
+        "francais, en une ou deux phrases, en nommant le fichier.\n\n"
+        # ⚠️ ON NOMME LES INVENTIONS OBSERVEES, PAS « N'INVENTE RIEN ».
+        #
+        # Premiere version : « n'ajoute rien que l'observation ne dise ».
+        # Releve sur la machine — la vision avait bien tourne, et nova-leger
+        # a repondu « une capture d'ecran de 1920x1080 pixels ». moondream
+        # n'enonce jamais de dimensions : le chiffre etait pur remplissage,
+        # greffe sur une observation par ailleurs exacte.
+        #
+        # Une interdiction ABSTRAITE laisse un petit modele juger lui-meme ce
+        # qui compte comme un ajout. Enumerer les categories qu'il invente
+        # reellement — taille, poids, format, dossier, date — lui donne une
+        # liste a reconnaitre, ce qu'il sait faire.
+        "Tu n'as pas vu l'image toi-meme. Les dimensions en pixels, le poids, "
+        "le format, le dossier, la date : rien de tout cela ne figure entre "
+        "<<< >>>, donc rien de tout cela ne doit figurer dans ta reponse."
     )
 
 
