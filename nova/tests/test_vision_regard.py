@@ -63,6 +63,11 @@ PNG_1x1 = bytes.fromhex(
         # formulation soignee n'attrape que les demonstrations.
         "c'est quoi cette photo",
         "qu'est-ce qu'il y a sur la photo que je viens de recevoir",
+        # ⚠️ ACCENTUES : `re.IGNORECASE` ne fait rien pour les accents, et
+        # tous les cas de ce banc etaient ecrits sans, comme les motifs.
+        "décris-moi ce cliché",
+        "regarde ce schéma",
+        "montre-moi la copie d'écran",
         "tu peux me dire ce qu'il y a sur cette image",
         "c'est quoi l'image que j'ai telechargee",
         "qu'est-ce que cette capture montre",

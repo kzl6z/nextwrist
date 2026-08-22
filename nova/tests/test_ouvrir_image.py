@@ -37,6 +37,16 @@ from nova.vision.regard import designe_une_image
 @pytest.mark.parametrize(
     "cible",
     [
+        # ⚠️ AVEC LES ACCENTS, ET C'EST LE SUJET.
+        #
+        # Tous les cas de ce banc etaient ecrits sans accents — comme le
+        # motif. Ils passaient donc tous, et le repli ne se declenchait
+        # JAMAIS a la voix : Whisper transcrit « dernière », correctement.
+        # Un banc ecrit dans le meme angle mort que le code ne teste rien.
+        "dernière image que j'ai transférée sur mon PC",
+        "la dernière photo",
+        "cette capture d'écran",
+        "ce cliché",
         "derniere image que j'ai transferee sur ce PC",
         "la derniere photo",
         "cette image",
@@ -66,6 +76,15 @@ def test_une_cible_qui_designe_un_fichier(cible):
         "Google Chrome",
         "Capture",          # l'utilitaire macOS de capture d'ecran
         "",
+        # ⚠️ ARTICLE INDEFINI : AUCUN FICHIER PRECIS N'EST DESIGNE.
+        #
+        # Ce cas a d'abord ete ecrit du mauvais cote — je l'attendais parmi
+        # les designations de fichier. Le banc a eu raison contre moi :
+        # « un cliché » ne designe rien de precis, et le confondre avec
+        # « ce cliché » ouvrirait un fichier au hasard sur une phrase qui
+        # n'en nommait aucun.
+        "un cliché",
+        "une photo",
     ],
 )
 def test_une_cible_qui_designe_une_application(cible):
@@ -117,8 +136,10 @@ def _aiguiller(phrase: str):
 
 
 def test_ouvrir_la_derniere_image_va_a_l_outil_image(catalogue):
-    """LE BANC CENTRAL : la phrase exacte qui echouait."""
-    outil, arguments = _aiguiller("ouvre-moi la derniere image que j'ai transferee sur ce PC")
+    """LE BANC CENTRAL : la phrase exacte qui echouait, ACCENTS COMPRIS."""
+    outil, arguments = _aiguiller(
+        "peux-tu ouvrir la dernière image que j'ai transférée sur mon PC ?"
+    )
 
     assert outil == "ouvrir_image"
     # Aucun chemin nomme : l'outil prendra la plus recente.

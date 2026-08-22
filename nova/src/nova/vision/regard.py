@@ -43,6 +43,7 @@ de l'ecrasante majorite des questions.
 from __future__ import annotations
 
 import re
+import unicodedata
 from pathlib import Path
 
 from nova.core import chrono
@@ -102,6 +103,40 @@ CHEMIN = re.compile(
 )
 
 
+def sans_accents(texte: str) -> str:
+    """« dernière » → « derniere ». Rien d'autre.
+
+    ⚠️ CE MODULE COMPARAIT DES MOTS ACCENTUES A DES MOTIFS QUI NE L'ETAIENT
+       PAS, ET `re.IGNORECASE` NE FAIT RIEN POUR LES ACCENTS.
+
+    Releve en conditions reelles : « peux-tu ouvrir la derniere image que j'ai
+    transferee sur mon PC » — Whisper avait parfaitement transcrit
+    « dernière », et le motif cherchait « derniere ». Le repli sur un fichier
+    image ne pouvait donc jamais se declencher a la voix, alors qu'il passait
+    tous ses bancs : ceux-ci etaient ecrits sans accents, comme le motif.
+
+    Le reste du projet depouille les accents avant toute comparaison
+    (`voice/intentions.py`, `espaces/__init__.py`). Ce module ne le faisait
+    pas, et c'est la seule raison.
+
+    ⚠️ ON NE TOUCHE NI AUX APOSTROPHES NI AUX TIRETS.
+
+    `intentions._normaliser` les transforme en espaces, ce qui lui convient.
+    Ici les motifs contiennent « c'est quoi », « qu'est-ce », « l' » : les
+    remplacer casserait la reconnaissance qu'on vient d'elargir.
+
+    La longueur est PRESERVEE — une lettre accentuee precomposee se decompose
+    en lettre + marque, et retirer la marque rend la lettre seule. Les
+    positions rendues par `finditer` restent donc valables sur le texte
+    d'origine, ce dont `parle_d_une_image` a besoin.
+    """
+    return "".join(
+        c
+        for c in unicodedata.normalize("NFD", texte or "")
+        if unicodedata.category(c) != "Mn"
+    )
+
+
 def parle_d_une_image(texte: str) -> bool:
     """Cette phrase demande-t-elle de regarder quelque chose ?
 
@@ -110,16 +145,20 @@ def parle_d_une_image(texte: str) -> bool:
     """
     if not texte:
         return False
+    # Le chemin se cherche sur le texte D'ORIGINE : un nom de fichier peut
+    # porter des accents, et on le veut tel qu'il est ecrit sur le disque.
+    # Les MOTS, eux, se comparent depouilles.
     if CHEMIN.search(texte):
         return True
-    if not DEMANDE_DE_REGARD.search(texte):
+    plat = sans_accents(texte)
+    if not DEMANDE_DE_REGARD.search(plat):
         return False
 
     # Reste a trancher entre « cette photo » et « une photo ». Il suffit
     # qu'UNE occurrence designe un fichier precis : dans « c'est quoi cette
     # photo, c'est une photo de vacances ? », la premiere suffit.
-    generiques = {m.end() for m in _INDEFINI.finditer(texte)}
-    return any(m.end() not in generiques for m in _OBJET_SEUL.finditer(texte))
+    generiques = {m.end() for m in _INDEFINI.finditer(plat)}
+    return any(m.end() not in generiques for m in _OBJET_SEUL.finditer(plat))
 
 
 #: Un objet visuel precede d'un DETERMINANT qui designe un exemplaire precis.
@@ -158,7 +197,7 @@ def designe_une_image(cible: str) -> bool:
     """
     if not cible:
         return False
-    return bool(CHEMIN.search(cible) or _DETERMINE.search(cible))
+    return bool(CHEMIN.search(cible) or _DETERMINE.search(sans_accents(cible)))
 
 
 def _situer(cible: Path) -> str:
