@@ -44,6 +44,18 @@ from nova.vision.regard import bloc, parle_d_une_image
         "montre-moi ce qu'il y a sur ce screenshot",
         "identifie ce qu'il y a sur l'image",
         "observe cette capture",
+        # ⚠️ LES TOURNURES ORDINAIRES MANQUAIENT, ET C'EST CE QU'ON DIT.
+        #
+        # Personne ne formule « decris-moi cette image » quand il peut dire
+        # « c'est quoi cette photo ». Un declencheur qui n'attrape que la
+        # formulation soignee n'attrape que les demonstrations.
+        "c'est quoi cette photo",
+        "qu'est-ce qu'il y a sur la photo que je viens de recevoir",
+        "tu peux me dire ce qu'il y a sur cette image",
+        "c'est quoi l'image que j'ai telechargee",
+        "qu'est-ce que cette capture montre",
+        "Nova peux-tu me décrire la dernière image que j'ai transférée "
+        "depuis mon téléphone ?",
     ],
 )
 def test_une_demande_de_regard_est_reconnue(phrase):
@@ -73,6 +85,18 @@ def test_un_chemin_ecrit_suffit_sans_le_mot_image():
         "combien de photos ai-je dans mes documents",
         "envoie cette image a Pierre",
         "supprime la capture d'ecran",
+        # ⚠️ L'ARTICLE INDEFINI : UNE QUESTION, PAS UN FICHIER.
+        #
+        # Elargir les verbes aux tournures interrogatives a ouvert cette
+        # famille de faux positifs d'un coup. « qu'est-ce qu'UNE photo
+        # argentique » est une question de culture generale ; « c'est quoi
+        # CETTE photo » demande de regarder. L'article porte toute
+        # l'information, et c'est ce qui evite de charger deux gigaoctets
+        # pour repondre a une question de vocabulaire.
+        "qu'est-ce qu'une photo argentique",
+        "c'est quoi une image vectorielle",
+        "explique-moi ce qu'est une capture d'ecran",
+        "comment fonctionne un scan",
         # Ni l'un ni l'autre — le cas de l'ecrasante majorite.
         "quelle heure est-il",
         "qu'est-ce qu'un trou noir",

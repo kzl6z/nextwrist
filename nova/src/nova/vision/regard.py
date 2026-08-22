@@ -59,8 +59,15 @@ log = get_logger(__name__)
 #: dans la meme phrase ecarte les deux cas sans liste d'exceptions.
 _VERBES = (
     r"analys\w*|decri\w*|décri\w*|regard\w*|observ\w*|examin\w*|"
-    r"vois|voir|montre\w*|lis|lire|dis[- ]moi ce qu|qu'y a[- ]t[- ]il|"
-    r"que vois[- ]tu|reconnais\w*|identifi\w*"
+    r"vois|voir|montre\w*|lis|lire|reconnais\w*|identifi\w*|"
+    # Les tournures interrogatives ordinaires. Elles manquaient, et c'est
+    # exactement ce qu'on dit dans la vraie vie : personne ne formule
+    # « decris-moi cette image » quand il peut dire « c'est quoi cette
+    # photo ». Un declencheur qui n'attrape que la formulation soignee
+    # n'attrape que les demonstrations.
+    r"c'est quoi|c est quoi|qu'est[- ]ce|qu est[- ]ce|"
+    r"ce qu'il y a|ce qu il y a|qu'y a[- ]t[- ]il|que vois[- ]tu|"
+    r"dis[- ]moi ce qu|tu peux me dire"
 )
 _OBJETS = (
     r"image|images|photo|photos|capture|captures|screenshot|"
@@ -71,6 +78,22 @@ _OBJETS = (
 DEMANDE_DE_REGARD = re.compile(
     rf"(?=.*\b(?:{_VERBES}))(?=.*\b(?:{_OBJETS})\b)", re.IGNORECASE
 )
+
+#: Un objet visuel precede d'un article INDEFINI.
+#:
+#: ⚠️ C'EST CE QUI SEPARE UNE QUESTION D'UNE DEMANDE DE REGARD.
+#:
+#:     « qu'est-ce qu'UNE photo argentique »  → une question de culture
+#:     « c'est quoi CETTE photo »             → regarde-la
+#:
+#: Sans cette distinction, elargir les verbes aux tournures interrogatives
+#: faisait charger un modele de 2 Go pour repondre a « qu'est-ce qu'une
+#: image vectorielle ». L'article porte toute l'information : indefini, on
+#: parle de la categorie ; defini ou demonstratif, on parle d'un fichier.
+_INDEFINI = re.compile(
+    rf"\b(?:un|une|des|d'|de)\s+(?:{_OBJETS})\b", re.IGNORECASE
+)
+_OBJET_SEUL = re.compile(rf"\b(?:{_OBJETS})\b", re.IGNORECASE)
 
 #: Un chemin d'image ecrit dans la phrase l'emporte sur toute heuristique.
 CHEMIN = re.compile(
@@ -87,7 +110,16 @@ def parle_d_une_image(texte: str) -> bool:
     """
     if not texte:
         return False
-    return bool(CHEMIN.search(texte) or DEMANDE_DE_REGARD.search(texte))
+    if CHEMIN.search(texte):
+        return True
+    if not DEMANDE_DE_REGARD.search(texte):
+        return False
+
+    # Reste a trancher entre « cette photo » et « une photo ». Il suffit
+    # qu'UNE occurrence designe un fichier precis : dans « c'est quoi cette
+    # photo, c'est une photo de vacances ? », la premiere suffit.
+    generiques = {m.end() for m in _INDEFINI.finditer(texte)}
+    return any(m.end() not in generiques for m in _OBJET_SEUL.finditer(texte))
 
 
 def _situer(cible: Path) -> str:
