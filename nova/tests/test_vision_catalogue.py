@@ -212,6 +212,65 @@ def test_le_lot_borne_le_travail_d_un_passage(images, tmp_path):
     assert ajoutees == 1
 
 
+def test_une_traduction_ratee_se_rattrape(images, tmp_path):
+    """⚠️ SANS CA, UNE TRADUCTION RATEE ETAIT DEFINITIVE.
+
+    Releve sur la machine : « Traduction ignoree : 6 ligne(s) pour 10
+    image(s) ». Le garde-fou a bien fonctionne — il a refuse d'attribuer la
+    description d'une image a une autre — mais les dix entrees sont restees
+    en anglais, et « casquette » ne trouvait rien.
+
+    Les images etaient marquees « a jour », et elles l'etaient : elles
+    avaient bien ete regardees. Rien ne repassait donc dessus. Le seul remede
+    aurait ete de supprimer le catalogue a la main — un geste que personne ne
+    devinera.
+    """
+    from nova.vision.catalogue import retraduire
+
+    catalogue = Catalogue(tmp_path / "cat.json")
+    indexer(
+        sorted(images.glob("*.png")),
+        catalogue,
+        decrire=lambda p: ANGLAIS[p.name],
+        traduire=lambda ds: ["une seule ligne"],   # le modele fusionne
+    )
+
+    assert catalogue.chercher("casquette") == [], "l'anglais ne repond pas au francais"
+    assert len(catalogue.non_traduites()) == 3
+
+    reprises = retraduire(catalogue, lambda ds: [FRANCAIS[d] for d in ds])
+
+    assert reprises == 3
+    assert catalogue.chercher("casquette")[0][0].nom == "IMG_7826-2.png"
+    assert catalogue.non_traduites() == ()
+
+
+def test_une_entree_traduite_n_est_pas_reprise(rempli):
+    """La retraduction ne doit pas tourner en boucle sur ce qui est deja fait."""
+    from nova.vision.catalogue import retraduire
+
+    assert rempli.non_traduites() == ()
+    assert retraduire(rempli, lambda ds: ds) == 0
+
+
+def test_la_retraduction_ne_regarde_aucune_image(images, tmp_path):
+    """Les descriptions sont deja la : seule leur langue change. Recharger le
+    modele de vision pour ca serait absurde."""
+    from nova.vision.catalogue import retraduire
+
+    catalogue = Catalogue(tmp_path / "cat.json")
+    indexer(
+        sorted(images.glob("*.png")),
+        catalogue,
+        decrire=lambda p: ANGLAIS[p.name],
+        traduire=lambda ds: ["fusionne"],
+    )
+    for image in images.glob("*.png"):
+        image.unlink()          # plus aucune image lisible
+
+    assert retraduire(catalogue, lambda ds: [FRANCAIS[d] for d in ds]) == 3
+
+
 # ══════════════════════════════════════════════════════════════════════════
 #  LA PERSISTANCE
 # ══════════════════════════════════════════════════════════════════════════

@@ -48,9 +48,17 @@ def main(argv: list[str]) -> int:
         etat = "" if dossier.is_dir() else "   (n'existe pas)"
         print(f"    {dossier}{etat}")
     print()
+    non_traduites = catalogue.non_traduites()
     print(f"  images trouvees   {len(toutes)}")
     print(f"  deja regardees    {len(catalogue)}")
     print(f"  restantes         {len(restantes)}")
+    if non_traduites:
+        # ⚠️ UNE ENTREE NON TRADUITE EST UNE IMAGE INTROUVABLE EN FRANCAIS.
+        #
+        # Le catalogue se remplit, la recherche reste vide, et rien ne le
+        # disait : c'est exactement ce qui est arrive, dix images decrites
+        # correctement en anglais et « casquette » sans reponse.
+        print(f"  ⚠️  restees en anglais  {len(non_traduites)}  →  make images FORCER=1")
     print(f"  vision            {'active' if utilisable else raison.splitlines()[0]}")
     print("═" * 74)
 
@@ -73,7 +81,13 @@ def main(argv: list[str]) -> int:
         if not utilisable:
             print(f"\n⚠️  {raison}")
             return 1
-        print(f"\n  Indexation d'un lot de {cat.LOT}… (charge le modele de vision)\n")
+        if non_traduites:
+            print(
+                f"\n  {len(non_traduites)} description(s) a traduire "
+                "(aucun modele de vision necessaire)\n"
+            )
+        else:
+            print(f"\n  Indexation d'un lot de {cat.LOT}… (charge le modele de vision)\n")
         from nova.vision.indexation import _un_passage
 
         ajoutees = _un_passage()  # noqa: SLF001 — c'est le sujet du script

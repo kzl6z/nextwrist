@@ -113,7 +113,53 @@ def _machine_saturee() -> bool:
 
 
 def _traduire_avec(client) -> list[str]:
-    """Rend une fonction qui traduit un LOT de descriptions en une fois."""
+    """Rend une fonction qui traduit un lot de descriptions.
+
+    ⚠️ LE LOT D'ABORD, LIGNE PAR LIGNE SI LE COMPTE NE TOMBE PAS JUSTE.
+
+    Releve sur la machine : « Traduction ignoree : 6 ligne(s) pour 10
+    image(s) ». Le garde-fou a bien fonctionne — il a refuse d'attribuer la
+    description d'une image a une autre — mais le resultat etait inutilisable :
+    dix descriptions restees en anglais, et « casquette » ne trouvait rien.
+
+    Un modele de deux milliards de parametres fusionne des lignes. On ne peut
+    pas le lui interdire ; on peut retomber sur des appels ou l'erreur est
+    IMPOSSIBLE : une description a l'entree, une reponse a la sortie. Dix
+    appels courts au lieu d'un long, mais en tache de fond, ou personne
+    n'attend.
+
+    Le lot reste essaye d'abord : quand il marche — et il marche souvent — il
+    coute dix fois moins.
+    """
+
+    def _une_a_une(descriptions: list[str]) -> list[str]:
+        """Un appel par description. Le compte ne peut plus se tromper."""
+        rendues: list[str] = []
+        for description in descriptions:
+            try:
+                reponse = client.chat(
+                    [
+                        {
+                            "role": "user",
+                            "content": (
+                                "Traduis cette description d'image en francais. "
+                                "Reponds UNIQUEMENT par la traduction, sans "
+                                "commentaire ni guillemets.\n\n"
+                                f"{description}"
+                            ),
+                        }
+                    ],
+                    temperature=0.0,
+                )
+            except Exception as erreur:  # noqa: BLE001
+                log.warning("Description non traduite (%s).", erreur)
+                rendues.append(description)
+                continue
+            # Une reponse vide ou bavarde retombe sur l'original : l'anglais
+            # cherchable vaut mieux qu'une ligne perdue.
+            propre = (reponse or "").strip().strip('"«» ').splitlines()
+            rendues.append(propre[0].strip() if propre and propre[0].strip() else description)
+        return rendues
 
     def traduire(descriptions: list[str]) -> list[str]:
         # ⚠️ UNE LIGNE PAR IMAGE, ET ON VERIFIE LE COMPTE EN SORTIE.
@@ -142,7 +188,14 @@ def _traduire_avec(client) -> list[str]:
             for ligne in (reponse or "").splitlines()
             if ligne.strip() and ligne.strip()[0].isdigit()
         ]
-        return lignes
+        if len(lignes) == len(descriptions):
+            return lignes
+
+        log.info(
+            "Traduction par lot incomplete (%d/%d) — reprise une par une.",
+            len(lignes), len(descriptions),
+        )
+        return _une_a_une(descriptions)
 
     return traduire
 
@@ -162,6 +215,15 @@ def _un_passage(lot: int = LOT) -> int:
     if oubliees := catalogue.oublier_les_disparues():
         log.info("Catalogue d'images : %d entree(s) disparue(s) retiree(s).", oubliees)
         catalogue.enregistrer()
+
+    # ⚠️ RATTRAPER LES TRADUCTIONS RATEES AVANT DE REGARDER PLUS D'IMAGES.
+    #
+    # Une entree restee en anglais est une image introuvable en francais : le
+    # catalogue se remplit et la recherche reste vide. Ce rattrapage ne coute
+    # aucun appel au modele de VISION — les descriptions sont deja la, seule
+    # leur langue change — donc il passe avant, toujours.
+    if reprises := cat.retraduire(catalogue, _traduire_avec(LLMClient()), lot=lot):
+        return reprises
 
     restantes = [c for c in cat.a_indexer() if not catalogue.a_jour(c)]
     if not restantes:

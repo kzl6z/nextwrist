@@ -43,7 +43,7 @@ import re
 import time
 import unicodedata
 from collections.abc import Callable, Iterable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from nova.logging_setup import get_logger
@@ -214,6 +214,22 @@ class Catalogue:
     def ajouter(self, entree: Entree) -> None:
         self._entrees[entree.chemin] = entree
 
+    def non_traduites(self) -> tuple[Entree, ...]:
+        """Les entrees restees dans la langue du modele de vision.
+
+        ⚠️ UNE ENTREE NON TRADUITE EST UNE IMAGE INTROUVABLE EN FRANCAIS.
+
+        Releve sur la machine : dix images decrites correctement — « a hand
+        holding a white baseball cap » — et « casquette » ne trouvait rien.
+        Le catalogue etait plein et la recherche vide.
+
+        `origine` n'est renseigne que lorsqu'une traduction a REELLEMENT eu
+        lieu : son absence est donc la marque exacte de celles qu'il faut
+        reprendre. Sans ce reperage, la reindexation exigerait de supprimer
+        le catalogue a la main — un geste que personne ne devinera.
+        """
+        return tuple(e for e in self._entrees.values() if not e.origine)
+
     def a_jour(self, chemin: Path) -> bool:
         """Cette image est-elle deja decrite, dans sa version actuelle ?"""
         connue = self._entrees.get(str(chemin))
@@ -356,6 +372,53 @@ def indexer(
         catalogue.enregistrer()
         log.info("Catalogue d'images : %d ajoutee(s), %d au total.", ajoutees, len(catalogue))
     return ajoutees
+
+
+def retraduire(
+    catalogue: Catalogue,
+    traduire: Callable[[list[str]], list[str]],
+    *,
+    lot: int = LOT,
+) -> int:
+    """Reprend les descriptions restees dans la langue du modele de vision.
+
+    ⚠️ SANS CETTE FONCTION, UNE TRADUCTION RATEE ETAIT DEFINITIVE.
+
+    Les images etaient marquees « a jour » — elles l'etaient : elles avaient
+    bien ete regardees. Rien ne repassait donc dessus, et le seul remede
+    aurait ete de supprimer le catalogue a la main.
+
+    Ne coute AUCUN appel au modele de vision : les descriptions sont deja la,
+    seule leur langue change.
+    """
+    a_reprendre = catalogue.non_traduites()[:lot]
+    if not a_reprendre:
+        return 0
+
+    anglaises = [e.description for e in a_reprendre]
+    try:
+        francaises = traduire(anglaises)
+    except Exception as erreur:  # noqa: BLE001
+        log.warning("Retraduction impossible (%s).", erreur)
+        return 0
+    if len(francaises) != len(a_reprendre):
+        log.warning("Retraduction ignoree : compte incoherent.")
+        return 0
+
+    reprises = 0
+    for entree, francaise in zip(a_reprendre, francaises, strict=True):
+        propre = (francaise or "").strip()
+        if not propre or propre == entree.description:
+            continue
+        catalogue.ajouter(
+            replace(entree, description=propre, origine=entree.description)
+        )
+        reprises += 1
+
+    if reprises:
+        catalogue.enregistrer()
+        log.info("Catalogue d'images : %d description(s) traduite(s).", reprises)
+    return reprises
 
 
 def fichier_par_defaut() -> Path:
