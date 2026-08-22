@@ -80,6 +80,78 @@ class ListerCeQueMontreLImage:
         return {"image": Path(chemin).name, "composants": list(composants)}
 
 
+class OuvrirImage:
+    """Ouvre une image dans l'application par defaut du systeme.
+
+    ⚠️ POURQUOI CET OUTIL EXISTE SEPAREMENT D'`ouvrir_application`.
+
+    Releve en conditions reelles : « ouvre-moi la derniere image que j'ai
+    transferee sur ce PC » produisait
+
+        Je ne trouve pas d'application « derniere image que j'ai
+        transferee sur ce PC » sur cette machine.
+
+    Le verbe « ouvre » est capte par la reconnaissance d'intention, qui ne
+    connaissait qu'une seule chose a ouvrir : une application. La cible etait
+    donc confrontee au catalogue des applications installees, ou elle n'avait
+    aucune chance de figurer.
+
+    Le message etait exact et inutile : il decrivait ce que Nova avait
+    cherche, pas ce qu'on lui avait demande.
+
+    ⚠️ NIVEAU REVERSIBLE, COMME `ouvrir_application`.
+
+    Une fenetre s'ouvre ; on la ferme et il ne reste rien. Ce n'est pas une
+    lecture — quelque chose se passe a l'ecran — mais ca se defait.
+    """
+
+    nom = "ouvrir_image"
+    description = "Ouvre une image dans l'application par defaut (macOS)"
+    capacite = "action"
+    niveau = contrats.REVERSIBLE
+
+    def __init__(self, racine: Path | None = None) -> None:
+        self.racine = Path(racine) if racine is not None else None
+
+    def _dossiers(self):
+        from nova.vision.images import dossiers_surveilles
+
+        return (self.racine,) if self.racine is not None else dossiers_surveilles()
+
+    def executer(self, chemin: str = "") -> str:
+        """Ouvre l'image nommee, ou la plus recente si aucune n'est nommee.
+
+        ⚠️ LA BORNE EST LA MEME QUE POUR REGARDER.
+
+        `open` sur un chemin non verifie ouvrirait n'importe quel fichier de
+        la machine. Ouvrir n'est pas lire — mais rien ne justifie que le
+        chemin soit moins borne ici que dans `decrire_image`, et deux regles
+        differentes pour le meme dossier sont une invitation a se tromper.
+        """
+        import subprocess
+
+        from nova.outils.systeme import DELAI_S, ActionImpossible, _verifier_macos
+        from nova.vision.images import la_plus_recente, resoudre
+
+        _verifier_macos(self.nom)
+        dossiers = self._dossiers()
+        cible = resoudre(chemin, dossiers) if chemin else la_plus_recente(dossiers)
+
+        # Liste d'arguments, jamais une chaine : l'injection devient
+        # impossible plutot qu'improbable. Meme regle qu'`ouvrir_application`.
+        resultat = subprocess.run(  # noqa: S603
+            ["/usr/bin/open", str(cible)],
+            capture_output=True, text=True, timeout=DELAI_S,
+        )
+        if resultat.returncode != 0:
+            detail = (resultat.stderr or "").strip()
+            raise ActionImpossible(
+                f"Impossible d'ouvrir « {cible.name} »." + (f" {detail}" if detail else "")
+            )
+        log.info("Image ouverte : %s", cible)
+        return f"J'ai ouvert {cible.name}."
+
+
 def enregistrer_outils_vision(registre, racine: Path) -> tuple[str, ...]:
     """Inscrit les outils de vision. Rend leurs noms.
 
@@ -95,7 +167,10 @@ def enregistrer_outils_vision(registre, racine: Path) -> tuple[str, ...]:
     etre visible, y compris quand il ne peut pas encore servir.
     """
     inscrits: list[str] = []
-    for outil in (DecrireImage(racine), ListerCeQueMontreLImage(racine)):
+    # `OuvrirImage` sans racine : il consulte les dossiers surveilles, comme
+    # le regard. Lui figer une racine ici le limiterait a `data/`, c'est-a-dire
+    # a l'endroit ou les images de l'utilisateur ne sont jamais.
+    for outil in (DecrireImage(racine), ListerCeQueMontreLImage(racine), OuvrirImage()):
         if outil.nom not in registre:
             registre.enregistrer(outil)
             inscrits.append(outil.nom)

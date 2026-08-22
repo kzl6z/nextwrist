@@ -122,6 +122,45 @@ def parle_d_une_image(texte: str) -> bool:
     return any(m.end() not in generiques for m in _OBJET_SEUL.finditer(texte))
 
 
+#: Un objet visuel precede d'un DETERMINANT qui designe un exemplaire precis.
+#:
+#: ⚠️ CE MOTIF EXISTE POUR NE PAS CONFONDRE UNE IMAGE AVEC UNE APPLICATION.
+#:
+#: « ouvre Photos » vise l'application Photos de macOS. « ouvre la derniere
+#: photo » vise un fichier. Le mot est le meme ; c'est le DETERMINANT qui
+#: tranche — et l'absence de determinant est la marque d'un nom propre.
+#:
+#:     Photos, Photo Booth, Aperçu   ← des applications, aucun determinant
+#:     la photo, cette image, mes captures, la derniere photo
+#:
+#: Les adjectifs intercales sont admis (« la DERNIERE photo »), au plus deux :
+#: au-dela on ne designe plus, on decrit.
+_DETERMINE = re.compile(
+    rf"\b(?:la|le|les|l'|l|ce|cet|cette|ces|ma|mon|mes|derniere|dernier)\s+"
+    rf"(?:\w+\s+){{0,2}}(?:{_OBJETS})\b",
+    re.IGNORECASE,
+)
+
+
+def designe_une_image(cible: str) -> bool:
+    """Cette cible designe-t-elle un FICHIER image plutot qu'une application ?
+
+    ⚠️ SERT DE REPLI, JAMAIS DE PRIORITE.
+
+    L'orchestrateur consulte d'abord le catalogue des applications reelles :
+    une application qui s'appelle vraiment « Photos » gagne toujours. Ce n'est
+    que lorsque rien d'installe ne correspond qu'on se demande si la personne
+    parlait d'un fichier.
+
+    L'ordre importe : pre-empter aurait casse « ouvre Photos », qui marche
+    depuis longtemps. Un repli n'enleve rien a ce qui fonctionnait deja — il
+    remplace seulement un echec par une reussite.
+    """
+    if not cible:
+        return False
+    return bool(CHEMIN.search(cible) or _DETERMINE.search(cible))
+
+
 def _situer(cible: Path) -> str:
     """« il y a 4 minutes », « il y a 3 jours » — ou rien si c'est illisible."""
     from nova.vision.images import age_en_heures

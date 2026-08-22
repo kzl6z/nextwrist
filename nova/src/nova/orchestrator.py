@@ -857,10 +857,11 @@ class _Cible:
 def _resoudre_application(cible: str) -> _Cible:
     """Confronte une cible entendue au catalogue reel.
 
-        exact     on sait de quelle application il s'agit
-        propose   on a un candidat, pas une certitude — il faut demander
-        ambigu    plusieurs applications portent ce mot
-        inconnu   rien de ressemblant n'est installe
+        exact         on sait de quelle application il s'agit
+        propose       on a un candidat, pas une certitude — il faut demander
+        ambigu        plusieurs applications portent ce mot
+        inconnu       rien de ressemblant n'est installe
+        inverifiable  aucun catalogue lisible : on ne peut rien affirmer
 
     ⚠️ POURQUOI UNE RESSEMBLANCE ELEVEE NE SUFFIT PAS A AGIR
 
@@ -905,7 +906,23 @@ def _resoudre_application(cible: str) -> _Cible:
 
     catalogue = applications.installees()
     if not catalogue:
-        return _Cible(cible, "exact")
+        # ⚠️ « INVERIFIABLE » N'EST PAS « EXACT », ET LES CONFONDRE A COUTE
+        #    UN REPLI QUI NE POUVAIT PAS SE DECLENCHER.
+        #
+        # Cet etat rendait « exact » : on laisse passer la cible telle quelle
+        # plutot que de tout refuser, ce qui reste le bon comportement. Mais
+        # « je sais que c'est cette application » et « je n'ai aucun moyen de
+        # savoir » ne sont pas la meme information, et tout appelant qui se
+        # fie a « exact » pour conclure a une certitude se trompe.
+        #
+        # Le repli sur un fichier image s'y est casse : sur une machine sans
+        # catalogue, « ouvre la derniere image » ressortait « exact » et
+        # partait vers `ouvrir_application`.
+        #
+        # L'etat traverse `_confronter_au_reel` exactement comme avant — il
+        # n'est ni ambigu, ni inconnu, ni propose — donc rien ne change pour
+        # qui ne le lit pas.
+        return _Cible(cible, "inverifiable")
 
     if reel := applications.resoudre(cible):
         return _Cible(reel, "exact")
@@ -993,25 +1010,70 @@ def _enumerer(noms: tuple[str, ...]) -> str:
 
 def _confronter_au_reel(
     action, cible: str, *, confirme: bool
-) -> tuple[dict | None, Resultat | None]:
+) -> tuple[object, dict | None, Resultat | None]:
     """Valide la cible avant qu'elle n'atteigne l'outil.
 
-    Rend soit les arguments a utiliser, soit le `Resultat` qui interrompt.
+    Rend l'ACTION a executer, les arguments, ou le `Resultat` qui interrompt.
+
+    ⚠️ L'ACTION EST RENDUE PARCE QU'ELLE PEUT CHANGER.
+
+    Elle etait passee en entree et jamais en sortie, ce qui supposait que
+    confronter une cible au reel ne pouvait que la valider ou la refuser. Or
+    « ouvre la derniere image » demande un autre outil que « ouvre Discord » —
+    et la seule facon de le savoir est justement d'avoir confronte la cible.
+
+    L'alternative etait de faire passer un nom d'outil dans le dictionnaire
+    d'arguments. Elle aurait marche jusqu'au premier outil prenant un
+    argument du meme nom.
     """
     from nova.core import actions, contrats
 
     if action.catalogue != actions.CATALOGUE_APPLICATIONS or not action.argument:
-        return {action.argument: cible} if action.argument else {}, None
+        return action, ({action.argument: cible} if action.argument else {}), None
 
     trouvee = _resoudre_application(cible)
     retenu, etat = trouvee.nom, trouvee.etat
+
+    # ── LE REPLI SUR UN FICHIER IMAGE ────────────────────────────────────
+    #
+    # ⚠️ APRES LE CATALOGUE, JAMAIS AVANT.
+    #
+    # « ouvre-moi la derniere image que j'ai transferee » rendait « Je ne
+    # trouve pas d'application "derniere image que j'ai transferee" sur cette
+    # machine » — exact, et inutile : le message decrivait ce que Nova avait
+    # cherche, pas ce qu'on lui avait demande. Le verbe « ouvre » ne
+    # connaissait qu'une seule chose a ouvrir.
+    #
+    # Pre-empter aurait ete plus simple a ecrire et FAUX : « ouvre Photos »
+    # vise l'application Photos de macOS, et « photos » est justement le mot
+    # qui designe une image. Le determinant tranche — « LA photo » contre
+    # « Photos » — mais s'y fier seul reviendrait a parier sur la grammaire
+    # d'une transcription vocale.
+    #
+    # Un repli n'enleve rien : une application reellement installee gagne
+    # toujours. Il remplace seulement un echec par une reussite.
+    if etat != "exact" and action.outil == "ouvrir_application":
+        from nova.vision.regard import CHEMIN, designe_une_image
+
+        if designe_une_image(cible):
+            nomme = CHEMIN.search(cible)
+            log.info("« %s » ne designe aucune application : ouverture comme image.", cible)
+            # L'action est REMPLACEE, pas contournee. Faire passer un nom
+            # d'outil dans le dictionnaire d'arguments aurait marche
+            # aujourd'hui et se serait paye au premier outil qui prend un
+            # argument du meme nom.
+            return (
+                actions.Action("ouvrir_image", "chemin"),
+                {"chemin": nomme.group(1) if nomme else ""},
+                None,
+            )
 
     if etat == "ambigu":
         # On NE tranche PAS a la place de l'utilisateur. La question est posee
         # en `echouee` et non en `a_confirmer` a dessein : « oui » ne saurait
         # pas designer laquelle. Elle se repond en nommant l'application, ce
         # qui repart comme une demande neuve — sans etat a garder.
-        return None, Resultat(
+        return action, None, Resultat(
             "echouee",
             f"« {cible} » peut désigner {_enumerer(trouvee.candidats)}. Laquelle ?",
             outil=action.outil, arguments={action.argument: cible},
@@ -1021,7 +1083,7 @@ def _confronter_au_reel(
         # Dire ce qu'on ne trouve pas vaut mieux que laisser `open` echouer
         # avec un message en anglais sur un nom que Nova a peut-etre mal
         # entendu.
-        return None, Resultat(
+        return action, None, Resultat(
             "echouee",
             f"Je ne trouve pas d'application « {cible} » sur cette machine.",
             outil=action.outil, arguments={action.argument: cible},
@@ -1037,21 +1099,21 @@ def _confronter_au_reel(
         # confondre : aujourd'hui aucun outil n'est dans ce cas, et le jour ou
         # l'un le sera, il trouvera cette garde au lieu du piege.
         if contrats.exige_confirmation(_niveau_de(action.outil) or contrats.IRREVERSIBLE):
-            return None, Resultat(
+            return action, None, Resultat(
                 "echouee",
                 f"Je ne suis pas sûre de « {cible} » — je ne devine pas sur une "
                 "action de cette importance.",
                 outil=action.outil, arguments={action.argument: cible},
             )
         if not confirme:
-            return None, Resultat(
+            return action, None, Resultat(
                 "a_confirmer",
                 f"Je ne connais pas « {cible} ». Tu veux dire « {retenu} » ?",
                 outil=action.outil, niveau=_niveau_de(action.outil),
                 arguments={action.argument: retenu},
             )
 
-    return {action.argument: retenu}, None
+    return action, {action.argument: retenu}, None
 
 
 def executer_intention(comprise, *, confirme: bool = False) -> Resultat:
@@ -1094,7 +1156,7 @@ def executer_intention(comprise, *, confirme: bool = False) -> Resultat:
     # La cible est confrontee au reel AVANT d'atteindre l'outil. Un nom
     # d'application mal entendu doit se rattraper ici, ou il deviendra un
     # echec de `open` sur lequel personne ne peut rien.
-    arguments, interruption = _confronter_au_reel(
+    action, arguments, interruption = _confronter_au_reel(
         action, intention.cible, confirme=confirme
     )
     if interruption is not None:
