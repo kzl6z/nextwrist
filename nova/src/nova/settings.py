@@ -347,6 +347,28 @@ class Settings(BaseSettings):
     # interne : envoyer plus grand fait payer l'envoi et l'attente pour une
     # image que le moteur reduira lui-meme avant de la regarder.
     vision_cote_max: int = 1024
+    # Ou Nova cherche « la derniere image », separes par des virgules.
+    #
+    # ⚠️ CETTE LIGNE ELARGIT CE QUE NOVA A LE DROIT DE LIRE. C'EST LE SUJET.
+    #
+    # Une image qui arrive du telephone, d'un mail ou de Chrome atterrit dans
+    # « Telechargements » ; une capture d'ecran atterrit sur le Bureau. Exiger
+    # de la deplacer dans `data/` avant d'en parler, c'est demander a
+    # quelqu'un de ranger avant de poser sa question — donc ne jamais s'en
+    # servir.
+    #
+    # Mais la vision RACONTE le contenu d'un fichier : chaque dossier ajoute
+    # ici devient lisible a voix haute. Ces trois-la sont ceux ou l'on depose
+    # ce qu'on veut montrer. Un dossier de documents personnels n'a rien a y
+    # faire, et `~` encore moins.
+    #
+    # La borne n'est pas supprimee, elle est deplacee : hors de ces dossiers,
+    # Nova refuse toujours.
+    vision_dossiers: str = "data, ~/Downloads, ~/Desktop"
+    # Age au-dela duquel « la derniere image » n'est probablement plus celle
+    # dont on parle. Nova la propose quand meme, en disant son age : se
+    # tromper de fichier en le NOMMANT se corrige d'un mot.
+    vision_fraicheur_h: int = 48
     # Delai de LECTURE accorde au moteur, en secondes.
     #
     # ⚠️ REGLE : CE DELAI DOIT RESTER PLUS COURT QUE CELUI DE L'APPELANT.

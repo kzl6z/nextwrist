@@ -568,6 +568,28 @@ def build_system_prompt(
         "d'heure. Ne la recalcule pas, ne l'estime pas.",
     )
 
+    # 4. Ce que Nova voit.
+    #
+    # ⚠️ APRES L'INSTANT PRESENT, ET CE N'EST PAS ARBITRAIRE.
+    #
+    # Meme raison que pour l'ordre des autres blocs : le cache du moteur vaut
+    # jusqu'au premier caractere qui change. Une observation d'image change a
+    # chaque image, donc plus souvent que tout le reste — elle va donc apres
+    # ce qui est stable, pour ne couter qu'elle-meme.
+    #
+    # ⚠️ ET GRATUIT QUAND LA DEMANDE NE PARLE PAS D'IMAGE.
+    #
+    # `regard.bloc` commence par une expression reguliere. Elle rend `""` en
+    # zero milliseconde pour l'ecrasante majorite des questions — ce qui est
+    # la condition pour que ce branchement ne coute rien a personne.
+    try:
+        from nova.vision import regard
+
+        ajouter("regard", regard.bloc(user_message))
+    except Exception as exc:  # noqa: BLE001
+        # Une capacite en panne degrade la reponse, elle ne l'empeche jamais.
+        log.warning("Vision indisponible : %s", exc)
+
     hits: list[SearchHit] = []
     ms_recherche = 0.0
     if len(user_message.strip()) >= MIN_QUERY_LENGTH:

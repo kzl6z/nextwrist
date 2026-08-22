@@ -82,7 +82,7 @@ def test_une_image_hors_du_dossier_de_travail_est_refusee(tmp_path):
     with pytest.raises(ImageIllisible) as refus:
         resoudre(str(dehors), racine)
 
-    assert "sort du dossier de travail" in str(refus.value)
+    assert "sort des dossiers" in str(refus.value)
 
 
 def test_remonter_avec_des_points_ne_contourne_pas_la_borne(tmp_path):
@@ -111,7 +111,7 @@ def test_un_lien_symbolique_vers_l_exterieur_est_refuse(tmp_path):
 
     # Le refus doit porter sur la BORNE, pas sur « fichier absent » : un lien
     # casse leverait aussi, et le banc passerait pour la mauvaise raison.
-    assert "sort du dossier de travail" in str(refus.value)
+    assert "sort des dossiers" in str(refus.value)
 
 
 def test_un_chemin_relatif_dans_le_dossier_est_accepte(tmp_path):
@@ -148,7 +148,7 @@ def test_un_dossier_sans_image_dit_quoi_faire(tmp_path):
     with pytest.raises(ImageIntrouvable) as absence:
         la_plus_recente(tmp_path)
 
-    assert "Depose-la la" in str(absence.value)
+    assert "Depose-la dans l'un d'eux" in str(absence.value)
 
 
 def test_le_heic_est_reconnu_comme_image_meme_sans_savoir_le_lire():
