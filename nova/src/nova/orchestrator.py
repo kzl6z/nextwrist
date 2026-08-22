@@ -705,6 +705,16 @@ def answer_stream(
 
     conversations.log_message(conversation_id, "user", last_user)
 
+    # Repousse l'indexation des images : charger le modele de vision pendant
+    # qu'on parle a Nova ferait attendre la reponse suivante sans raison
+    # visible. Une horloge et un verrou — quelques microsecondes.
+    try:
+        from nova.vision.indexation import signaler_activite
+
+        signaler_activite()
+    except Exception:  # noqa: BLE001, S110
+        pass
+
     client = LLMClient()
     collected: list[str] = []
     completed = False
@@ -1057,6 +1067,29 @@ def _confronter_au_reel(
 
         if designe_une_image(cible):
             nomme = CHEMIN.search(cible)
+            # ⚠️ « OUVRE L'IMAGE OU IL Y A UNE CASQUETTE » N'EST PAS
+            #    « OUVRE LA DERNIERE IMAGE ».
+            #
+            # La premiere decrit un CONTENU : sans consulter le catalogue, on
+            # ouvrirait la plus recente — une image que personne n'a demandee,
+            # et Nova annoncerait fierement l'avoir ouverte. C'est le genre de
+            # reussite apparente qui est pire qu'un echec.
+            from nova.vision.regard import contenu_cherche, retrouver
+
+            if not nomme and (quoi := contenu_cherche(cible)):
+                if trouvees := retrouver(quoi, limite=1):
+                    entree = trouvees[0][0]
+                    log.info("« %s » retrouvee au catalogue : %s", quoi, entree.nom)
+                    return (
+                        actions.Action("ouvrir_image", "chemin"),
+                        {"chemin": entree.chemin},
+                        None,
+                    )
+                return action, None, Resultat(
+                    "echouee",
+                    f"Je n'ai trouvé aucune image correspondant à {quoi}.",
+                    outil="ouvrir_image", arguments={"chemin": ""},
+                )
             log.info("« %s » ne designe aucune application : ouverture comme image.", cible)
             # L'action est REMPLACEE, pas contournee. Faire passer un nom
             # d'outil dans le dictionnaire d'arguments aurait marche

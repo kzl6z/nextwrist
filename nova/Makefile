@@ -1,4 +1,4 @@
-.PHONY: install migrate serve up down logs test lint ingest ui diagnostic perf vision
+.PHONY: install migrate serve up down logs test lint ingest ui diagnostic perf vision images
 
 install:          ## Installe les dependances dans un environnement local
 	uv sync --extra dev
@@ -14,6 +14,9 @@ perf:             ## Ou passent les millisecondes (Nova doit tourner)
 
 vision:           ## Ou partent les secondes de la vision  (IMAGE=photo.jpg [COTE=672] [MODELE=moondream])
 	COTE=$(COTE) MODELE=$(MODELE) uv run python scripts/bench_vision.py $(IMAGE)
+
+images:           ## Ce que Nova a deja regarde  (CHERCHE="casquette" | FORCER=1)
+	CHERCHE=$(CHERCHE) FORCER=$(FORCER) uv run python scripts/images.py
 
 migrate:          ## Applique les migrations SQL
 	uv run nova db migrate

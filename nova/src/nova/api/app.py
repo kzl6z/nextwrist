@@ -215,6 +215,16 @@ async def lifespan(app: FastAPI):
     arret = threading.Event()
     threading.Thread(target=_entretenir, args=(arret,), daemon=True, name="chauffe").start()
     threading.Thread(target=_prechauffer_la_voix, daemon=True, name="voix").start()
+    # ⚠️ CE FIL EST LE SEUL QUI CHARGE UN MODELE SANS QU'ON LUI AIT RIEN
+    #    DEMANDE — il attend donc deux minutes de silence avant d'oser.
+    #
+    # Il ne demarre pas du tout quand la vision est eteinte, ce qui est le
+    # defaut : personne ne paie pour une capacite qu'il n'utilise pas.
+    from nova.vision.indexation import entretenir as indexer_les_images
+
+    threading.Thread(
+        target=indexer_les_images, args=(arret,), daemon=True, name="images"
+    ).start()
 
     yield
 

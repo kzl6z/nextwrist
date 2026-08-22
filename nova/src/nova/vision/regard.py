@@ -210,6 +210,73 @@ def designe_une_image(cible: str) -> bool:
     return bool(CHEMIN.search(cible) or _DETERMINE.search(sans_accents(cible)))
 
 
+#: Ce qui distingue « retrouve-moi l'image ou… » de « decris cette image ».
+#:
+#: ⚠️ LA DIFFERENCE N'EST PAS LE VERBE, C'EST LA DESCRIPTION DU CONTENU.
+#:
+#:     « decris cette image »              → regarde celle du dessus de la pile
+#:     « l'image ou il y a une casquette » → cherche laquelle, parmi toutes
+#:
+#: Le second dit ce qu'il y a DANS l'image. C'est cette subordonnee — « ou il
+#: y a », « avec », « qui montre » — qui fait basculer d'un regard vers une
+#: recherche. Sans elle, « retrouve mon image » ne designe rien de precis et
+#: retombe sur la plus recente, ce qui est le bon comportement.
+#: ⚠️ LA CAPTURE S'ARRETE A LA VIRGULE, ET CE N'EST PAS UN DETAIL.
+#:
+#: Sans elle, « … ou il y a une casquette tenue dans une main, est-ce que tu
+#: peux me la retrouver ? » capturait la question avec. Le score etant une
+#: PROPORTION des mots cherches, chaque mot parasite le fait BAISSER :
+#: « retrouver » n'apparaitra dans aucune description d'image, et la bonne
+#: reponse passait sous le seuil. Plus la phrase etait polie, moins la
+#: recherche marchait.
+_CONTENU = re.compile(
+    rf"\b(?:{_OBJETS})\b[^.?!,]*?\b(?:ou il y a|ou on voit|ou il y avait|"
+    rf"avec|qui montre|qui represente|qui contient|contenant|montrant|"
+    rf"montre|represente|contient|affiche|de la|du|des|de mon|de ma|de mes)"
+    rf"\s+(?P<quoi>[^.?!,]{{3,120}})",
+    re.IGNORECASE,
+)
+
+#: Les verbes qui demandent de CHERCHER plutot que de regarder.
+_RETROUVER = re.compile(
+    r"\b(?:retrouv\w*|retrouve[- ]moi|cherch\w*|trouv\w*|ou est|ou se trouve|"
+    r"laquelle|quelle image|quelle photo|as[- ]tu|acces a)\b",
+    re.IGNORECASE,
+)
+
+
+def contenu_cherche(texte: str) -> str:
+    """Ce que la personne dit voir DANS l'image, ou `""`.
+
+    Rend la partie utile a la recherche — « une casquette tenue dans une
+    main » — et non la phrase entiere : « est-ce que tu peux me retrouver
+    l'image » ne contient aucun mot qui designe une image en particulier, et
+    les inclure ferait ressembler la question a toutes les descriptions.
+    """
+    if not texte:
+        return ""
+    trouve = _CONTENU.search(sans_accents(texte))
+    if not trouve:
+        return ""
+    # On decoupe sur le texte D'ORIGINE, aux memes positions : le
+    # depouillement des accents preserve les longueurs, et une description
+    # accentuee doit rester lisible dans le compte rendu.
+    debut, fin = trouve.span("quoi")
+    return texte[debut:fin].strip(" ?.!,")
+
+
+def demande_de_retrouver(texte: str) -> bool:
+    """Cette phrase demande-t-elle de CHERCHER une image parmi d'autres ?"""
+    if not texte:
+        return False
+    plat = sans_accents(texte)
+    return bool(
+        _OBJET_SEUL.search(plat)
+        and (contenu_cherche(texte) or _RETROUVER.search(plat))
+        and contenu_cherche(texte)
+    )
+
+
 def _situer(cible: Path) -> str:
     """« il y a 4 minutes », « il y a 3 jours » — ou rien si c'est illisible."""
     from nova.vision.images import age_en_heures
@@ -232,6 +299,87 @@ def _situer(cible: Path) -> str:
     return dire(int(heures / 24), "jour")
 
 
+def retrouver(quoi: str, limite: int = 3):
+    """Les images du catalogue qui correspondent. Ne leve jamais.
+
+    Rend une liste de couples `(Entree, score)`, vide si rien ne depasse le
+    seuil de pertinence.
+    """
+    from nova.vision import catalogue as cat
+
+    try:
+        catalogue = cat.Catalogue(cat.fichier_par_defaut())
+    except Exception as erreur:  # noqa: BLE001
+        log.warning("Catalogue d'images illisible : %s", erreur)
+        return []
+    return [
+        (entree, score)
+        for entree, score in catalogue.chercher(quoi, limite)
+        if score >= cat.SEUIL_PERTINENCE
+    ]
+
+
+def _bloc_recherche(texte: str) -> str:
+    """Le bloc de prompt pour « retrouve-moi l'image ou il y a… ».
+
+    ⚠️ CE BLOC NE REGARDE AUCUNE IMAGE.
+
+    Il lit le catalogue — des descriptions obtenues il y a des heures, en
+    tache de fond. Cout : une comparaison de texte. C'est toute la raison
+    d'etre du catalogue : regarder quarante images a la demande prendrait
+    deux minutes, et personne n'attend deux minutes.
+    """
+    from nova.vision import catalogue as cat
+
+    quoi = contenu_cherche(texte)
+    with chrono.mesurer("vision — recherche au catalogue"):
+        trouvees = retrouver(quoi)
+
+    if not trouvees:
+        connues = len(cat.Catalogue(cat.fichier_par_defaut()))
+        # ⚠️ « RIEN TROUVE » ET « RIEN INDEXE » SONT DEUX PANNES OPPOSEES.
+        #
+        # La premiere se corrige en decrivant autrement, la seconde en
+        # attendant que l'indexation ait tourne. Les confondre laisserait
+        # quelqu'un reformuler dix fois une question sur un catalogue vide.
+        etat = (
+            f"Nova a deja regarde {connues} image(s) et aucune ne correspond."
+            if connues
+            else "Nova n'a encore regarde aucune image : l'indexation n'a pas "
+            "encore tourne. Elle travaille quand la machine est au repos."
+        )
+        return (
+            "## Recherche d'image\n\n"
+            f"Recherche demandee : « {quoi} »\n"
+            f"Resultat : AUCUNE image ne correspond. {etat}\n\n"
+            "Reponds EXACTEMENT ceci, et rien d'autre :\n\n"
+            f"« Je n'ai trouve aucune image correspondant a {quoi}. {etat} »"
+        )
+
+    lignes = "\n".join(
+        f"- {entree.nom} ({int(score * 100)} % de correspondance) : {entree.description}"
+        for entree, score in trouvees
+    )
+    meilleure = trouvees[0][0]
+    log.info(
+        "Recherche « %s » : %d resultat(s), meilleur %s.",
+        quoi, len(trouvees), meilleure.nom,
+    )
+    return (
+        "## Recherche d'image\n\n"
+        f"Recherche demandee : « {quoi} »\n"
+        "Images du catalogue qui correspondent, la meilleure en premier — "
+        "c'est la SEULE chose que Nova sait de ces images :\n"
+        f"<<<\n{lignes}\n>>>\n\n"
+        "Ta reponse : dis en francais, en une ou deux phrases, quelle image "
+        f"correspond — en la nommant : {meilleure.nom}. Resume ce que la "
+        "description entre <<< >>> en dit.\n\n"
+        "Tu n'as pas vu ces images toi-meme. Les dimensions, le poids, le "
+        "format, le dossier, la date : rien de tout cela ne figure entre "
+        "<<< >>>, donc rien de tout cela ne doit figurer dans ta reponse."
+    )
+
+
 def bloc(texte: str) -> str:
     """L'observation a injecter dans le prompt, ou `""` s'il n'y a rien a voir.
 
@@ -251,6 +399,19 @@ def bloc(texte: str) -> str:
     d'image » de lui-meme — une phrase plausible, jamais la bonne raison, et
     impossible a deboguer.
     """
+    # ⚠️ LA RECHERCHE PASSE AVANT LE REGARD, ET DANS CET ORDRE SEULEMENT.
+    #
+    # « retrouve-moi l'image ou il y a une casquette » parle bien d'une image,
+    # donc `parle_d_une_image` dit oui — et regarder la plus recente serait
+    # une reponse a une autre question. Une phrase qui decrit le CONTENU
+    # cherche une image precise ; sans description de contenu, on regarde
+    # celle du dessus de la pile.
+    #
+    # La recherche ne charge aucun modele : elle lit le catalogue. La placer
+    # en premier evite donc aussi de payer 7 s de vision pour rien.
+    if demande_de_retrouver(texte):
+        return _bloc_recherche(texte)
+
     if not parle_d_une_image(texte):
         return ""
 
