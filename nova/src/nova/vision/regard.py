@@ -174,9 +174,19 @@ def parle_d_une_image(texte: str) -> bool:
 #:
 #: Les adjectifs intercales sont admis (« la DERNIERE photo »), au plus deux :
 #: au-dela on ne designe plus, on decrit.
+#:
+#: ⚠️ L'ELISION NE MET JAMAIS D'ESPACE, ET LE MOTIF EN EXIGEAIT UN.
+#:
+#: `l'\s+` ne peut pas correspondre a « l'image » — la forme la plus
+#: naturelle en francais, et celle que Whisper produit. Releve en conditions
+#: reelles : « peux-tu ouvrir l'image … » repartait vers le catalogue des
+#: applications. Les determinants elides sont donc traites a part : apres eux
+#: l'espace est FACULTATIF, apres les autres il reste obligatoire — sans quoi
+#: « la » collerait a n'importe quel mot commencant par « image ».
 _DETERMINE = re.compile(
-    rf"\b(?:la|le|les|l'|l|ce|cet|cette|ces|ma|mon|mes|derniere|dernier)\s+"
-    rf"(?:\w+\s+){{0,2}}(?:{_OBJETS})\b",
+    rf"\b(?:l'|d')\s*(?:\w+\s+){{0,2}}(?:{_OBJETS})\b"
+    rf"|\b(?:la|le|les|l|ce|cet|cette|ces|ma|mon|mes|ta|ton|tes|"
+    rf"derniere|dernier)\s+(?:\w+\s+){{0,2}}(?:{_OBJETS})\b",
     re.IGNORECASE,
 )
 

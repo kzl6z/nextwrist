@@ -47,6 +47,16 @@ from nova.vision.regard import designe_une_image
         "la dernière photo",
         "cette capture d'écran",
         "ce cliché",
+        # ⚠️ L'ELISION NE MET JAMAIS D'ESPACE.
+        #
+        # `l'\s+` ne peut pas correspondre a « l'image » — la forme la plus
+        # naturelle en francais, et celle que Whisper produit. Releve en
+        # conditions reelles : « peux-tu ouvrir l'image … » repartait vers le
+        # catalogue des applications. Aucun cas de ce banc n'utilisait
+        # l'elision, alors que c'est la forme courante.
+        "l'image",
+        "l'image à l'eau. pengé sur pégé",   # transcription reelle, massacree
+        "ta capture d'écran",
         "derniere image que j'ai transferee sur ce PC",
         "la derniere photo",
         "cette image",
@@ -144,6 +154,24 @@ def test_ouvrir_la_derniere_image_va_a_l_outil_image(catalogue):
     assert outil == "ouvrir_image"
     # Aucun chemin nomme : l'outil prendra la plus recente.
     assert arguments == {"chemin": ""}
+
+
+def test_une_transcription_massacree_ouvre_quand_meme_la_plus_recente(catalogue):
+    """⚠️ WHISPER MASSACRE, ET NOVA DOIT QUAND MEME FAIRE QUELQUE CHOSE D'UTILE.
+
+    Releve tel quel : « peux-tu ouvrir alo.png sur PC » est devenu « peut-tu
+    ouvrir l'image a l'eau. pengé sur pégé ». Le nom du fichier est perdu, et
+    aucun code ne le retrouvera.
+
+    Mais la DEMANDE reste lisible : quelqu'un veut ouvrir une image. Ouvrir la
+    plus recente en la NOMMANT vaut mieux que « je ne trouve pas
+    d'application » — la personne voit tout de suite si c'est la bonne, et
+    corrige d'un mot. Refuser aurait ete correct et inutile.
+    """
+    outil, arguments = _aiguiller("peut-tu ouvrir l'image à l'eau. pengé sur pégé")
+
+    assert outil == "ouvrir_image"
+    assert arguments == {"chemin": ""}, "aucun chemin exploitable : la plus recente"
 
 
 def test_un_nom_de_fichier_est_transmis_tel_quel(catalogue):
