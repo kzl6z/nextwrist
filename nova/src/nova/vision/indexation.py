@@ -44,6 +44,21 @@ REPOS_S = 30.0
 #: rattrapage termine.
 REPOS_VIDE_S = 900.0
 
+#: Delai avant le tout premier lot, en secondes.
+#:
+#: ⚠️ SANS LUI, L'INDEXATION DEMARRAIT AU PIRE MOMENT POSSIBLE.
+#:
+#: `_repos_depuis_la_derniere_reponse` rend « plus que le silence exige »
+#: quand personne n'a encore parle — ce qui est vrai, et qui faisait charger
+#: le modele de vision A LA SECONDE du demarrage. C'est-a-dire pendant que
+#: Whisper se prechauffe et que le modele de langue se met en place : trois
+#: chargements concurrents sur une machine de 8 Go.
+#:
+#: Le fil n'est jamais presse. Attendre que le demarrage soit fini ne coute
+#: rien a personne, et evite de faire passer Nova pour lente au moment ou on
+#: la lance.
+DEMARRAGE_S = 120.0
+
 #: Instant de la derniere reponse produite. Ecrit par l'orchestrateur.
 _derniere_activite = 0.0
 _verrou = threading.Lock()
@@ -139,7 +154,16 @@ def entretenir(arret: threading.Event) -> None:
         log.info("Indexation des images non demarree : %s", raison.splitlines()[0])
         return
 
-    log.info("Indexation des images : en attente de %d s de silence.", int(SILENCE_S))
+    log.info(
+        "Indexation des images : premier lot dans %d s, puis des que la "
+        "machine se tait pendant %d s.",
+        int(DEMARRAGE_S), int(SILENCE_S),
+    )
+    # Le demarrage charge deja Whisper et le modele de langue. On ne s'y
+    # ajoute pas.
+    if arret.wait(DEMARRAGE_S):
+        return
+
     while not arret.is_set():
         repos = REPOS_S
         if _repos_depuis_la_derniere_reponse() < SILENCE_S:
@@ -156,4 +180,12 @@ def entretenir(arret: threading.Event) -> None:
                 # d'images se contente de ce qui est deja connu.
                 log.warning("Indexation des images interrompue : %s", erreur)
                 repos = REPOS_VIDE_S
-        arret.wait(max(repos, 5.0))
+        # ⚠️ ON SORT SUR LE RETOUR DE `wait`, PAS SEULEMENT SUR `is_set`.
+        #
+        # `arret.wait()` rend `True` quand l'arret a ete demande. L'ignorer
+        # marchait avec un vrai `Event` — `is_set()` devient vrai au tour
+        # suivant — et a fait tourner un banc en boucle infinie avec un double
+        # qui rend `True` sans se marquer. Un fil qui ne peut pas etre arrete
+        # par le seul objet prevu pour ca est un fil qu'on ne peut pas arreter.
+        if arret.wait(max(repos, 5.0)):
+            return
