@@ -39,17 +39,13 @@ PNG = bytes.fromhex(
 )
 
 
-@pytest.fixture(autouse=True)
-def sans_retenue():
-    """⚠️ LA RETENUE EST UN ETAT DE MODULE. ELLE FUIT ENTRE LES BANCS.
-
-    Le meme piege que `_derniere_activite` dans l'indexation : un banc qui
-    retient une image la laisse en place pour tous les suivants, qui passent
-    alors pour la mauvaise raison.
-    """
-    focus.oublier()
-    yield
-    focus.oublier()
+# ⚠️ LA RETENUE EST UN ETAT DE MODULE, ET ELLE FUIT ENTRE LES BANCS.
+#
+# Le meme piege que `_derniere_activite` dans l'indexation : un banc qui
+# retient une image la laisse en place pour tous les suivants, qui passent —
+# ou tombent — pour la mauvaise raison. La remise a zero vit desormais dans
+# `conftest.py`, ou elle vaut pour TOUS les fichiers de bancs : celui-ci
+# n'etait pas le seul a retenir une image, seulement le seul a y penser.
 
 
 @pytest.fixture
@@ -367,3 +363,105 @@ def test_une_nouvelle_recherche_par_pronom_change_de_sujet(tmp_path, monkeypatch
     suite = regard.bloc("et celle avec la porsche")
 
     assert "porsche.png" in suite
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # ⚠️ TRANSCRIPTION REELLE, TELLE QUE WHISPER L'A RENDUE.
+        #
+        # Releve sur la machine : Nova venait de trouver et d'OUVRIR la bonne
+        # image, on lui dit « decris-moi la photo », et elle a decrit une
+        # autre image — celle du dessus de la pile.
+        "décri-moi la Photos",
+        "décris-moi la photo",
+        "tu peux me décrire cette image",
+        "c'est quoi cette photo",
+        "analyse l'image",
+    ],
+)
+def test_decris_moi_la_photo_designe_celle_qu_on_vient_d_ouvrir(
+    tmp_path, monkeypatch, phrase
+):
+    """⚠️ LE PRONOM N'EST PAS LA SEULE FACON DE REPRENDRE.
+
+    « analyse-LA » etait couvert. « decris-moi LA PHOTO » ne l'etait pas : le
+    determinant est separe du pronom, et `_PRONOM_IMAGE` n'exige un enclitique
+    que pour ecarter l'article « la ». Ici le mot d'image est bien present —
+    il ne designe simplement rien de plus precis que ce dont on vient de
+    parler.
+
+    Meme defaut que « ouvre la photo » → application Photos, corrige a l'etage
+    de l'OUVERTURE et jamais applique a celui du REGARD.
+    """
+    from nova.vision import Observation, moteur, regard
+    from nova.vision import images as vimg
+
+    ancienne = tmp_path / "casquette.JPG"
+    ancienne.write_bytes(PNG)
+    recente = tmp_path / "courriel.png"
+    recente.write_bytes(PNG)
+
+    monkeypatch.setattr(vimg, "dossiers_surveilles", lambda: (tmp_path,))
+    monkeypatch.setattr(moteur, "disponible", lambda: (True, ""))
+
+    class MoteurDeBanc:
+        def __init__(self, *a, **k) -> None: ...
+
+        def decrire(self, cible):
+            return Observation(
+                source=Path(cible), description=f"vue de {Path(cible).name}"
+            )
+
+    monkeypatch.setattr(moteur, "MoteurOllama", MoteurDeBanc)
+
+    focus.retenir(ancienne, description="une main tient une casquette", origine="recherche")
+
+    vu = regard.bloc(phrase)
+
+    assert "casquette.JPG" in vu, phrase
+    assert "courriel.png" not in vu, "surtout pas la plus recente du dossier"
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "décris la dernière image que j'ai transférée",
+        "analyse la nouvelle photo",
+        "c'est quoi la photo que je viens de recevoir",
+    ],
+)
+def test_designer_le_dossier_l_emporte_sur_l_image_retenue(tmp_path, monkeypatch, phrase):
+    """⚠️ LE MEME DEFAUT, DANS L'AUTRE SENS.
+
+    Elargir la reprise a « la photo » risquait de faire capter par l'image
+    retenue toute phrase qui la mentionne, pendant les dix minutes ou elle
+    reste en memoire. « la DERNIERE image » designe le dossier : ces mots-la
+    l'emportent sur ce qu'on tient en main.
+    """
+    from nova.vision import Observation, moteur, regard
+    from nova.vision import images as vimg
+
+    ancienne = tmp_path / "casquette.JPG"
+    ancienne.write_bytes(PNG)
+    recente = tmp_path / "courriel.png"
+    recente.write_bytes(PNG)
+
+    monkeypatch.setattr(vimg, "dossiers_surveilles", lambda: (tmp_path,))
+    monkeypatch.setattr(moteur, "disponible", lambda: (True, ""))
+
+    class MoteurDeBanc:
+        def __init__(self, *a, **k) -> None: ...
+
+        def decrire(self, cible):
+            return Observation(
+                source=Path(cible), description=f"vue de {Path(cible).name}"
+            )
+
+    monkeypatch.setattr(moteur, "MoteurOllama", MoteurDeBanc)
+
+    focus.retenir(ancienne, description="une main tient une casquette", origine="recherche")
+
+    vu = regard.bloc(phrase)
+
+    assert "courriel.png" in vu, phrase

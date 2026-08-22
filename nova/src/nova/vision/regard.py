@@ -203,6 +203,68 @@ def _reprise_d_image(texte: str) -> bool:
     return bool(_PRONOM_IMAGE.search(sans_accents(texte))) and _image_en_tete()
 
 
+def _objet_defini(plat: str) -> bool:
+    """Un mot d'image y designe-t-il un EXEMPLAIRE plutot qu'une categorie ?
+
+    « cette photo » oui, « une photo » non. Il suffit qu'UNE occurrence
+    designe un fichier precis : dans « c'est quoi cette photo, c'est une photo
+    de vacances ? », la premiere suffit.
+    """
+    generiques = {m.end() for m in _INDEFINI.finditer(plat)}
+    return any(m.end() not in generiques for m in _OBJET_SEUL.finditer(plat))
+
+
+#: Ce qui designe la plus recente du dossier, et non celle qu'on tient.
+#:
+#: ⚠️ SANS CETTE LISTE, UNE IMAGE RETENUE CAPTERAIT « LA DERNIERE IMAGE ».
+#:
+#: Pendant dix minutes, « decris la derniere photo que j'ai transferee »
+#: renverrait a celle dont on parlait avant — exactement l'erreur qu'on est en
+#: train de corriger, mais dans l'autre sens. Ces mots designent le dossier :
+#: ils l'emportent sur ce qu'on tient en main.
+_VERS_LA_PLUS_RECENTE = re.compile(
+    r"\b(?:derniere|dernier|recente|recent|nouvelle|nouveau|nouvelles|"
+    r"transferee|transfere|transferees|recue|recus|recue|recues|"
+    r"importee|importees|telechargee|telechargees|arrivee|arrivees|"
+    r"viens de (?:transferer|recevoir|mettre|deposer|prendre))\b",
+    re.IGNORECASE,
+)
+
+
+def _designe_la_retenue(texte: str) -> bool:
+    """La phrase renvoie-t-elle a l'image dont on vient de parler ?
+
+    ⚠️ LE PRONOM N'EST PAS LA SEULE FACON DE REPRENDRE.
+
+    « analyse-LA » etait couvert. « decris-moi LA PHOTO » ne l'etait pas, et
+    c'est la formulation qui vient naturellement une fois l'image a l'ecran.
+    Releve en conditions reelles : Nova venait de trouver et d'OUVRIR la bonne
+    image, on lui dit « decris-moi la photo », et elle a decrit celle du
+    dessus de la pile. La reponse etait juste — sur une autre image.
+
+    C'est le meme defaut que « ouvre la photo » qui ouvrait l'application
+    Photos : corrige a l'etage de l'OUVERTURE par `image_en_tete_pour`, jamais
+    applique a celui du REGARD.
+
+    ⚠️ CETTE FONCTION N'ELARGIT AUCUN DECLENCHEUR.
+
+    Elle n'est consultee qu'apres `parle_d_une_image` : elle ne decide pas SI
+    l'on regarde, seulement LAQUELLE on regarde. « regarde la voiture qui
+    passe » n'arrive donc jamais jusqu'ici.
+    """
+    if not _image_en_tete():
+        return False
+    plat = sans_accents(texte)
+    # Un pronom ne peut renvoyer qu'a du deja-designe : il gagne toujours.
+    if _PRONOM_IMAGE.search(plat):
+        return True
+    if _VERS_LA_PLUS_RECENTE.search(plat):
+        return False
+    # « la photo », « cette image », « l'image » : un exemplaire precis, mais
+    # rien qui le distingue de celui dont on vient de parler.
+    return _objet_defini(plat)
+
+
 def parle_d_une_image(texte: str) -> bool:
     """Cette phrase demande-t-elle de regarder quelque chose ?
 
@@ -231,11 +293,8 @@ def parle_d_une_image(texte: str) -> bool:
     if not DEMANDE_DE_REGARD.search(plat):
         return False
 
-    # Reste a trancher entre « cette photo » et « une photo ». Il suffit
-    # qu'UNE occurrence designe un fichier precis : dans « c'est quoi cette
-    # photo, c'est une photo de vacances ? », la premiere suffit.
-    generiques = {m.end() for m in _INDEFINI.finditer(plat)}
-    return any(m.end() not in generiques for m in _OBJET_SEUL.finditer(plat))
+    # Reste a trancher entre « cette photo » et « une photo ».
+    return _objet_defini(plat)
 
 
 #: Un objet visuel precede d'un DETERMINANT qui designe un exemplaire precis.
@@ -640,14 +699,15 @@ def bloc(texte: str) -> str:
         with chrono.mesurer("vision — choix de l'image"):
             if cite := CHEMIN.search(texte):
                 cible, provenance = resoudre(cite.group(1), dossiers), "nommee"
-            # ⚠️ « ANALYSE-LA » DESIGNE CE DONT ON VIENT DE PARLER.
+            # ⚠️ « ANALYSE-LA » ET « DECRIS-MOI LA PHOTO » DESIGNENT CE DONT ON
+            #    VIENT DE PARLER.
             #
             # Sans cette ligne, Nova retombait sur la plus recente du dossier
             # — c'est-a-dire presque toujours une AUTRE image que celle qu'elle
             # venait de trouver et d'ouvrir. La reponse etait alors juste sur
             # une image que personne n'avait demandee : une erreur qui a l'air
             # de marcher, donc la plus couteuse a diagnostiquer.
-            elif _reprise_d_image(texte) and (retenue := focus.derniere()) is not None:
+            elif _designe_la_retenue(texte) and (retenue := focus.derniere()) is not None:
                 cible, provenance = retenue.chemin, "retenue"
             else:
                 cible, provenance = la_plus_recente(dossiers), "devinee"
