@@ -231,7 +231,13 @@ def test_la_question_en_cours_ne_figure_pas_deux_fois(monkeypatch):
         lambda *a, **k: ordre.append("ecriture"),
     )
 
-    list(orchestrator.answer_stream([{"role": "user", "content": "bonjour"}]))
+    # ⚠️ LA QUESTION DOIT APPELER UN RAPPEL POUR QUE L'ORDRE SOIT OBSERVABLE.
+    #
+    # Ce banc disait « bonjour », qui ne renvoie a rien : depuis que le passe
+    # n'est rappele que sur une question qui s'y appuie, aucune lecture n'a
+    # lieu et l'ordre ne peut plus se verifier. La propriete testee — relire
+    # AVANT de journaliser — n'a pas change ; c'est la phrase qui devait.
+    list(orchestrator.answer_stream([{"role": "user", "content": "et pourquoi ?"}]))
     assert ordre[:2] == ["lecture", "ecriture"]
 
 

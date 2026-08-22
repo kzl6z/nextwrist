@@ -35,7 +35,7 @@ from nova.core.routeur import Routeur
 from nova.documents import search as document_search
 from nova.llm.client import LLMClient, Message
 from nova.logging_setup import get_logger
-from nova.memory import conversations, facts
+from nova.memory import conversations, facts, reprise
 from nova.memory.models import SearchHit
 from nova.settings import get_settings, get_tuning
 from nova.voice import vocabulaire
@@ -683,8 +683,27 @@ def answer_stream(
     # pourrait envoyer toute la conversation. Injecter le notre par-dessus le
     # sien donnerait deux versions du meme passe, dans le desordre — et le
     # modele n'aurait aucun moyen de trancher.
+    # ── ⚠️ ET ON NE LE RAPPELLE QUE SI LA QUESTION S'Y APPUIE ────────────
+    #
+    # Le passe partait a CHAQUE question. C'etait le bon reflexe quand il
+    # manquait — « Et on pourrait y vivre ? » n'a aucun sens sans « Parle-moi
+    # de Mars ». Mais l'ecrasante majorite des questions se suffisent a
+    # elles-memes, et leur donner le passe ne les aide pas : ca les brouille.
+    #
+    # Releve en conditions reelles, deux tours d'affilee :
+    #
+    #     — « quelle est la carte la plus rare, Pokemon ? »
+    #     — « trouve-moi une image ou je tiens une casquette blanche »
+    #       « Je ne trouve pas de CARTE BLANCHE correspondant a un SKATE. »
+    #
+    # La carte venait de la question d'avant. Le modele n'avait aucun moyen
+    # de savoir qu'elle ne comptait plus.
+    #
+    # `reprise` repond a une seule question, sans modele et sans base : cette
+    # phrase renvoie-t-elle a quelque chose d'anterieur ? Sinon, 1200
+    # caracteres de prompt en moins, et aucun sujet abandonne pour revenir.
     passe: list[Message] = []
-    if len(history) <= 1:
+    if len(history) <= 1 and reprise.reprend_le_passe(last_user):
         try:
             with chrono.mesurer("rappel de l'historique"):
                 passe = conversations.derniers_echanges(
@@ -698,10 +717,15 @@ def answer_stream(
     full: list[Message] = [{"role": "system", "content": system_prompt}, *passe, *history]
     if passe:
         log.info(
-            "Contexte : %d message(s) precedent(s) rappeles (%d caracteres).",
+            "Contexte : %d message(s) precedent(s) rappeles (%d caracteres) — %s.",
             len(passe),
             sum(len(m["content"]) for m in passe),
+            reprise.raison(last_user),
         )
+    elif len(history) <= 1:
+        # Une decision invisible qui change la reponse est une decision qu'on
+        # passera des heures a chercher. Celle-ci se lit dans la console.
+        log.info("Contexte : aucun rappel — %s.", reprise.raison(last_user))
 
     conversations.log_message(conversation_id, "user", last_user)
 
