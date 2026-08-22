@@ -170,7 +170,7 @@ def test_une_machine_qui_pagine_ralentit_l_indexation_sans_l_arreter(monkeypatch
 
     indexation.entretenir(ArretApresUnTour())
 
-    assert _passages == [1], "un lot REDUIT, pas un arret"
+    assert _passages == [indexation.LOT_SATURE], "un lot REDUIT, pas un arret"
 
 
 def test_une_machine_au_repos_indexe_par_lots_pleins(monkeypatch):

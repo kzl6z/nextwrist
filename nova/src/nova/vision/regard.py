@@ -137,6 +137,39 @@ def sans_accents(texte: str) -> str:
     )
 
 
+#: Une reprise qui ne peut designer qu'une chose deja evoquee.
+#:
+#: ⚠️ ENCLITIQUE OU DEMONSTRATIF SEUL — RIEN D'AUTRE.
+#:
+#: « analyse-LA » et « CELLE avec la porsche » ne peuvent renvoyer qu'a
+#: quelque chose de deja designe. « regarde LA voiture » non : « la » y est un
+#: article. Accepter l'article ferait basculer vers l'image retenue toute
+#: phrase contenant « la », pendant les dix minutes ou une image est en
+#: memoire — c'est-a-dire pendant toute la conversation qui suit.
+_PRONOM_IMAGE = re.compile(
+    r"-(?:la|le|les)\b|\b(?:celle|celui|celles|ceux|ca|cela)\b", re.IGNORECASE
+)
+
+
+def _image_en_tete() -> bool:
+    """Une image est-elle encore « celle dont on parle » ?"""
+    from nova.vision import focus
+
+    return focus.derniere() is not None
+
+
+def _reprise_d_image(texte: str) -> bool:
+    """La phrase reprend-elle une image deja evoquee, sans la nommer ?
+
+    ⚠️ N'EST VRAIE QUE PENDANT UNE CONVERSATION SUR UNE IMAGE.
+
+    Hors de ce cadre, « analyse-la » ne designe rien et doit suivre son cours
+    normal. C'est ce qui evite qu'un pronom quelconque declenche la vision au
+    milieu d'une discussion qui n'a rien a voir.
+    """
+    return bool(_PRONOM_IMAGE.search(sans_accents(texte))) and _image_en_tete()
+
+
 def parle_d_une_image(texte: str) -> bool:
     """Cette phrase demande-t-elle de regarder quelque chose ?
 
@@ -151,6 +184,17 @@ def parle_d_une_image(texte: str) -> bool:
     if CHEMIN.search(texte):
         return True
     plat = sans_accents(texte)
+
+    # ⚠️ « ANALYSE-LA » NE CONTIENT AUCUN MOT D'IMAGE.
+    #
+    # Le declencheur exige un VERBE de regard ET un OBJET visuel. C'est ce qui
+    # le rend precis — et c'est ce qui laissait tomber la suite naturelle
+    # d'une recherche : on vient de trouver et d'ouvrir une image, on dit
+    # « analyse-la », et rien ne partait. Le pronom remplace l'objet, mais
+    # seulement tant qu'une image est en tete.
+    if re.search(rf"\b(?:{_VERBES})", plat, re.IGNORECASE) and _reprise_d_image(texte):
+        return True
+
     if not DEMANDE_DE_REGARD.search(plat):
         return False
 
@@ -291,10 +335,14 @@ def contenu_cherche(texte: str, *, tolerant: bool = True) -> str:
     if not tolerant:
         return ""
 
-    # Repli : le dernier mot d'image, puis tout ce qui suit.
+    # Repli : le dernier mot d'image — ou le pronom qui en tient lieu — puis
+    # tout ce qui suit.
     dernier = None
     for occurrence in _OBJET_SEUL.finditer(plat):
         dernier = occurrence
+    if dernier is None and _reprise_d_image(texte):
+        for occurrence in _PRONOM_IMAGE.finditer(plat):
+            dernier = occurrence
     if dernier is None:
         return ""
     suite = texte[dernier.end() :].strip(" ?.!,")
@@ -316,9 +364,17 @@ def demande_de_retrouver(texte: str) -> bool:
     if not texte:
         return False
     plat = sans_accents(texte)
-    if not _OBJET_SEUL.search(plat) or not contenu_cherche(texte):
+    # ⚠️ « ET CELLE AVEC LA PORSCHE » NE CONTIENT AUCUN MOT D'IMAGE.
+    #
+    # C'est pourtant une recherche, et une formulation parfaitement
+    # naturelle : on vient de parler d'images, le pronom suffit. Il ne tient
+    # lieu d'objet que pendant cette conversation-la.
+    if not _OBJET_SEUL.search(plat) and not _reprise_d_image(texte):
         return False
-    return bool(_CONTENU.search(plat) or _RETROUVER.search(plat))
+    if not contenu_cherche(texte):
+        return False
+    return bool(_CONTENU.search(plat) or _RETROUVER.search(plat) or _reprise_d_image(texte))
+
 
 
 def _situer(cible: Path) -> str:
@@ -363,6 +419,51 @@ def retrouver(quoi: str, limite: int = 3):
     ]
 
 
+#: Ecart minimal avec le deuxieme candidat pour ouvrir sans demander.
+#:
+#: ⚠️ MEME RAISON QUE POUR LES APPLICATIONS : UNE RESSEMBLANCE PARFAITE AVEC
+#:    DEUX FICHIERS N'EN DESIGNE AUCUN.
+#:
+#: `_resoudre_application` a exactement ce garde-fou, pour exactement ce
+#: probleme. Deux captures d'ecran qui se ressemblent donnent deux scores
+#: proches ; en ouvrir une au hasard serait une reussite apparente, plus
+#: difficile a deboguer qu'un echec.
+MARGE_OUVERTURE = 0.20
+
+
+def _ouvrir_si_evident(trouvees) -> bool:
+    """Ouvre l'image quand une seule se detache. Rend `True` si c'est fait.
+
+    ⚠️ OUVRIR EST UNE ACTION, ET ELLE PASSE PAR LE PORTILLON.
+
+    `executer_outil` verifie le bareme de risque — REVERSIBLE ici : une
+    fenetre s'ouvre, on la ferme, il ne reste rien. C'est le meme niveau
+    qu'« ouvre Discord », qui s'execute deja sans demander. Court-circuiter
+    le portillon parce que « ce n'est qu'une ouverture » rendrait le bareme
+    decoratif.
+
+    Ne leve jamais : une image qu'on n'a pas su ouvrir ne doit pas empecher
+    Nova de DIRE qu'elle l'a trouvee.
+    """
+    meilleure, score = trouvees[0]
+    second = trouvees[1][1] if len(trouvees) > 1 else 0.0
+    if score - second < MARGE_OUVERTURE:
+        log.info(
+            "Ouverture non declenchee : %s a %.0f %% contre %.0f %% pour le suivant.",
+            meilleure.nom, score * 100, second * 100,
+        )
+        return False
+
+    try:
+        from nova.outils import executer_outil
+
+        executer_outil("ouvrir_image", chemin=meilleure.chemin)
+    except Exception as erreur:  # noqa: BLE001
+        log.warning("Image trouvee mais non ouverte : %s", erreur)
+        return False
+    return True
+
+
 def _bloc_recherche(texte: str) -> str:
     """Le bloc de prompt pour « retrouve-moi l'image ou il y a… ».
 
@@ -404,11 +505,23 @@ def _bloc_recherche(texte: str) -> str:
         f"- {entree.nom} ({int(score * 100)} % de correspondance) : {entree.description}"
         for entree, score in trouvees
     )
-    meilleure = trouvees[0][0]
+    meilleure, meilleur_score = trouvees[0]
     log.info(
         "Recherche « %s » : %d resultat(s), meilleur %s.",
         quoi, len(trouvees), meilleure.nom,
     )
+
+    # ⚠️ ON RETIENT TOUJOURS, ON N'OUVRE QUE SI C'EST NET.
+    #
+    # Retenir permet a « analyse-la » de designer CETTE image et non la plus
+    # recente du dossier. Ouvrir est une action : elle ne se declenche que
+    # lorsqu'une image se detache franchement, sans quoi Nova ouvrirait un
+    # fichier au hasard parmi trois candidats equivalents.
+    from nova.vision import focus
+
+    focus.retenir(meilleure.chemin, description=meilleure.description, origine="recherche")
+    ouverte = _ouvrir_si_evident(trouvees)
+
     return (
         "## Recherche d'image\n\n"
         f"Recherche demandee : « {quoi} »\n"
@@ -417,8 +530,9 @@ def _bloc_recherche(texte: str) -> str:
         f"<<<\n{lignes}\n>>>\n\n"
         "Ta reponse : dis en francais, en une ou deux phrases, quelle image "
         f"correspond — en la nommant : {meilleure.nom}. Resume ce que la "
-        "description entre <<< >>> en dit.\n\n"
-        "Tu n'as pas vu ces images toi-meme. Les dimensions, le poids, le "
+        "description entre <<< >>> en dit.\n"
+        + ("Dis aussi que tu viens de l'ouvrir a l'ecran.\n\n" if ouverte else "\n")
+        + "Tu n'as pas vu ces images toi-meme. Les dimensions, le poids, le "
         "format, le dossier, la date : rien de tout cela ne figure entre "
         "<<< >>>, donc rien de tout cela ne doit figurer dans ta reponse."
     )
@@ -472,13 +586,24 @@ def bloc(texte: str) -> str:
     if not utilisable:
         return _empechement(raison)
 
+    from nova.vision import focus
+
     dossiers = dossiers_surveilles()
     try:
         with chrono.mesurer("vision — choix de l'image"):
             if cite := CHEMIN.search(texte):
-                cible, devinee = resoudre(cite.group(1), dossiers), False
+                cible, provenance = resoudre(cite.group(1), dossiers), "nommee"
+            # ⚠️ « ANALYSE-LA » DESIGNE CE DONT ON VIENT DE PARLER.
+            #
+            # Sans cette ligne, Nova retombait sur la plus recente du dossier
+            # — c'est-a-dire presque toujours une AUTRE image que celle qu'elle
+            # venait de trouver et d'ouvrir. La reponse etait alors juste sur
+            # une image que personne n'avait demandee : une erreur qui a l'air
+            # de marcher, donc la plus couteuse a diagnostiquer.
+            elif _reprise_d_image(texte) and (retenue := focus.derniere()) is not None:
+                cible, provenance = retenue.chemin, "retenue"
             else:
-                cible, devinee = la_plus_recente(dossiers), True
+                cible, provenance = la_plus_recente(dossiers), "devinee"
     except (ImageIntrouvable, ImageIllisible) as absence:
         return _empechement(str(absence))
 
@@ -492,19 +617,22 @@ def bloc(texte: str) -> str:
         return _empechement(_humain(erreur))
 
     quand = _situer(cible)
-    provenance = (
-        f"Nova ne l'a pas choisie au hasard : c'est la plus recente de ses "
-        f"dossiers surveilles, deposee {quand}."
-        if devinee
-        else "Elle a ete nommee explicitement dans la demande."
-    )
-    log.info("Regard : %s%s", cible.name, " (la plus recente)" if devinee else "")
+    explication = {
+        "nommee": "Elle a ete nommee explicitement dans la demande.",
+        "retenue": "C'est celle dont vous veniez de parler.",
+        "devinee": (
+            f"Nova ne l'a pas choisie au hasard : c'est la plus recente de "
+            f"ses dossiers surveilles, deposee {quand}."
+        ),
+    }[provenance]
+    focus.retenir(cible, description=observation.description, origine="regard")
+    log.info("Regard : %s (%s)", cible.name, provenance)
 
     return (
         "## Ce que Nova voit\n\n"
         f"Fichier : {cible.name}"
         + (f" ({quand})" if quand else "")
-        + f"\n{provenance}\n\n"
+        + f"\n{explication}\n\n"
         "Observation du modele de vision — c'est la SEULE chose qui a ete "
         "vue :\n"
         f"<<< {observation.description} >>>\n\n"

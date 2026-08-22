@@ -45,8 +45,28 @@ REPOS_S = 30.0
 #: rattrapage termine.
 REPOS_VIDE_S = 900.0
 
-#: Repos quand la machine pagine deja. Une image de temps en temps.
-REPOS_SATURE_S = 300.0
+#: Repos quand la machine pagine deja.
+#:
+#: ⚠️ MA PREMIERE VALEUR RENDAIT L'INDEXATION INUTILISABLE.
+#:
+#: Une image toutes les cinq minutes : 42 images = 3 h 30. La machine de
+#: reference pagine en permanence, donc c'etait le regime NORMAL — et
+#: l'utilisateur devait lancer `make images FORCER=1` a la main, ce qui est
+#: exactement ce que la tache de fond devait lui epargner.
+#:
+#: Or son propre releve montre dix images avalees en cinquante secondes, sans
+#: rien de perceptible. J'avais surprotege une machine qui n'en demandait pas
+#: tant.
+#:
+#:     au repos      lot=10, repos= 30 s  ->   6,7 min pour 42 images
+#:     en paginant   lot= 4, repos= 60 s  ->  14,7 min pour 42 images
+#:
+#: Un quart d'heure d'inactivite, une seule fois. C'est le prix de « je n'ai
+#: rien a faire ».
+REPOS_SATURE_S = 60.0
+
+#: Images par passage quand la machine pagine. Reduit, pas supprime.
+LOT_SATURE = 4
 
 #: Images regardees par passage. Importe ici parce qu'il sert de valeur par
 #: defaut a `_un_passage` — donc evalue a l'import du module, pas a l'appel.
@@ -281,7 +301,7 @@ def entretenir(arret: threading.Event) -> None:
             # minimale, et l'utilisateur n'a rien a comprendre.
             sature = _machine_saturee()
             try:
-                if _un_passage(lot=1 if sature else LOT) == 0:
+                if _un_passage(lot=LOT_SATURE if sature else LOT) == 0:
                     repos = REPOS_VIDE_S
                 elif sature:
                     repos = REPOS_SATURE_S
