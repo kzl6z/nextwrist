@@ -192,12 +192,11 @@ def bloc(texte: str) -> str:
     try:
         with chrono.mesurer("vision — observation"):
             observation = MoteurOllama(dossiers).decrire(cible)
-    # `VisionIndisponible` importe pour etre nomme dans le contrat de ce
-    # module, mais on rattrape TOUT : le moteur parle a Ollama par le reseau,
-    # et une capacite facultative n'a pas le droit de faire tomber une reponse.
+    # On rattrape TOUT : le moteur parle a Ollama par le reseau, et une
+    # capacite facultative n'a pas le droit de faire tomber une reponse.
     except Exception as erreur:  # noqa: BLE001
         log.warning("Vision indisponible pendant la conversation : %s", erreur)
-        return _empechement(str(erreur))
+        return _empechement(_humain(erreur))
 
     quand = _situer(cible)
     provenance = (
@@ -222,13 +221,50 @@ def bloc(texte: str) -> str:
     )
 
 
+def _humain(erreur: Exception) -> str:
+    """Une raison DISABLE a voix haute, pas un message de pile.
+
+    ⚠️ NOVA LIT CE TEXTE A VOIX HAUTE.
+
+    « argument should be a str or an os.PathLike object where __fspath__
+    returns a str, not 'tuple' » est le message exact d'un vrai defaut — et il
+    n'a aucun sens dit dans un salon. Le detail technique reste dans le
+    journal, ou il sert ; l'utilisateur entend ce qui le concerne.
+    """
+    from nova.vision.images import ImageIllisible, ImageIntrouvable
+    from nova.vision.moteur import VisionIndisponible
+
+    if isinstance(erreur, (ImageIntrouvable, ImageIllisible, VisionIndisponible)):
+        return str(erreur)
+    return (
+        "une erreur technique m'en a empechee — le detail est dans le journal "
+        "de Nova"
+    )
+
+
 def _empechement(raison: str) -> str:
-    """Un bloc qui dit ce qui a empeche de voir, plutot que de se taire."""
+    """Un bloc qui dit ce qui a empeche de voir, plutot que de se taire.
+
+    ⚠️ IL DICTE LA PHRASE. IL NE DEMANDE PAS DE NE PAS MENTIR.
+
+    Premiere version : « n'invente aucune description ». Releve en conditions
+    reelles — la vision echouait, ce bloc partait dans le prompt, et
+    nova-leger repondait « La photo a l'eau sur ton bureau est un fichier
+    JPEG de 1920x1080 pixels, stocke dans le dossier Photos, avec un format
+    de compression JPEG de qualite 90 % ». Tout etait invente.
+
+    Une consigne NEGATIVE demande a un modele de deux milliards de parametres
+    de reconnaitre ce qu'il ne doit pas faire, au milieu d'un prompt de 3500
+    caracteres. Une consigne POSITIVE lui donne la phrase a produire — c'est
+    une tache de copie, et une copie ne s'hallucine pas.
+
+    La consigne vient AVANT la raison, pas apres : ce qui est lu en dernier
+    dans un bloc a moins de poids que ce qui l'ouvre.
+    """
     return (
         "## Ce que Nova voit\n\n"
-        "Rien : la demande parle d'une image, mais Nova n'a pas pu la "
-        f"regarder.\n\nRaison exacte :\n{raison}\n\n"
-        "⚠️ Dis-le simplement, en francais, en reprenant cette raison. "
-        "N'invente aucune description, et ne pretends pas voir quoi que ce "
-        "soit."
+        "RIEN. Aucune image n'a ete regardee. Toute description serait "
+        "inventee.\n\n"
+        "Reponds EXACTEMENT ceci, et rien d'autre :\n\n"
+        f"« Je n'ai pas pu regarder l'image : {raison} »"
     )

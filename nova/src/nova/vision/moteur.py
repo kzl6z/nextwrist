@@ -41,6 +41,7 @@ et fausse. La methode continue donc de lever.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +49,7 @@ from nova.core import chrono
 from nova.logging_setup import get_logger
 from nova.settings import get_settings
 from nova.vision import Observation, PasEncoreImplemente, Region
-from nova.vision.images import ImagePrete, preparer, resoudre
+from nova.vision.images import ImagePrete, preparer, racines, resoudre
 
 log = get_logger(__name__)
 
@@ -113,14 +114,24 @@ class MoteurOllama:
 
     def __init__(
         self,
-        racine: Path,
+        racine: Path | Iterable[Path],
         *,
         client: Any = None,
         modele: str | None = None,
         cote_max: int | None = None,
     ) -> None:
         reglages = get_settings()
-        self.racine = Path(racine).resolve()
+        # ⚠️ UNE RACINE OU PLUSIEURS — ET LE TYPE NE DOIT PAS DECIDER SEUL.
+        #
+        # `Path(racine)` sur un tuple leve « argument should be a str or an
+        # os.PathLike object […] not 'tuple' ». Releve en conditions reelles :
+        # la vision echouait a CHAQUE demande vocale, et l'utilisateur voyait
+        # une reponse inventee — parce que le message d'erreur partait dans le
+        # prompt et que le modele preferait broder plutot que le relayer.
+        #
+        # Un defaut de plomberie de trois caracteres, transforme en
+        # hallucination par la couche du dessus.
+        self.racines = racines(racine)
         self.modele = modele or reglages.vision_modele
         # Surchargeable pour que le banc puisse balayer plusieurs tailles dans
         # une seule session, sans editer `.env` entre chaque essai — donc sans
@@ -150,7 +161,7 @@ class MoteurOllama:
         # borne. C'est faux : `Path(reponse_du_modele)` est un `Path`. Une
         # borne qui admet une exception n'est pas une borne, et le type d'une
         # variable ne dit rien de la confiance qu'on lui doit.
-        cible = resoudre(str(image), self.racine)
+        cible = resoudre(str(image), self.racines)
         with chrono.mesurer("vision — preparation"):
             return preparer(cible, cote_max=self.cote_max)
 

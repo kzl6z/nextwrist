@@ -27,6 +27,18 @@ import pytest
 
 from nova.vision.regard import bloc, parle_d_une_image
 
+#: Un PNG REELLEMENT valide : 1 pixel, 67 octets.
+#:
+#: ⚠️ `b"\x89PNG\r\n\x1a\n"` — l'en-tete seul — SUFFISAIT tant que les bancs
+#: remplacaient le moteur par un double. Des qu'on fait passer le vrai
+#: moteur, Pillow ouvre le fichier et le refuse. Un faux fichier ne trahit
+#: rien tant que personne ne le lit vraiment ; c'est la meme lecon que le
+#: double du moteur, un etage plus bas.
+PNG_1x1 = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
+    "890000000a49444154789c6300010000050001" "0d0a2db4000000004945" "4e44ae426082"
+)
+
 
 # ══════════════════════════════════════════════════════════════════════════
 #  LE DECLENCHEUR — ce qui doit partir
@@ -138,7 +150,7 @@ def test_le_bloc_porte_l_observation_et_reclame_du_francais(monkeypatch, tmp_pat
     from nova.vision import Observation, images, moteur
 
     image = tmp_path / "casquette.png"
-    image.write_bytes(b"\x89PNG\r\n\x1a\n")
+    image.write_bytes(PNG_1x1)
 
     class MoteurAnglais:
         def __init__(self, *a, **k) -> None: ...
@@ -161,8 +173,8 @@ def test_le_bloc_porte_l_observation_et_reclame_du_francais(monkeypatch, tmp_pat
 def test_un_chemin_nomme_l_emporte_sur_la_plus_recente(monkeypatch, tmp_path):
     from nova.vision import Observation, images, moteur
 
-    (tmp_path / "ancienne.png").write_bytes(b"\x89PNG\r\n\x1a\n")
-    (tmp_path / "voulue.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "ancienne.png").write_bytes(PNG_1x1)
+    (tmp_path / "voulue.png").write_bytes(PNG_1x1)
 
     class MoteurDeBanc:
         def __init__(self, *a, **k) -> None: ...
@@ -181,6 +193,70 @@ def test_un_chemin_nomme_l_emporte_sur_la_plus_recente(monkeypatch, tmp_path):
 
 
 # ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ LE BRANCHEMENT REEL — sans double du moteur
+#
+#  CES DEUX BANCS EXISTENT PARCE QUE LES AUTRES ONT LAISSE PASSER UN DEFAUT.
+#
+#  `regard.bloc` passe au moteur un TUPLE de dossiers ; `MoteurOllama` faisait
+#  `Path(racine)`, ce qui leve sur un tuple. La vision echouait donc a CHAQUE
+#  demande vocale — et l'utilisateur recevait une description entierement
+#  inventee.
+#
+#  Les 898 bancs passaient. Tous ceux du regard remplacaient `MoteurOllama`
+#  par un double : le seul branchement casse etait precisement celui qu'aucun
+#  banc n'exercait. Remplacer par un double la piece qu'on veut verifier, ce
+#  n'est pas tester — c'est verifier son propre double.
+#
+#  Ici on construit le VRAI moteur, et on ne remplace que le client HTTP.
+# ══════════════════════════════════════════════════════════════════════════
+class ClientDeBanc:
+    """Le seul double : ce qui parlerait a Ollama par le reseau."""
+
+    def chat(self, messages, *, temperature=None) -> str:
+        return "a white cap with 'alo' on it"
+
+
+def test_le_moteur_accepte_plusieurs_dossiers(tmp_path):
+    """⚠️ LE DEFAUT EXACT, EN UNE LIGNE.
+
+    `Path(tuple)` leve « argument should be a str or an os.PathLike object
+    […] not 'tuple' ». Trois caracteres de plomberie, transformes en
+    hallucination par la couche du dessus.
+    """
+    from nova.vision.moteur import MoteurOllama
+
+    telechargements = tmp_path / "Downloads"
+    telechargements.mkdir()
+    (telechargements / "casquette.png").write_bytes(PNG_1x1)
+
+    moteur = MoteurOllama((telechargements, tmp_path / "Desktop"), client=ClientDeBanc())
+
+    assert moteur.decrire("casquette.png").description == "a white cap with 'alo' on it"
+
+
+def test_le_regard_traverse_le_vrai_moteur(monkeypatch, tmp_path):
+    """La chaine complete de la conversation, sans aucun double de vision.
+
+    Seul le client HTTP est remplace. Si `regard` et `MoteurOllama` cessent
+    de s'entendre, ce banc tombe — ce que les precedents ne pouvaient pas
+    faire.
+    """
+    from nova.llm import client as llm_client
+    from nova.vision import images, moteur
+
+    (tmp_path / "casquette.png").write_bytes(PNG_1x1)
+    monkeypatch.setattr(moteur, "disponible", lambda: (True, ""))
+    monkeypatch.setattr(images, "dossiers_surveilles", lambda: (tmp_path,))
+    monkeypatch.setattr(llm_client, "LLMClient", lambda **_: ClientDeBanc())
+
+    sortie = bloc("Nova, peux-tu m'analyser l'image s'il te plait ?")
+
+    assert "a white cap" in sortie, sortie
+    assert "casquette.png" in sortie
+    assert "RIEN" not in sortie, "aucun empechement ne doit etre rapporte"
+
+
+# ══════════════════════════════════════════════════════════════════════════
 #  ⚠️ CE QU'IL DIT QUAND CA NE MARCHE PAS
 # ══════════════════════════════════════════════════════════════════════════
 def test_la_vision_eteinte_produit_un_bloc_qui_dit_pourquoi():
@@ -194,7 +270,8 @@ def test_la_vision_eteinte_produit_un_bloc_qui_dit_pourquoi():
 
     assert sortie != "", "un empechement doit etre DIT, pas tu"
     assert "NOVA_VISION_ACTIVE" in sortie
-    assert "N'invente aucune description" in sortie
+    assert "Reponds EXACTEMENT ceci" in sortie, "la phrase doit etre dictee"
+    assert "RIEN" in sortie
 
 
 def test_aucune_image_trouvee_produit_un_bloc_qui_dit_ou_deposer(monkeypatch, tmp_path):
@@ -206,7 +283,7 @@ def test_aucune_image_trouvee_produit_un_bloc_qui_dit_ou_deposer(monkeypatch, tm
     sortie = bloc("analyse cette image")
 
     assert "Aucune image" in sortie
-    assert "ne pretends pas voir" in sortie
+    assert "Reponds EXACTEMENT ceci" in sortie
 
 
 def test_un_moteur_en_panne_ne_fait_pas_tomber_la_reponse(monkeypatch, tmp_path):
@@ -219,7 +296,7 @@ def test_un_moteur_en_panne_ne_fait_pas_tomber_la_reponse(monkeypatch, tmp_path)
     """
     from nova.vision import images, moteur
 
-    (tmp_path / "x.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "x.png").write_bytes(PNG_1x1)
 
     class MoteurCasse:
         def __init__(self, *a, **k) -> None: ...
@@ -233,8 +310,14 @@ def test_un_moteur_en_panne_ne_fait_pas_tomber_la_reponse(monkeypatch, tmp_path)
 
     sortie = bloc("analyse cette image")
 
-    assert "Ollama est eteint" in sortie
-    assert "N'invente aucune description" in sortie
+    # ⚠️ LA RAISON TECHNIQUE RESTE DANS LE JOURNAL, PAS DANS LA BOUCHE DE NOVA.
+    #
+    # « argument should be a str or an os.PathLike object where __fspath__
+    # returns a str, not 'tuple' » est le message exact d'un vrai defaut — et
+    # il n'a aucun sens dit a voix haute dans un salon.
+    assert "erreur technique" in sortie
+    assert "Ollama est eteint" not in sortie, "pas de message de pile a l'oral"
+    assert "Reponds EXACTEMENT ceci" in sortie
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -259,7 +342,7 @@ def test_la_plus_recente_traverse_plusieurs_dossiers(tmp_path):
     vieille = telechargements / "vieille.png"
     recente = bureau / "recente.png"
     for fichier in (vieille, recente):
-        fichier.write_bytes(b"\x89PNG\r\n\x1a\n")
+        fichier.write_bytes(PNG_1x1)
     os.utime(vieille, (1, 1))
 
     assert la_plus_recente([telechargements, bureau]) == recente
@@ -272,7 +355,7 @@ def test_un_dossier_configure_absent_ne_fait_pas_tout_echouer(tmp_path):
 
     reel = tmp_path / "Downloads"
     reel.mkdir()
-    (reel / "piece.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (reel / "piece.png").write_bytes(PNG_1x1)
 
     assert la_plus_recente([reel, tmp_path / "nexiste-pas"]).name == "piece.png"
 
@@ -289,7 +372,7 @@ def test_la_borne_vaut_pour_chacun_des_dossiers(tmp_path):
     permis.mkdir()
     interdit = tmp_path / "Documents prives"
     interdit.mkdir()
-    (interdit / "secret.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (interdit / "secret.png").write_bytes(PNG_1x1)
 
     with pytest.raises(ImageIllisible) as refus:
         resoudre(str(interdit / "secret.png"), [permis])
@@ -304,7 +387,7 @@ def test_les_dossiers_caches_sont_ignores(tmp_path):
 
     cache = tmp_path / ".cache"
     cache.mkdir()
-    (cache / "vignette.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (cache / "vignette.png").write_bytes(PNG_1x1)
 
     with pytest.raises(ImageIntrouvable):
         la_plus_recente(tmp_path)
@@ -317,11 +400,11 @@ def test_la_descente_est_bornee_en_profondeur(tmp_path):
 
     profond = tmp_path / "a" / "b" / "c" / "d"
     profond.mkdir(parents=True)
-    (profond / "trop-loin.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (profond / "trop-loin.png").write_bytes(PNG_1x1)
 
     with pytest.raises(ImageIntrouvable):
         la_plus_recente(tmp_path)
 
     # Mais deux niveaux restent atteignables : « Bureau/photos/piece.jpg ».
-    (tmp_path / "a" / "b" / "atteignable.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "a" / "b" / "atteignable.png").write_bytes(PNG_1x1)
     assert la_plus_recente(tmp_path).name == "atteignable.png"

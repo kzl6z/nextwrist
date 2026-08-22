@@ -113,8 +113,13 @@ def est_une_image(chemin: Path) -> bool:
     return chemin.suffix.lower() in EXTENSIONS
 
 
-def _racines(ou: Path | Iterable[Path]) -> tuple[Path, ...]:
-    """Normalise « une racine ou plusieurs » en un tuple resolu."""
+def racines(ou: Path | Iterable[Path]) -> tuple[Path, ...]:
+    """Normalise « une racine ou plusieurs » en un tuple resolu.
+
+    Publique parce que `moteur.py` en a besoin : un nom prive utilise depuis
+    un autre module est une contradiction, et la premiere chose qu'on casse
+    en refactorant.
+    """
     if isinstance(ou, (str, Path)):
         ou = [Path(ou)]
     resolues: list[Path] = []
@@ -139,7 +144,7 @@ def dossiers_surveilles() -> tuple[Path, ...]:
     reglages = get_settings()
     declares = [d.strip() for d in reglages.vision_dossiers.split(",") if d.strip()]
     racine_projet = reglages.root
-    return _racines(
+    return racines(
         [d if Path(d).expanduser().is_absolute() else racine_projet / d for d in declares]
     )
 
@@ -180,8 +185,8 @@ def resoudre(chemin: str, racine: Path | Iterable[Path]) -> Path:
     n'importe quel fichier de la machine — et la vision est un excellent
     moyen d'exfiltrer un fichier, puisqu'elle en RACONTE le contenu.
     """
-    racines = _racines(racine)
-    if not racines:
+    permis = racines(racine)
+    if not permis:
         raise ImageIllisible("Aucun dossier de travail configure pour la vision.")
 
     demande = Path(chemin).expanduser()
@@ -191,7 +196,7 @@ def resoudre(chemin: str, racine: Path | Iterable[Path]) -> Path:
     # Elargir la recherche n'elargit pas le droit de lire : un candidat qui
     # sortirait de la racine ou on l'essaie est ecarte comme avant.
     candidats = (
-        [demande] if demande.is_absolute() else [racine / demande for racine in racines]
+        [demande] if demande.is_absolute() else [racine / demande for racine in permis]
     )
 
     dedans: list[Path] = []
@@ -200,11 +205,11 @@ def resoudre(chemin: str, racine: Path | Iterable[Path]) -> Path:
             resolu = candidat.resolve()
         except OSError:
             continue
-        if any(resolu.is_relative_to(racine) for racine in racines):
+        if any(resolu.is_relative_to(racine) for racine in permis):
             dedans.append(resolu)
 
     if not dedans:
-        ou = ", ".join(str(r) for r in racines)
+        ou = ", ".join(str(r) for r in permis)
         raise ImageIllisible(
             f"« {chemin} » sort des dossiers que Nova peut lire ({ou}). "
             "Nova ne regarde que ce que tu lui as confie."
@@ -246,10 +251,10 @@ def la_plus_recente(racine: Path | Iterable[Path]) -> Path:
     chaque renommage, et sur macOS il recule apres une restauration.
     On garde `st_mtime`, on ANNONCE l'age, et l'utilisateur corrige d'un mot.
     """
-    racines = _racines(racine)
-    existants = [r for r in racines if r.is_dir()]
+    permis = racines(racine)
+    existants = [r for r in permis if r.is_dir()]
     if not existants:
-        ou = ", ".join(str(r) for r in racines) or "aucun"
+        ou = ", ".join(str(r) for r in permis) or "aucun"
         raise ImageIntrouvable(f"Aucun dossier surveille n'existe ({ou}).")
 
     images: list[Path] = []
