@@ -158,6 +158,39 @@ def _image_en_tete() -> bool:
     return focus.derniere() is not None
 
 
+#: Les mots qui, seuls, ne peuvent designer qu'« une image » en general.
+#:
+#: Assez pour reconnaitre « la photo » une fois le determinant retire, et
+#: assez etroit pour ne jamais attraper un nom d'application reel : aucune ne
+#: s'appelle « capture d'ecran » ou « cliche ».
+#:
+#: ⚠️ « PHOTOS » Y FIGURE, ET C'EST UNE APPLICATION macOS.
+#:
+#: C'est assume, et c'est tout l'interet : le mot seul est ambigu, le CONTEXTE
+#: ne l'est pas. Hors d'une conversation sur une image, `image_en_tete_pour`
+#: rend `None` et l'application gagne comme avant.
+_MOT_D_IMAGE_SEUL: frozenset[str] = frozenset(
+    {
+        "photo", "photos", "image", "images", "capture", "captures",
+        "screenshot", "cliche", "cliché", "capture d'ecran", "capture d'écran",
+    }
+)
+
+
+def image_en_tete_pour(cible: str):
+    """L'image retenue, si « cible » ne designe rien de plus precis qu'elle.
+
+    Rend un `Path` ou `None`. Sert a l'orchestrateur, la ou le determinant a
+    deja ete retire de la cible et ou seul le contexte peut trancher.
+    """
+    from nova.vision import focus
+
+    if sans_accents(cible or "").strip().lower() not in _MOT_D_IMAGE_SEUL:
+        return None
+    retenue = focus.derniere()
+    return retenue.chemin if retenue is not None else None
+
+
 def _reprise_d_image(texte: str) -> bool:
     """La phrase reprend-elle une image deja evoquee, sans la nommer ?
 
@@ -446,7 +479,21 @@ def _ouvrir_si_evident(trouvees) -> bool:
     Nova de DIRE qu'elle l'a trouvee.
     """
     meilleure, score = trouvees[0]
-    second = trouvees[1][1] if len(trouvees) > 1 else 0.0
+    # ⚠️ DEUX FICHIERS IDENTIQUES NE SONT PAS UNE AMBIGUITE.
+    #
+    # Releve sur la machine : `alo.JPG` et `IMG_8156.JPG` sont la MEME photo,
+    # donc la meme description, donc deux scores a 100 %. La marge n'etait
+    # jamais atteinte et Nova n'ouvrait rien — alors que n'importe laquelle
+    # des deux etait la bonne reponse.
+    #
+    # On ecarte donc les doublons avant de mesurer l'ecart : ce qui compte
+    # est le premier candidat qui dit AUTRE CHOSE.
+    distincts = [
+        (entree, valeur)
+        for entree, valeur in trouvees
+        if entree.description != meilleure.description
+    ]
+    second = distincts[0][1] if distincts else 0.0
     if score - second < MARGE_OUVERTURE:
         log.info(
             "Ouverture non declenchee : %s a %.0f %% contre %.0f %% pour le suivant.",

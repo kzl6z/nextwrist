@@ -210,6 +210,74 @@ def test_une_ouverture_impossible_n_empeche_pas_de_repondre():
 
 
 # ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ « OUVRE LA PHOTO » — LE DETERMINANT EST DETRUIT EN AMONT
+# ══════════════════════════════════════════════════════════════════════════
+def test_deux_fichiers_identiques_ne_bloquent_pas_l_ouverture():
+    """⚠️ DEUX EXEMPLAIRES DE LA MEME PHOTO NE SONT PAS UNE AMBIGUITE.
+
+    Releve sur la machine : `alo.JPG` et `IMG_8156.JPG` sont la meme image,
+    donc la meme description, donc deux scores a 100 %. La marge n'etait
+    jamais atteinte et Nova n'ouvrait rien — alors que n'importe laquelle des
+    deux etait la bonne reponse.
+    """
+    from nova.vision.catalogue import Entree
+    from nova.vision.regard import _ouvrir_si_evident
+
+    meme = "une main tient une casquette blanche sur une table"
+    ouvertes: list[str] = []
+    trouvees = [
+        (Entree("/img.JPG", "img.JPG", 2.0, 1, meme), 1.0),
+        (Entree("/alo.JPG", "alo.JPG", 1.0, 1, meme), 1.0),
+        (Entree("/doc.png", "doc.png", 1.0, 1, "un document"), 0.1),
+    ]
+
+    import nova.outils as outils
+
+    original = outils.executer_outil
+    outils.executer_outil = lambda nom, **kw: ouvertes.append(kw["chemin"])
+    try:
+        assert _ouvrir_si_evident(trouvees)
+    finally:
+        outils.executer_outil = original
+
+    assert ouvertes == ["/img.JPG"]
+
+
+def test_ouvre_la_photo_designe_l_image_en_tete(image):
+    """⚠️ LE DETERMINANT N'EXISTE DEJA PLUS A CET ETAGE.
+
+    `intentions.BRUIT_CIBLE` retire « la » — c'est ce qui fait marcher
+    « ouvre l'application Chrome ». Consequence : « ouvre LA photo » et
+    « ouvre Photos » arrivent tous deux comme « photo ».
+
+    Releve en conditions reelles : Nova venait de trouver IMG_8156.JPG, on
+    lui dit « ouvre la photo », et elle a ouvert l'APPLICATION Photos de
+    macOS. Correct du point de vue du catalogue, absurde du point de vue de
+    la conversation. Le contexte tranche ou la grammaire ne le peut plus.
+    """
+    from nova.vision.regard import image_en_tete_pour
+
+    assert image_en_tete_pour("photo") is None, "sans image en tete, l'application gagne"
+    assert image_en_tete_pour("Photos") is None
+
+    focus.retenir(image)
+
+    assert image_en_tete_pour("photo") == image
+    assert image_en_tete_pour("Photos") == image
+
+
+def test_un_nom_d_application_reel_n_est_jamais_detourne(image):
+    """Seuls les mots qui ne designent QU'une image comptent. « Roblox » ou
+    « Chrome » restent des applications, image en tete ou non."""
+    from nova.vision.regard import image_en_tete_pour
+
+    focus.retenir(image)
+
+    for nom in ("Roblox", "Google Chrome", "Photo Booth", "Aperçu", "Finder"):
+        assert image_en_tete_pour(nom) is None, nom
+
+
+# ══════════════════════════════════════════════════════════════════════════
 #  LA CONVERSATION COMPLETE
 # ══════════════════════════════════════════════════════════════════════════
 def test_trouver_puis_analyser_designe_la_meme_image(tmp_path, monkeypatch):

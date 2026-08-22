@@ -1065,6 +1065,34 @@ def _confronter_au_reel(
     if action.catalogue != actions.CATALOGUE_APPLICATIONS or not action.argument:
         return action, ({action.argument: cible} if action.argument else {}), None
 
+    # ── « OUVRE LA PHOTO » JUSTE APRES EN AVOIR TROUVE UNE ───────────────
+    #
+    # ⚠️ LE DETERMINANT EST DETRUIT AVANT D'ARRIVER ICI.
+    #
+    # `intentions.BRUIT_CIBLE` retire « la » de la cible — c'est ce qui fait
+    # marcher « ouvre l'application Chrome ». Consequence : « ouvre LA photo »
+    # et « ouvre Photos » arrivent tous les deux comme « photo ». Le signal
+    # sur lequel repose `designe_une_image` n'existe plus a cet etage.
+    #
+    # Releve en conditions reelles : Nova venait de trouver IMG_8156.JPG, on
+    # lui dit « ouvre la photo », et elle a ouvert l'APPLICATION Photos de
+    # macOS. Correct du point de vue du catalogue, absurde du point de vue de
+    # la conversation.
+    #
+    # Le contexte tranche ou la grammaire ne le peut plus : si une image est
+    # en tete, « la photo » designe CETTE image. Hors de ce cas — aucune image
+    # en tete — « ouvre Photos » ouvre l'application, comme avant.
+    if action.outil == "ouvrir_application":
+        from nova.vision.regard import image_en_tete_pour
+
+        if (retenue := image_en_tete_pour(cible)) is not None:
+            log.info("« %s » : ouverture de l'image en tete (%s).", cible, retenue.name)
+            return (
+                actions.Action("ouvrir_image", "chemin"),
+                {"chemin": str(retenue)},
+                None,
+            )
+
     trouvee = _resoudre_application(cible)
     retenu, etat = trouvee.nom, trouvee.etat
 

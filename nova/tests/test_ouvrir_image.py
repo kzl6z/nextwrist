@@ -264,6 +264,53 @@ def test_une_application_installee_gagne_meme_si_son_nom_designe_une_image(monke
     assert arguments == {"cible": "Mes Photos"}
 
 
+def test_ouvre_la_photo_ouvre_l_image_en_tete_pas_l_application(catalogue, tmp_path):
+    """⚠️ CE BANC EXISTE PARCE QUE SON JUMEAU NE SUFFISAIT PAS.
+
+    `test_ouvre_la_photo_designe_l_image_en_tete` verifie `image_en_tete_pour`
+    — l'AIDE. Retirer le branchement dans l'orchestrateur le laissait passer :
+    encore une fois, je testais la piece et pas le cablage.
+
+    Releve en conditions reelles : Nova venait de trouver IMG_8156.JPG, on lui
+    dit « ouvre la photo », et elle a ouvert l'APPLICATION Photos de macOS.
+    Le determinant qui aurait tranche est retire en amont par
+    `intentions.BRUIT_CIBLE` : « ouvre LA photo » et « ouvre Photos » arrivent
+    identiques. Seul le contexte peut departager.
+    """
+    from nova.vision import focus
+
+    image = tmp_path / "IMG_8156.JPG"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    focus.oublier()
+    try:
+        # Sans image en tete, « Photos » reste l'application.
+        assert _aiguiller("ouvre Photos") == ("ouvrir_application", {"cible": "Photos"})
+
+        focus.retenir(image, origine="recherche")
+        outil, arguments = _aiguiller("ouvre la photo")
+
+        assert outil == "ouvrir_image"
+        assert arguments == {"chemin": str(image)}
+    finally:
+        focus.oublier()
+
+
+def test_une_application_reelle_reste_prioritaire_meme_avec_une_image_en_tete(
+    catalogue, tmp_path
+):
+    """« ouvre Roblox » pendant qu'on parle d'une image ouvre bien Roblox."""
+    from nova.vision import focus
+
+    image = tmp_path / "IMG_8156.JPG"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n")
+    focus.retenir(image, origine="recherche")
+    try:
+        assert _aiguiller("ouvre Roblox") == ("ouvrir_application", {"cible": "Roblox"})
+    finally:
+        focus.oublier()
+
+
 def test_une_application_inconnue_qui_n_est_pas_une_image_echoue_comme_avant(catalogue):
     """Le repli ne transforme pas tous les echecs en ouverture d'image."""
     etat, message = _aiguiller("ouvre Trucmachin")
