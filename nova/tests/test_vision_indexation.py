@@ -28,8 +28,8 @@ from nova.vision import indexation
 _passages: list[int] = []
 
 
-def _compter() -> int:
-    _passages.append(1)
+def _compter(lot: int = 10) -> int:
+    _passages.append(lot)
     return 0
 
 
@@ -128,16 +128,21 @@ def test_le_fil_s_arrete_quand_on_le_lui_demande(monkeypatch):
 
     indexation.entretenir(ArretApresLePremierLot())
 
-    assert _passages == [1], "un seul lot, puis l'arret est respecte"
+    assert len(_passages) == 1, "un seul lot, puis l'arret est respecte"
 
 
-def test_une_machine_qui_pagine_repousse_l_indexation(monkeypatch):
-    """⚠️ LE SILENCE NE SUFFIT PAS : UNE MACHINE PEUT ETRE SILENCIEUSE ET SATUREE.
+def test_une_machine_qui_pagine_ralentit_l_indexation_sans_l_arreter(monkeypatch):
+    """⚠️ CE BANC A D'ABORD VERIFIE UN BLOCAGE DEFINITIF, ET J'AI CRU BIEN FAIRE.
 
-    Releve au demarrage sur la machine reelle : « La machine pagine (swap
-    2,27 Go / 3,0 Go) ». Charger 2 Go de plus dans cet etat ne ralentit pas
-    seulement Nova — ca ralentit tout ce que la personne est en train de
-    faire, sans qu'elle ait rien demande.
+    Sa premiere version exigeait que RIEN ne soit indexe quand la machine
+    pagine. Prudent sur le papier ; en pratique, une panne silencieuse :
+    `pagine` est vrai des 1 Go de swap, la machine de reference en a 2,27, et
+    sur macOS le swap ne redescend quasiment jamais. L'indexation n'aurait
+    jamais tourne — precisement sur la machine pour laquelle elle est ecrite.
+
+    Un garde-fou qui ne peut pas se relacher n'est pas un garde-fou. On
+    indexe donc UNE image au lieu de dix : le travail avance, la pression
+    reste minimale.
     """
     from nova.core import plateforme
     from nova.vision import moteur
@@ -165,7 +170,34 @@ def test_une_machine_qui_pagine_repousse_l_indexation(monkeypatch):
 
     indexation.entretenir(ArretApresUnTour())
 
-    assert _passages == [], "rien ne doit etre indexe pendant que la machine pagine"
+    assert _passages == [1], "un lot REDUIT, pas un arret"
+
+
+def test_une_machine_au_repos_indexe_par_lots_pleins(monkeypatch):
+    from nova.core import plateforme
+    from nova.vision import moteur
+
+    class AuRepos:
+        pagine = False
+
+    monkeypatch.setattr(moteur, "disponible", lambda: (True, ""))
+    monkeypatch.setattr(plateforme, "pression_memoire", lambda: AuRepos())
+    monkeypatch.setattr(indexation, "DEMARRAGE_S", 0.01)
+    monkeypatch.setattr(indexation, "_un_passage", _compter)
+
+    class ArretApresUnTour(threading.Event):
+        def __init__(self) -> None:
+            super().__init__()
+            self.appels = 0
+
+        def wait(self, timeout=None):  # noqa: D102
+            self.appels += 1
+            assert self.appels < 10, "le fil ignore l'arret qu'on lui demande"
+            return self.appels > 1
+
+    indexation.entretenir(ArretApresUnTour())
+
+    assert _passages == [indexation.LOT]
 
 
 def test_une_mesure_memoire_indisponible_n_empeche_pas_d_indexer(monkeypatch):

@@ -28,6 +28,7 @@ import threading
 import time
 
 from nova.logging_setup import get_logger
+from nova.vision.catalogue import LOT as _LOT_CATALOGUE
 
 log = get_logger(__name__)
 
@@ -43,6 +44,13 @@ REPOS_S = 30.0
 #: Repos quand il n'y a rien a faire. Long : c'est le cas courant une fois le
 #: rattrapage termine.
 REPOS_VIDE_S = 900.0
+
+#: Repos quand la machine pagine deja. Une image de temps en temps.
+REPOS_SATURE_S = 300.0
+
+#: Images regardees par passage. Importe ici parce qu'il sert de valeur par
+#: defaut a `_un_passage` — donc evalue a l'import du module, pas a l'appel.
+LOT = _LOT_CATALOGUE
 
 #: Delai avant le tout premier lot, en secondes.
 #:
@@ -139,8 +147,12 @@ def _traduire_avec(client) -> list[str]:
     return traduire
 
 
-def _un_passage() -> int:
-    """Un lot. Rend le nombre d'images ajoutees. Ne leve jamais."""
+def _un_passage(lot: int = LOT) -> int:
+    """Un lot. Rend le nombre d'images ajoutees. Ne leve jamais.
+
+    `lot` est reduit a 1 quand la machine pagine : le travail avance sans
+    ajouter de pression, plutot que de s'arreter definitivement.
+    """
     from nova.llm.client import LLMClient
     from nova.vision import catalogue as cat
     from nova.vision.images import dossiers_surveilles
@@ -162,6 +174,7 @@ def _un_passage() -> int:
         catalogue,
         decrire=lambda chemin: moteur.decrire(chemin).description,
         traduire=_traduire_avec(LLMClient()),
+        lot=lot,
     )
 
 
@@ -190,22 +203,26 @@ def entretenir(arret: threading.Event) -> None:
             # Quelqu'un parle a Nova. Charger le modele de vision maintenant
             # ferait attendre la reponse suivante sans raison visible.
             repos = SILENCE_S - _repos_depuis_la_derniere_reponse()
-        elif _machine_saturee():
-            # ⚠️ TROISIEME GARDE-FOU, AJOUTE APRES UNE MESURE REELLE.
-            #
-            # Releve au demarrage sur la machine : « La machine pagine (swap
-            # 2,27 Go / 3,0 Go) ». Charger 2 Go de plus dans cet etat ne
-            # ralentit pas seulement Nova — ca ralentit TOUT, y compris ce
-            # que la personne etait en train de faire.
-            #
-            # Le silence ne suffit donc pas comme condition : une machine
-            # peut etre silencieuse ET saturee. On repousse, et l'indexation
-            # reprendra quand la memoire se sera liberee.
-            repos = REPOS_VIDE_S
         else:
+            # ⚠️ SOUS PRESSION, ON RALENTIT. ON NE S'ARRETE PAS.
+            #
+            # La version precedente sautait le passage quand la machine
+            # paginait. Sur le papier c'etait prudent ; en pratique c'etait un
+            # blocage definitif : `pagine` est vrai des 1 Go de swap, la
+            # machine de reference en a 2,27, et sur macOS le swap ne
+            # redescend quasiment jamais. L'indexation n'aurait JAMAIS tourne
+            # — precisement sur la machine pour laquelle elle est ecrite.
+            #
+            # Un garde-fou qui ne peut pas se relacher n'est pas un garde-fou,
+            # c'est une panne silencieuse. On indexe donc UNE image au lieu de
+            # dix, et on espace : le travail avance, la pression reste
+            # minimale, et l'utilisateur n'a rien a comprendre.
+            sature = _machine_saturee()
             try:
-                if _un_passage() == 0:
+                if _un_passage(lot=1 if sature else LOT) == 0:
                     repos = REPOS_VIDE_S
+                elif sature:
+                    repos = REPOS_SATURE_S
             except Exception as erreur:  # noqa: BLE001
                 # Une indexation en panne ne doit jamais faire tomber Nova.
                 # Elle reessaiera plus tard ; en attendant, la recherche
