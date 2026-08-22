@@ -181,6 +181,38 @@ def test_un_nom_de_fichier_est_transmis_tel_quel(catalogue):
     assert arguments == {"chemin": "IMG_7826-2.png"}
 
 
+def test_ouvrir_par_contenu_exige_une_tournure_explicite(catalogue, monkeypatch):
+    """⚠️ TOLERANT POUR REPONDRE, STRICT POUR OUVRIR.
+
+    Le repli qui prend « tout ce qui suit le mot image » rend la recherche
+    robuste aux transcriptions massacrees — indispensable pour REPONDRE, ou
+    Nova nomme le fichier retenu et ou l'on corrige d'un mot.
+
+    Appliqué a l'OUVERTURE, il a casse deux cas d'un coup : « la derniere
+    image que j'ai transferee » et « l'image a l'eau. penge sur pege »
+    partaient chercher un contenu introuvable, et Nova REFUSAIT d'ouvrir
+    alors qu'ouvrir la plus recente etait la bonne reponse.
+
+    Seule une tournure explicite — « ou il y a », « avec », « qui montre » —
+    vaut donc une recherche au catalogue.
+    """
+    from nova.vision import regard
+
+    trouvees: list[str] = []
+    monkeypatch.setattr(
+        regard, "retrouver", lambda quoi, limite=3: trouvees.append(quoi) or []
+    )
+
+    # Une provenance, pas un contenu : on ouvre la plus recente.
+    outil, arguments = _aiguiller("ouvre la dernière image que j'ai transférée")
+    assert (outil, arguments) == ("ouvrir_image", {"chemin": ""})
+    assert trouvees == [], "aucune recherche au catalogue"
+
+    # Une tournure explicite : on cherche.
+    _aiguiller("ouvre l'image où il y a une casquette")
+    assert trouvees == ["une casquette"]
+
+
 @pytest.mark.parametrize(
     ("phrase", "attendu"),
     [

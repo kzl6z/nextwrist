@@ -84,6 +84,26 @@ def _repos_depuis_la_derniere_reponse() -> float:
     return time.monotonic() - dernier if dernier else SILENCE_S + 1
 
 
+def _machine_saturee() -> bool:
+    """La machine pagine-t-elle deja ? Ne leve jamais.
+
+    Une mesure indisponible ne doit pas empecher d'indexer : on repond « non »
+    et on laisse les autres garde-fous faire leur travail. Bloquer une
+    capacite sur l'absence d'une mesure serait plus couteux que le risque.
+    """
+    try:
+        from nova.core import plateforme
+
+        pression = plateforme.pression_memoire()
+    except Exception as erreur:  # noqa: BLE001
+        log.debug("Pression memoire illisible (%s).", erreur)
+        return False
+    if pression.pagine:
+        log.info("Indexation reportee : la machine pagine (%s).", pression)
+        return True
+    return False
+
+
 def _traduire_avec(client) -> list[str]:
     """Rend une fonction qui traduit un LOT de descriptions en une fois."""
 
@@ -170,6 +190,18 @@ def entretenir(arret: threading.Event) -> None:
             # Quelqu'un parle a Nova. Charger le modele de vision maintenant
             # ferait attendre la reponse suivante sans raison visible.
             repos = SILENCE_S - _repos_depuis_la_derniere_reponse()
+        elif _machine_saturee():
+            # ⚠️ TROISIEME GARDE-FOU, AJOUTE APRES UNE MESURE REELLE.
+            #
+            # Releve au demarrage sur la machine : « La machine pagine (swap
+            # 2,27 Go / 3,0 Go) ». Charger 2 Go de plus dans cet etat ne
+            # ralentit pas seulement Nova — ca ralentit TOUT, y compris ce
+            # que la personne etait en train de faire.
+            #
+            # Le silence ne suffit donc pas comme condition : une machine
+            # peut etre silencieuse ET saturee. On repousse, et l'indexation
+            # reprendra quand la memoire se sera liberee.
+            repos = REPOS_VIDE_S
         else:
             try:
                 if _un_passage() == 0:

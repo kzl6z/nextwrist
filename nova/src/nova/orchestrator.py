@@ -1076,7 +1076,11 @@ def _confronter_au_reel(
             # reussite apparente qui est pire qu'un echec.
             from nova.vision.regard import contenu_cherche, retrouver
 
-            if not nomme and (quoi := contenu_cherche(cible)):
+            # `tolerant=False` : seule une tournure EXPLICITE — « ou il y a »,
+            # « avec », « qui montre » — vaut une recherche au catalogue. Le
+            # repli tolerant sert a repondre, ou l'on nomme le fichier retenu
+            # et ou l'utilisateur corrige d'un mot.
+            if not nomme and (quoi := contenu_cherche(cible, tolerant=False)):
                 if trouvees := retrouver(quoi, limite=1):
                     entree = trouvees[0][0]
                     log.info("« %s » retrouvee au catalogue : %s", quoi, entree.nom)

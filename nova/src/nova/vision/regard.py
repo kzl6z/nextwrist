@@ -245,36 +245,80 @@ _RETROUVER = re.compile(
 )
 
 
-def contenu_cherche(texte: str) -> str:
+def contenu_cherche(texte: str, *, tolerant: bool = True) -> str:
     """Ce que la personne dit voir DANS l'image, ou `""`.
 
     Rend la partie utile a la recherche — « une casquette tenue dans une
     main » — et non la phrase entiere : « est-ce que tu peux me retrouver
     l'image » ne contient aucun mot qui designe une image en particulier, et
     les inclure ferait ressembler la question a toutes les descriptions.
+
+    ⚠️ DEUX LECTURES, PARCE QUE LA VOIX NE FAIT PAS DE GRAMMAIRE.
+
+    La premiere cherche une tournure propre — « ou il y a », « avec », « qui
+    montre ». Elle est precise et decoupe juste.
+
+    La seconde existe parce que la premiere a echoue sur une phrase reelle.
+    Releve tel quel : « où il y a une casquette » a ete transcrit « ou je
+    train casquette ». Aucun motif grammatical ne rattrapera ca — et exiger
+    une grammaire correcte d'une transcription vocale, c'est ne marcher que
+    dans les demonstrations.
+
+    On prend alors TOUT ce qui suit le mot « image » ou « photo », et on
+    laisse les mots vides faire le tri. « train casquette » cherchera
+    « casquette » : un mot parasite coute un peu de score, une phrase non
+    reconnue coute la fonctionnalite entiere.
     """
     if not texte:
         return ""
-    trouve = _CONTENU.search(sans_accents(texte))
-    if not trouve:
+    plat = sans_accents(texte)
+
+    if trouve := _CONTENU.search(plat):
+        # On decoupe sur le texte D'ORIGINE, aux memes positions : le
+        # depouillement des accents preserve les longueurs, et une
+        # description accentuee doit rester lisible dans le compte rendu.
+        debut, fin = trouve.span("quoi")
+        return texte[debut:fin].strip(" ?.!,")
+
+    # ⚠️ LE REPLI TOLERANT CONVIENT POUR REPONDRE, PAS POUR OUVRIR.
+    #
+    # Rendre une phrase ou l'on nomme le fichier qu'on a retenu est
+    # rattrapable d'un mot. OUVRIR le mauvais fichier ne l'est pas de la meme
+    # facon — et sur une transcription massacree, « l'image a l'eau. penge
+    # sur pege » donnerait « a l'eau. penge sur pege » comme contenu cherche.
+    # Le catalogue ne trouverait rien, et Nova REFUSERAIT d'ouvrir alors
+    # qu'ouvrir la plus recente etait la bonne reponse.
+    if not tolerant:
         return ""
-    # On decoupe sur le texte D'ORIGINE, aux memes positions : le
-    # depouillement des accents preserve les longueurs, et une description
-    # accentuee doit rester lisible dans le compte rendu.
-    debut, fin = trouve.span("quoi")
-    return texte[debut:fin].strip(" ?.!,")
+
+    # Repli : le dernier mot d'image, puis tout ce qui suit.
+    dernier = None
+    for occurrence in _OBJET_SEUL.finditer(plat):
+        dernier = occurrence
+    if dernier is None:
+        return ""
+    suite = texte[dernier.end() :].strip(" ?.!,")
+    # Sans mot porteur derriere, la phrase ne designe rien de precis —
+    # « retrouve mon image » doit rester une demande de regard, pas de
+    # recherche.
+    from nova.vision.catalogue import mots
+
+    return suite if mots(suite) else ""
 
 
 def demande_de_retrouver(texte: str) -> bool:
-    """Cette phrase demande-t-elle de CHERCHER une image parmi d'autres ?"""
+    """Cette phrase demande-t-elle de CHERCHER une image parmi d'autres ?
+
+    Il faut un mot d'image, quelque chose a chercher, ET — quand la tournure
+    n'est pas explicite — un verbe qui demande de retrouver. Sans ce dernier,
+    « decris cette image en detail » partirait chercher « en detail ».
+    """
     if not texte:
         return False
     plat = sans_accents(texte)
-    return bool(
-        _OBJET_SEUL.search(plat)
-        and (contenu_cherche(texte) or _RETROUVER.search(plat))
-        and contenu_cherche(texte)
-    )
+    if not _OBJET_SEUL.search(plat) or not contenu_cherche(texte):
+        return False
+    return bool(_CONTENU.search(plat) or _RETROUVER.search(plat))
 
 
 def _situer(cible: Path) -> str:

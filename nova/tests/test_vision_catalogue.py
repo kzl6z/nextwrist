@@ -252,6 +252,45 @@ def test_une_image_supprimee_est_oubliee(rempli, images):
 # ══════════════════════════════════════════════════════════════════════════
 #  LE DECLENCHEUR — chercher, ou regarder ?
 # ══════════════════════════════════════════════════════════════════════════
+def test_une_transcription_massacree_trouve_quand_meme(rempli):
+    """⚠️ LE MOTIF GRAMMATICAL A ECHOUE SUR UNE PHRASE REELLE.
+
+    Transcription relevee telle quelle — « ou il y a une casquette » entendu
+    « ou je train casquette » :
+
+        « peut-tu retrouver la Photos ou je train casquette sur mon PC,
+          s'il te plait »
+
+    Aucun motif de grammaire ne rattrapera ca. Exiger une tournure correcte
+    d'une transcription vocale, c'est ne marcher que dans les demonstrations.
+    On prend donc tout ce qui suit le mot d'image, et les mots vides font le
+    tri : « train casquette » cherche « casquette ».
+
+    ⚠️ ET « S'IL TE PLAIT » FAISAIT ECHOUER LA RECHERCHE A UN CENTIEME.
+
+    Le score est une proportion : train + casquette + plait = 1/3 = 0,33,
+    pour un seuil a 0,34. Une formule de politesse suffisait a perdre la
+    bonne image. Sans « plait » : 1/2 = 0,50.
+    """
+    from nova.vision.regard import contenu_cherche, demande_de_retrouver
+
+    phrase = (
+        "peut-tu retrouver la Photos ou je train casquette sur mon PC, "
+        "s'il te plaît"
+    )
+
+    assert demande_de_retrouver(phrase)
+    trouvees = rempli.chercher(contenu_cherche(phrase))
+    assert trouvees[0][0].nom == "IMG_7826-2.png"
+    assert trouvees[0][1] >= SEUIL_PERTINENCE, "la politesse ne doit pas faire echouer"
+
+
+def test_le_mot_de_reveil_ne_compte_pas_comme_un_mot_cherche():
+    """« Nova » reste souvent dans la transcription — il apparaissait donc
+    dans presque toutes les recherches, en faisant baisser toutes."""
+    assert mots("Nova retrouve-moi la photo avec la casquette") == ["casquette"]
+
+
 @pytest.mark.parametrize(
     ("phrase", "attendu"),
     [

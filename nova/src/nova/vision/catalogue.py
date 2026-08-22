@@ -83,8 +83,38 @@ VIDES: frozenset[str] = frozenset(
     retrouve retrouver retrouves cherche chercher cherches trouve trouver
     ouvre ouvrir ouvres montre montrer montres peux peut pouvez pourrais
     pourrait aimerais voudrais veux veut faire acces stp merci
+
+    nova plait plais svp bonjour salut coucou dis dit moi toi soi
+
+    derniere dernier dernieres derniers recente recent nouvelle nouveau
+    transferee transfere transferees transferes envoyee envoye recue recu
+    telechargee telecharge mise mis ajoutee ajoute
     """.split()
 )
+#: ⚠️ LES MOTS DE PROVENANCE NE DECRIVENT PAS UN CONTENU.
+#:
+#: « la derniere image que j'ai transferee sur mon PC » dit QUAND et COMMENT
+#: le fichier est arrive, jamais ce qu'on y voit. Les garder faisait deux
+#: degats a la fois : ils polluaient le score d'une vraie recherche, et — pire
+#: — ils faisaient passer « ouvre la derniere image » pour une recherche par
+#: contenu, qui ne trouvait rien et refusait d'ouvrir quoi que ce soit.
+#:
+#: Aucun modele de vision n'ecrira jamais « transferee » dans une description.
+#: ⚠️ « NOVA » ET « S'IL TE PLAIT » COMPTAIENT COMME DES MOTS CHERCHES.
+#:
+#: Le score est une PROPORTION. Releve sur la machine, transcription reelle :
+#:
+#:     « ou je train casquette sur mon PC, s'il te plait »
+#:     mots cherches : train, casquette, plait  →  1/3 = 0,33
+#:
+#: Seuil a 0,34. La bonne image echouait a un centieme, a cause d'une formule
+#: de politesse. Et le mot de reveil « Nova » reste souvent dans la
+#: transcription : il apparaissait donc dans presque toutes les recherches,
+#: en faisant baisser toutes.
+#:
+#: Sans « plait », la meme phrase donne 1/2 = 0,50. Un mot parasite venu
+#: d'une mauvaise transcription — « train » — reste, et c'est normal : on ne
+#: peut pas le deviner. La politesse, si.
 
 
 @dataclass(frozen=True)

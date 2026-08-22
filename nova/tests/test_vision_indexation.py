@@ -131,6 +131,56 @@ def test_le_fil_s_arrete_quand_on_le_lui_demande(monkeypatch):
     assert _passages == [1], "un seul lot, puis l'arret est respecte"
 
 
+def test_une_machine_qui_pagine_repousse_l_indexation(monkeypatch):
+    """⚠️ LE SILENCE NE SUFFIT PAS : UNE MACHINE PEUT ETRE SILENCIEUSE ET SATUREE.
+
+    Releve au demarrage sur la machine reelle : « La machine pagine (swap
+    2,27 Go / 3,0 Go) ». Charger 2 Go de plus dans cet etat ne ralentit pas
+    seulement Nova — ca ralentit tout ce que la personne est en train de
+    faire, sans qu'elle ait rien demande.
+    """
+    from nova.core import plateforme
+    from nova.vision import moteur
+
+    class Sature:
+        pagine = True
+
+        def __str__(self) -> str:
+            return "swap 2.27 Go / 3.0 Go"
+
+    monkeypatch.setattr(moteur, "disponible", lambda: (True, ""))
+    monkeypatch.setattr(plateforme, "pression_memoire", lambda: Sature())
+    monkeypatch.setattr(indexation, "DEMARRAGE_S", 0.01)
+    monkeypatch.setattr(indexation, "_un_passage", _compter)
+
+    class ArretApresUnTour(threading.Event):
+        def __init__(self) -> None:
+            super().__init__()
+            self.appels = 0
+
+        def wait(self, timeout=None):  # noqa: D102
+            self.appels += 1
+            assert self.appels < 10, "le fil ignore l'arret qu'on lui demande"
+            return self.appels > 1
+
+    indexation.entretenir(ArretApresUnTour())
+
+    assert _passages == [], "rien ne doit etre indexe pendant que la machine pagine"
+
+
+def test_une_mesure_memoire_indisponible_n_empeche_pas_d_indexer(monkeypatch):
+    """Bloquer une capacite sur l'ABSENCE d'une mesure couterait plus que le
+    risque qu'elle sert a eviter."""
+    from nova.core import plateforme
+
+    def casse():
+        raise OSError("vm_stat introuvable")
+
+    monkeypatch.setattr(plateforme, "pression_memoire", casse)
+
+    assert indexation._machine_saturee() is False
+
+
 def test_une_reponse_recente_repousse_l_indexation(monkeypatch):
     """Quelqu'un parle a Nova : ce n'est pas le moment de charger 2 Go."""
     indexation.signaler_activite()
