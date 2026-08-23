@@ -438,3 +438,153 @@ def test_le_rang_ne_detourne_pas_une_application(tmp_path, monkeypatch):
     assert rang_demande("Photoshop 2024") is None
     assert rang_demande("Roblox") is None
     assert rang_demande("deuxième") == 2
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ « OUVRE-MOI CETTE PHOTO » LANCAIT L'APPLICATION PHOTOS
+# ══════════════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # Releve en conditions reelles, juste apres une recherche REUSSIE :
+        # Nova venait de nommer « CNI BERANGERE RECTO-1.png », on lui dit
+        # « ouvre-moi cette photo », et elle a ouvert l'application Photos.
+        "ouvre-moi cette Photos",
+        "ouvre cette photo",
+        "ouvre ce fichier",
+        "ouvre ce document",
+        "ouvre ce papier",
+        "ouvre-le",
+    ],
+)
+def test_un_mot_de_contenant_designe_le_fichier_trouve(phrase, tmp_path):
+    """Le mot est retire des mots cherches — l'un nomme un TYPE, l'autre un
+    CONTENANT — et il ne restait donc rien a recouper avec le fichier retenu.
+    La cible partait au catalogue des applications, ou « Photos » existe."""
+    from nova.fichiers.trouver import fichier_en_tete_pour
+    from nova.vision import focus
+    from nova.voice import intentions
+
+    papier = tmp_path / "CNI BERANGERE RECTO-1.png"
+    papier.write_text("x")
+    cible = intentions.reconnaitre(phrase).cible
+
+    assert fichier_en_tete_pour(cible) is None, "sans rien en tete, l'appli gagne"
+
+    focus.retenir(papier, origine="recherche de fichier", genre="fichier")
+    try:
+        assert fichier_en_tete_pour(cible) == papier, phrase
+    finally:
+        focus.oublier()
+
+
+@pytest.mark.parametrize("phrase", ["ouvre Roblox", "ouvre Google Chrome", "ouvre Spotify"])
+def test_une_application_garde_la_main_meme_avec_un_fichier_en_tete(phrase, tmp_path):
+    from nova.fichiers.trouver import fichier_en_tete_pour
+    from nova.vision import focus
+    from nova.voice import intentions
+
+    papier = tmp_path / "CNI BERANGERE RECTO-1.png"
+    papier.write_text("x")
+    focus.retenir(papier, origine="recherche de fichier", genre="fichier")
+    try:
+        assert fichier_en_tete_pour(intentions.reconnaitre(phrase).cible) is None, phrase
+    finally:
+        focus.oublier()
+
+
+def test_le_cablage_complet_ouvre_le_fichier_trouve(tmp_path, monkeypatch):
+    """Depuis la phrase prononcee jusqu'a l'outil, sans fabriquer d'Action."""
+    from nova import orchestrator
+    from nova.core import actions
+    from nova.fichiers import trouver
+    from nova.vision import focus
+    from nova.voice import intentions
+
+    dossier = tmp_path / "Desktop" / "pdf2png" / "CNI BERANGERE RECTO"
+    dossier.mkdir(parents=True)
+    papier = dossier / "CNI BERANGERE RECTO-1.png"
+    papier.write_text("x")
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+    focus.retenir(papier, origine="recherche de fichier", genre="fichier")
+
+    intention = intentions.reconnaitre("ouvre-moi cette photo")
+    action = actions.action_pour(intention.nom)
+    retenue, arguments, interruption = orchestrator._confronter_au_reel(  # noqa: SLF001
+        action, intention.cible, confirme=False
+    )
+
+    assert interruption is None, interruption
+    assert retenue.outil == "ouvrir_fichier", retenue.outil
+    assert arguments == {"chemin": str(papier)}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ « EMPEAUX » POUR « IMPOTS » — LA SECONDE LECTURE
+# ══════════════════════════════════════════════════════════════════════════
+def test_un_mot_massacre_est_rattrape_mais_toujours_annonce(tmp_path, monkeypatch):
+    """Releve sur la machine :
+
+        dit      « dans mon PC, j'ai mes IMPOTS de 2024 »
+        entendu  « dans mon PC, j'ai mes EMPEAUX de 24004 »
+
+    ⚠️ ET LE RAPPROCHEMENT NE PEUT PAS ETRE SILENCIEUX.
+
+    Mesure faite sur la table des papiers, face a « impots » : « empeaux »
+    vaut 0,67 et « porsche » vaut 0,67 aussi. Aucun seuil ne passe entre les
+    deux. Ce sont donc les RESULTATS qui valident l'hypothese, et Nova dit
+    toujours ce qu'elle a compris.
+    """
+    from nova.fichiers import trouver
+
+    dossier = tmp_path / "Desktop" / "avis d impositions"
+    dossier.mkdir(parents=True)
+    (dossier / "impots 2024 3.pdf").write_text("x")
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+
+    import nova.outils as outils
+
+    monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
+
+    sortie = trouver.bloc("dans mon PC, j'ai mes empeaux, peux-tu me les retrouver")
+
+    assert "impots 2024 3.pdf" in sortie, "la seconde lecture doit trouver le fichier"
+    assert "empeaux" in sortie, "Nova doit dire ce qu'elle a entendu"
+    assert "COMMENCE ta reponse" in sortie, "et le dire EN PREMIER"
+
+
+def test_la_seconde_lecture_ne_sert_qu_en_dernier_recours(tmp_path, monkeypatch):
+    """Une recherche qui aboutit ne doit jamais etre reinterpretee."""
+    from nova.fichiers import trouver
+
+    dossier = tmp_path / "Documents"
+    dossier.mkdir()
+    (dossier / "impots-2024.pdf").write_text("x")
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+
+    import nova.outils as outils
+
+    monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
+
+    recherche, classes = trouver.chercher("retrouve mes impôts de 2024")
+
+    assert classes, "le fichier est trouve du premier coup"
+    assert recherche.entendu == (), "aucun rapprochement ne doit avoir eu lieu"
+
+
+def test_une_hypothese_qui_ne_trouve_rien_laisse_les_mots_d_origine(
+    tmp_path, monkeypatch
+):
+    """Le message d'echec doit parler des mots REELLEMENT prononces."""
+    from nova.fichiers import trouver
+
+    (tmp_path / "vacances.pdf").write_text("x")
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+
+    recherche, classes = trouver.chercher(
+        "dans mon PC, j'ai mes empeaux, peux-tu me les retrouver"
+    )
+
+    assert classes == []
+    assert recherche.entendu == ()
+    assert "empeaux" in recherche.mots

@@ -219,7 +219,41 @@ def chercher(texte: str, *, limite: int = COMBIEN) -> tuple[Recherche, list]:
         len(trouves), len(classes),
         f", meilleur {classes[0][0].nom}" if classes else "",
     )
-    return recherche, classes
+    if classes:
+        return recherche, classes
+
+    # ⚠️ SECOND RECOURS : ET SI ON AVAIT MAL ENTENDU ?
+    #
+    # Releve sur la machine — « mes IMPOTS de 2024 » transcrit « mes EMPEAUX
+    # de 24004 ». Le mot est perdu, et avec lui la recherche entiere ; Nova
+    # repond « aucun fichier correspondant a empeaux », ce qui envoie chercher
+    # au mauvais endroit.
+    #
+    # On ne tente ce rapprochement QU'APRES un echec, et on ne le retient que
+    # s'il trouve reellement des fichiers. La mesure interdit d'en faire une
+    # correction silencieuse : « porsche » ressemble a « impots » autant
+    # qu'« empeaux ». Ce sont les RESULTATS qui valident l'hypothese — et Nova
+    # dit toujours ce qu'elle a compris.
+    from nova.fichiers.requete import rapprocher
+
+    if (autre := rapprocher(recherche)) is None:
+        return recherche, []
+    try:
+        with chrono.mesurer("fichiers — seconde lecture, phonetique"):
+            trouves = moteur(racines).chercher(autre)
+    except Exception as erreur:  # noqa: BLE001
+        log.warning("Seconde lecture en echec : %s", erreur)
+        return recherche, []
+    classes = classer(trouves, autre, limite)
+    if not classes:
+        # L'hypothese ne trouve rien non plus : on rend la demande D'ORIGINE,
+        # pour que le message d'echec parle des mots reellement prononces.
+        return recherche, []
+    log.info(
+        "Seconde lecture retenue : %d fichier(s), meilleur %s.",
+        len(classes), classes[0][0].nom,
+    )
+    return autre, classes
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -324,6 +358,26 @@ def _au_rang(liste: tuple, rang: int):
     return liste[rang - 1] if 1 <= rang <= len(liste) else None
 
 
+#: Les mots qui, seuls, ne peuvent designer que « le fichier dont on parle ».
+#:
+#: Assez large pour couvrir ce qu'on dit vraiment — un PDF d'avis d'imposition
+#: se dit « ce document », « ce fichier », « ce papier », et « cette photo »
+#: quand c'est un scan. Assez etroit pour ne jamais attraper un nom
+#: d'application : aucune ne s'appelle « justificatif ».
+#:
+#: ⚠️ « PHOTOS » Y FIGURE, ET C'EST UNE APPLICATION macOS. C'EST ASSUME.
+#:
+#: Le mot seul est ambigu ; le contexte ne l'est pas. Hors d'une recherche de
+#: fichier, `focus.derniere("fichier")` rend `None` et l'application gagne.
+_MOT_DE_CONTENANT: frozenset[str] = frozenset(
+    {
+        "fichier", "fichiers", "document", "documents", "papier", "papiers",
+        "photo", "photos", "image", "images", "scan", "scans", "pdf",
+        "capture", "captures", "piece", "justificatif",
+    }
+)
+
+
 def fichier_en_tete_pour(cible: str):
     """Le fichier retenu, si « cible » le designe. Rend un `Path` ou `None`.
 
@@ -378,6 +432,24 @@ def fichier_en_tete_pour(cible: str):
     from nova.vision.regard import _depouiller
 
     if not _depouiller(cible):
+        return retenue.chemin
+
+    # ⚠️ UN MOT DE CONTENANT SEUL DESIGNE LE FICHIER QU'ON VIENT DE NOMMER.
+    #
+    # Releve en conditions reelles, juste apres une recherche reussie :
+    #
+    #     « ouvre-moi cette photo »
+    #     → Photos est ouverte.          (l'APPLICATION macOS)
+    #
+    # « photo », « fichier », « document » sont retires des mots cherches —
+    # l'un nomme un TYPE, les autres un CONTENANT — et il ne restait donc rien
+    # a recouper avec le fichier retenu. La cible partait alors au catalogue
+    # des applications, ou « Photos » existe vraiment.
+    #
+    # C'est le meme raisonnement que `_MOT_D_IMAGE_SEUL` cote vision : le mot
+    # seul est ambigu, le CONTEXTE ne l'est pas. Hors d'une recherche de
+    # fichier, rien n'est retenu et l'application gagne comme avant.
+    if _depouiller(cible) in _MOT_DE_CONTENANT:
         return retenue.chemin
 
     cherches = lire(cible).mots
@@ -569,6 +641,17 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
         for rang, (t, n) in enumerate(classes, start=1)
     )
     quoi = " ".join(recherche.mots) or "ce que tu decris"
+    # ⚠️ UNE HYPOTHESE SE DIT. Nova a peut-etre mal entendu, et la reponse
+    # n'a de sens que si l'on sait sur quel mot elle a travaille.
+    entendu = (
+        "⚠️ Tu as dit "
+        + ", ".join(f"« {dit} »" for dit, _ in recherche.entendu)
+        + ", et Nova a compris "
+        + ", ".join(f"« {compris} »" for _, compris in recherche.entendu)
+        + ". COMMENCE ta reponse en le disant, pour qu'on puisse te corriger.\n\n"
+        if recherche.entendu
+        else ""
+    )
     log.info(
         "Recherche « %s » : %d resultat(s), meilleur %s a %.0f %%.",
         quoi, len(classes), meilleur.nom, meilleure_note * 100,
@@ -576,7 +659,8 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
 
     bloc_trouve = (
         "## Recherche de fichier\n\n"
-        f"Recherche demandee : « {quoi} »\n"
+        + entendu
+        + f"Recherche demandee : « {quoi} »\n"
         "Fichiers trouves sur la machine, le meilleur en premier — c'est la "
         "SEULE chose que Nova sait d'eux :\n"
         f"<<<\n{lignes}\n>>>\n\n"

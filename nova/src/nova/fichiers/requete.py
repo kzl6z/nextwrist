@@ -285,6 +285,12 @@ class Recherche:
     #: La phrase d'origine, pour le journal et les messages.
     phrase: str = ""
     extensions: tuple[str, ...] = field(default=())
+    #: Les rapprochements phonetiques retenus : (ce qui a ete entendu, ce
+    #: qu'on a compris). Vide quand la demande a ete prise au mot.
+    #:
+    #: ⚠️ NOVA DOIT LE DIRE. Un rapprochement est une hypothese, et la taire
+    #: reviendrait a repondre a une question que personne n'a posee.
+    entendu: tuple[tuple[str, str], ...] = ()
 
     def __bool__(self) -> bool:
         """Une recherche sans mot ni annee ne cherche rien."""
@@ -375,6 +381,78 @@ def _elargir(mots: tuple[str, ...]) -> tuple[str, ...]:
             if mot in famille:
                 elargis.extend(f for f in famille if "_" not in f)
     return tuple(dict.fromkeys(elargis))
+
+
+#: Ressemblance phonetique minimale pour PROPOSER un rapprochement.
+#:
+#: ⚠️ CE SEUIL NE SEPARE RIEN, ET C'EST POUR CA QU'ON NE SUBSTITUE PAS EN
+#:    SILENCE.
+#:
+#: Mesure faite sur cette table, face a « impots » :
+#:
+#:     empeaux   0,67     ← ce qu'on veut rattraper
+#:     porsche   0,67     ← ce qu'il ne faut surtout pas toucher
+#:     vacances  0,75     ← face a « vaccin »
+#:
+#: Aucun seuil ne passe entre 0,67 et 0,67. Un rapprochement phonetique est
+#: donc une HYPOTHESE, jamais une correction : elle n'est retenue que si elle
+#: trouve reellement des fichiers, et Nova dit toujours ce qu'elle a compris.
+SEUIL_PHONETIQUE = 0.65
+
+
+def rapprocher(recherche: Recherche) -> Recherche | None:
+    """Une lecture PHONETIQUE de la meme demande, ou `None`.
+
+    Sert quand la recherche litterale n'a rien donne. Whisper entend « mes
+    EMPEAUX de 2024 » pour « mes IMPOTS de 2024 » : le mot est perdu, et avec
+    lui la recherche entiere.
+
+    ⚠️ ON NE RAPPROCHE QUE LES MOTS INCONNUS.
+
+    Un mot qui appartient deja a une famille est un mot qu'on a compris ; le
+    remplacer par un voisin phonetique serait defaire du travail juste.
+
+    ⚠️ ET ON N'INVENTE PAS D'ANNEE.
+
+    « 24004 » est une annee massacree, mais toute reconstruction serait un
+    pari. On laisse la date telle quelle : une recherche sans filtre d'annee
+    rend trop de fichiers, jamais zero.
+    """
+    from nova.voice.phonetique import coder_mot, ressemblance
+
+    connus = {mot for famille in FAMILLES for mot in famille} | PAPIERS
+    candidats = sorted(mot for mot in connus if " " not in mot and len(mot) > 3)
+
+    corriges: list[str] = []
+    entendu: list[tuple[str, str]] = []
+    for mot in recherche.mots:
+        if mot in connus:
+            corriges.append(mot)
+            continue
+        code = coder_mot(mot)
+        voisin, note = max(
+            ((c, ressemblance(code, coder_mot(c))) for c in candidats),
+            key=lambda couple: couple[1],
+            default=("", 0.0),
+        )
+        if note >= SEUIL_PHONETIQUE:
+            corriges.append(voisin)
+            entendu.append((mot, voisin))
+        else:
+            corriges.append(mot)
+
+    if not entendu:
+        return None
+    log.info(
+        "Rapprochement phonetique propose : %s",
+        ", ".join(f"« {dit} » → « {compris} »" for dit, compris in entendu),
+    )
+    mots = tuple(dict.fromkeys(corriges))
+    from dataclasses import replace
+
+    return replace(
+        recherche, mots=mots, elargis=_elargir(mots), entendu=tuple(entendu)
+    )
 
 
 def lire(texte: str, *, aujourdhui: datetime | None = None) -> Recherche:
