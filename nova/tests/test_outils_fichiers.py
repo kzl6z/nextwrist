@@ -160,3 +160,168 @@ def test_le_prompt_ne_porte_jamais_les_deux_recherches(tmp_path, monkeypatch):
     assert "releve-compte-2024.pdf" in prompt
     assert "casquette" not in prompt
     assert appels == [], "le regard ne doit meme pas etre consulte"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ LA REGRESSION DE LA CASQUETTE
+# ══════════════════════════════════════════════════════════════════════════
+def _sans_base(monkeypatch):
+    """La base n'est pas lancee pendant les bancs : 30 s d'attente par appel."""
+    from nova.documents import search as document_search
+    from nova.memory import conversations, facts
+
+    monkeypatch.setattr(document_search, "search", lambda *a, **k: [])
+    monkeypatch.setattr(facts, "list_facts", lambda *a, **k: [])
+    monkeypatch.setattr(conversations, "derniers_echanges", lambda *a, **k: [])
+
+
+def test_une_recherche_de_fichier_sans_resultat_laisse_parler_les_images(
+    tmp_path, monkeypatch
+):
+    """⚠️ « DANS MON PC » A SUFFI A ETOUFFER LE CATALOGUE D'IMAGES.
+
+    Releve en conditions reelles, et c'etait une regression :
+
+        « peux-tu me retrouver une photo dans mon PC ou je tiens une
+          casquette blanche »
+
+    « mon pc » declenche la recherche de fichiers. Aucun fichier ne s'appelle
+    « casquette ». Mais le bloc « aucun fichier ne correspond » n'est pas
+    vide — il pre-emptait donc le regard, qui connaissait cette photo par sa
+    DESCRIPTION et l'avait deja trouvee la veille.
+
+    Un echec ne pre-empte rien : ce qui a TROUVE parle.
+    """
+    from nova import orchestrator
+    from nova.fichiers import trouver
+    from nova.vision import regard
+
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+    _sans_base(monkeypatch)
+    monkeypatch.setattr(
+        regard, "bloc", lambda texte: "## Recherche d'image\n\ncasquette-blanche.JPG"
+    )
+
+    prompt, _ = orchestrator.build_system_prompt(
+        "peux-tu me retrouver une photo dans mon PC où je tiens une casquette blanche"
+    )
+
+    assert "casquette-blanche.JPG" in prompt
+    assert "AUCUN fichier" not in prompt
+
+
+def test_un_fichier_trouve_l_emporte_toujours_sur_le_regard(tmp_path, monkeypatch):
+    """L'inverse reste vrai : ce qui a trouve parle, et le regard se tait."""
+    from nova import orchestrator
+    from nova.fichiers import trouver
+    from nova.vision import regard
+
+    (tmp_path / "releve-compte-2024.pdf").write_text("x")
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+    _sans_base(monkeypatch)
+
+    import nova.outils as outils
+
+    monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
+    monkeypatch.setattr(regard, "bloc", lambda texte: "## Ce que Nova voit\n\ncasquette")
+
+    prompt, _ = orchestrator.build_system_prompt(
+        "retrouve dans mes photos mon relevé de compte de 2024"
+    )
+
+    assert "releve-compte-2024.pdf" in prompt
+    assert "casquette" not in prompt
+
+
+def test_quand_personne_ne_trouve_le_message_d_echec_sort_quand_meme(
+    tmp_path, monkeypatch
+):
+    """Le « je n'ai rien trouve » reste dit — en dernier recours, pas avant."""
+    from nova import orchestrator
+    from nova.fichiers import trouver
+    from nova.vision import regard
+
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+    _sans_base(monkeypatch)
+    monkeypatch.setattr(regard, "bloc", lambda texte: "")
+
+    prompt, _ = orchestrator.build_system_prompt(
+        "retrouve dans mes fichiers mon relevé de compte de 2024"
+    )
+
+    assert "AUCUN fichier" in prompt
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ « OUVRE CET AVIS D'IMPOSITION » CHERCHAIT UNE APPLICATION
+# ══════════════════════════════════════════════════════════════════════════
+def test_ouvrir_designe_le_fichier_qu_on_vient_de_trouver(tmp_path, monkeypatch):
+    """Releve en conditions reelles, juste apres une recherche :
+
+        « ouvre cet avis d'imposition de 2024 »
+        → Je ne trouve pas d'application « cette envie d'imposition de
+          2024 » sur cette machine.
+
+    Le verbe « ouvre » ne connaissait que les applications et les images.
+    """
+    from nova.fichiers.trouver import fichier_en_tete_pour
+    from nova.vision import focus
+
+    papier = tmp_path / "avis-imposition-2024.pdf"
+    papier.write_text("x")
+
+    assert fichier_en_tete_pour("avis imposition") is None, "rien en tete, rien a ouvrir"
+
+    focus.retenir(papier, origine="recherche de fichier", genre="fichier")
+
+    assert fichier_en_tete_pour("avis d'imposition de 2024") == papier
+    # Par synonyme : on a demande « mes impots », le fichier dit « imposition ».
+    assert fichier_en_tete_pour("impots") == papier
+    # Par le pronom seul : « ouvre-le » n'a rien a recouper.
+    assert fichier_en_tete_pour("le") == papier
+
+
+def test_ouvrir_une_application_n_est_jamais_detourne(tmp_path, monkeypatch):
+    """⚠️ SANS RECOUVREMENT, UN FICHIER EN TETE DETOURNERAIT « OUVRE CHROME »
+       PENDANT DIX MINUTES."""
+    from nova.fichiers.trouver import fichier_en_tete_pour
+    from nova.vision import focus
+
+    papier = tmp_path / "avis-imposition-2024.pdf"
+    papier.write_text("x")
+    focus.retenir(papier, origine="recherche de fichier", genre="fichier")
+
+    for nom in ("Google Chrome", "Roblox", "Spotify", "EcoleDirecte"):
+        assert fichier_en_tete_pour(nom) is None, nom
+
+
+def test_le_cablage_d_ouverture_passe_par_l_orchestrateur(tmp_path, monkeypatch):
+    """⚠️ DEPUIS LA PHRASE PRONONCEE, PAS DEPUIS UNE `Action` FABRIQUEE.
+
+    C'est la chaine reelle : reconnaissance d'intention, choix de l'action,
+    puis confrontation au reel. Un banc qui construit l'`Action` lui-meme
+    sauterait l'etage ou « ouvre » se transforme en `ouvrir_application` —
+    c'est-a-dire exactement l'etage qui etait en cause.
+    """
+    from nova import orchestrator
+    from nova.core import actions
+    from nova.fichiers import trouver
+    from nova.vision import focus
+    from nova.voice import intentions
+
+    papier = tmp_path / "avis-imposition-2024.pdf"
+    papier.write_text("x")
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+    focus.retenir(papier, origine="recherche de fichier", genre="fichier")
+
+    intention = intentions.reconnaitre("ouvre cet avis d'imposition de 2024")
+    action = actions.action_pour(intention.nom)
+    assert action is not None, "« ouvre … » doit produire une action"
+
+    retenue, arguments, interruption = orchestrator._confronter_au_reel(  # noqa: SLF001
+        action, intention.cible, confirme=False
+    )
+
+    assert interruption is None, interruption
+    assert retenue.outil == "ouvrir_fichier", retenue.outil
+    assert arguments == {"chemin": str(papier)}

@@ -219,6 +219,65 @@ def _signal_fichier() -> re.Pattern[str]:
 _SIGNAL_FICHIER = _signal_fichier()
 
 
+def fichier_en_tete_pour(cible: str):
+    """Le fichier retenu, si « cible » le designe. Rend un `Path` ou `None`.
+
+    ⚠️ MEME DEFAUT QUE « OUVRE LA PHOTO », MEME ETAGE, MEME REMEDE.
+
+    Le verbe « ouvre » est capte par la reconnaissance d'intention, qui ne
+    connait qu'une chose a ouvrir : une application. Releve en conditions
+    reelles, juste apres une recherche :
+
+        « ouvre cet avis d'imposition de 2024 »
+        → Je ne trouve pas d'application « cette envie d'imposition de
+          2024 » sur cette machine.
+
+    Exact, et inutile : le message decrit ce que Nova a cherche, pas ce qu'on
+    lui a demande.
+
+    ⚠️ ON EXIGE UN RECOUVREMENT AVEC LE FICHIER RETENU.
+
+    Rendre le fichier des qu'il y en a un en memoire detournerait « ouvre
+    Chrome » pendant dix minutes. Il faut qu'un mot de la cible se retrouve
+    dans le nom ou le dossier du fichier — c'est ce qui distingue « ouvre-le »
+    de « ouvre autre chose ».
+
+    Le pronom seul suffit : « ouvre-le » n'a aucun mot a recouper, et ne peut
+    designer que ce dont on vient de parler.
+    """
+    from nova.vision import focus
+
+    retenue = focus.derniere("fichier")
+    if retenue is None or not cible:
+        return None
+
+    plat = sans_accents(cible).lower()
+    if _PRONOM_SEUL.fullmatch(plat.strip()):
+        return retenue.chemin
+
+    cherches = lire(cible).mots
+    if not cherches:
+        return None
+    texte = _mots_du_chemin(retenue.chemin)
+    if any(mot in texte for mot in cherches):
+        return retenue.chemin
+    # Les synonymes comptent aussi : on a demande « mes impots », le fichier
+    # s'appelle « avis-imposition-2024.pdf ».
+    from nova.fichiers.requete import groupes
+
+    return (
+        retenue.chemin
+        if any(
+            any(mot in texte for mot in groupe) for groupe in groupes(cherches)
+        )
+        else None
+    )
+
+
+#: « ouvre-LE », « ouvre-LA » : rien a recouper, et rien d'autre a designer.
+_PRONOM_SEUL = re.compile(r"(?:le|la|les|ca|cela|celui|celle)", re.IGNORECASE)
+
+
 def demande_de_fichier(texte: str) -> bool:
     """Cette phrase demande-t-elle de retrouver un fichier sur la machine ?
 
@@ -291,7 +350,12 @@ def _rien_trouve(recherche: Recherche) -> str:
 
 
 def bloc(texte: str) -> str:
-    """Le bloc a injecter dans le prompt, ou `""` s'il n'y a rien a chercher.
+    """Le bloc a injecter dans le prompt, ou `""` s'il n'y a rien a chercher."""
+    return bloc_et_resultat(texte)[0]
+
+
+def bloc_et_resultat(texte: str) -> tuple[str, bool]:
+    """Le bloc, ET si un fichier a reellement ete trouve.
 
     ⚠️ CETTE FONCTION NE LEVE JAMAIS, ET NE COUTE RIEN QUAND ELLE NE SERT PAS.
 
@@ -299,20 +363,37 @@ def bloc(texte: str) -> str:
     rendent `""` en zero milliseconde pour l'ecrasante majorite des
     questions — la condition pour qu'un branchement de plus sur le chemin de
     la conversation ne ralentisse personne.
+
+    ⚠️ POURQUOI L'APPELANT A BESOIN DU BOOLEEN.
+
+    Un bloc « aucun fichier ne correspond » est du texte comme un autre : rien
+    ne le distingue d'une reponse. L'orchestrateur doit pourtant savoir la
+    difference, parce qu'un echec ici ne doit JAMAIS empecher le catalogue
+    d'images d'essayer. Releve en conditions reelles, et c'etait une
+    regression :
+
+        « peux-tu me retrouver une photo dans mon PC ou je tiens une
+          casquette blanche »
+
+    « dans mon PC » a suffi a declencher la recherche de fichiers ; aucun
+    fichier ne s'appelle « casquette » ; et comme le bloc n'etait pas vide, le
+    catalogue d'images — qui connaissait cette photo par sa DESCRIPTION — n'a
+    jamais ete consulte. Nova a repondu « aucune photo ne correspond » sur une
+    photo qu'elle avait deja regardee.
     """
     if not demande_de_fichier(texte):
-        return ""
+        return "", False
 
     from nova.settings import get_settings
 
     if not get_settings().fichiers_actifs:
-        return ""
+        return "", False
 
     recherche, classes = chercher(texte)
     if not recherche:
-        return ""
+        return "", False
     if not classes:
-        return _rien_trouve(recherche)
+        return _rien_trouve(recherche), False
 
     meilleur, meilleure_note = classes[0]
 
@@ -342,7 +423,7 @@ def bloc(texte: str) -> str:
         quoi, len(classes), meilleur.nom, meilleure_note * 100,
     )
 
-    return (
+    bloc_trouve = (
         "## Recherche de fichier\n\n"
         f"Recherche demandee : « {quoi} »\n"
         "Fichiers trouves sur la machine, le meilleur en premier — c'est la "
@@ -368,3 +449,4 @@ def bloc(texte: str) -> str:
         "entre <<< >>>, donc rien de tout cela ne doit figurer dans ta "
         "reponse."
     )
+    return bloc_trouve, True

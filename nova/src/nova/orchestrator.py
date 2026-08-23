@@ -595,24 +595,46 @@ def build_system_prompt(
     # Deux recherches concurrentes dans le meme prompt — l'une qui dit « aucune
     # image ne correspond », l'autre qui nomme un PDF — font choisir un modele
     # de deux milliards de parametres au hasard, ou melanger les deux.
-    trouve_un_fichier = False
+    # ⚠️ ET UN ECHEC NE PRE-EMPTE RIEN. C'EST TOUTE LA CORRECTION.
+    #
+    # Premiere version : un bloc de fichier NON VIDE empechait le regard. Or
+    # « aucun fichier ne correspond » est un bloc non vide. Releve en
+    # conditions reelles, et c'etait une regression :
+    #
+    #     « peux-tu me retrouver une photo dans mon PC ou je tiens une
+    #       casquette blanche »
+    #
+    # « dans mon PC » a suffi a declencher la recherche de fichiers ; aucun
+    # fichier ne s'appelle « casquette » ; et le catalogue d'images — qui
+    # connaissait cette photo par sa DESCRIPTION, l'avait deja trouvee et
+    # ouverte la veille — n'a jamais ete consulte.
+    #
+    # L'ordre est donc : ce qui a TROUVE parle. A defaut, chacun essaie. Le
+    # « je n'ai rien trouve » ne sort qu'en dernier recours, quand personne
+    # d'autre n'a rien a dire.
+    bloc_fichier, fichier_trouve = "", False
     try:
         from nova.fichiers import trouver
 
-        if bloc_fichier := trouver.bloc(user_message):
-            ajouter("fichiers", bloc_fichier)
-            trouve_un_fichier = True
+        bloc_fichier, fichier_trouve = trouver.bloc_et_resultat(user_message)
     except Exception as exc:  # noqa: BLE001
         log.warning("Recherche de fichiers indisponible : %s", exc)
 
-    if not trouve_un_fichier:
+    if fichier_trouve:
+        ajouter("fichiers", bloc_fichier)
+    else:
+        bloc_regard = ""
         try:
             from nova.vision import regard
 
-            ajouter("regard", regard.bloc(user_message))
+            bloc_regard = regard.bloc(user_message)
         except Exception as exc:  # noqa: BLE001
             # Une capacite en panne degrade la reponse, elle ne l'empeche jamais.
             log.warning("Vision indisponible : %s", exc)
+        if bloc_regard:
+            ajouter("regard", bloc_regard)
+        elif bloc_fichier:
+            ajouter("fichiers", bloc_fichier)
 
     hits: list[SearchHit] = []
     ms_recherche = 0.0
@@ -1114,6 +1136,23 @@ def _confronter_au_reel(
             return (
                 actions.Action("ouvrir_image", "chemin"),
                 {"chemin": str(retenue)},
+                None,
+            )
+
+        # ⚠️ ET LA MEME CHOSE POUR UN FICHIER QU'ON VIENT DE TROUVER.
+        #
+        # « ouvre cet avis d'imposition de 2024 » rendait « Je ne trouve pas
+        # d'application "cette envie d'imposition de 2024" sur cette
+        # machine ». Le verbe « ouvre » ne connaissait que les applications et
+        # les images ; la recherche de fichiers venait pourtant de designer le
+        # bon PDF une phrase plus tot.
+        from nova.fichiers.trouver import fichier_en_tete_pour
+
+        if (papier := fichier_en_tete_pour(cible)) is not None:
+            log.info("« %s » : ouverture du fichier en tete (%s).", cible, papier.name)
+            return (
+                actions.Action("ouvrir_fichier", "chemin"),
+                {"chemin": str(papier)},
                 None,
             )
 

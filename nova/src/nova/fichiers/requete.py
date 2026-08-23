@@ -70,6 +70,7 @@ _PROPRES: frozenset[str] = frozenset(
     date datant datent remonte annee annees an ans mois semaine semaines
     vers environ autour genre exemple part sais connais
     besoin besoins faut faudrait envie souhaite souhaiterais
+    tiens tient tenir porte portais figure apparait voit
     """.split()
     # ⚠️ « BESOIN » EST LA POUR UNE RAISON PRECISE, RELEVEE SUR LA MACHINE.
     #
