@@ -136,6 +136,58 @@ def _trouvaille(chemin: Path, *, precis: bool = False) -> Trouvaille | None:
     )
 
 
+#: Fichiers repris au maximum dans un dossier dont le NOM correspond.
+#:
+#: Un dossier « Documents » qui correspondrait par accident ne doit pas
+#: deverser dix mille fichiers dans le classement. Vingt suffisent a couvrir
+#: « avis d impositions » ou « Banque/2024 » ; au-dela, ce n'est plus un
+#: dossier de papiers, c'est une archive.
+FICHIERS_PAR_DOSSIER = 20
+
+
+def _avec_les_dossiers(entrees: Iterable[Path]) -> Iterator[Path]:
+    """Remplace chaque DOSSIER trouve par les fichiers qu'il contient.
+
+    ⚠️ C'EST CE QUI REND LE NOM DU DOSSIER CHERCHABLE, SANS `kMDItemPath`.
+
+    Un dossier est une entree indexee comme une autre : « avis d impositions »
+    ressort donc de la meme requete que les fichiers. Il ne repond pas
+    lui-meme a « retrouve mes impots » — on n'ouvre pas un dossier — mais ce
+    qu'il contient, oui, et c'est la seule chose qui nomme
+    `impos 2024 1.pdf`.
+
+    Le tri se fait ici plutot que dans la requete parce qu'ici on SAIT :
+    `is_dir()` ne ment pas, la ou un attribut Spotlight peut n'etre pas
+    indexe et rendre le vide en silence.
+    """
+    for entree in entrees:
+        try:
+            dossier = entree.is_dir()
+        except OSError:
+            continue
+        if not dossier:
+            yield entree
+            continue
+        try:
+            dedans = sorted(entree.iterdir())
+        except OSError:
+            continue
+        rendus = 0
+        for enfant in dedans:
+            if rendus >= FICHIERS_PAR_DOSSIER:
+                log.info(
+                    "Dossier « %s » : %d fichiers repris sur %d.",
+                    entree.name, rendus, len(dedans),
+                )
+                break
+            try:
+                if enfant.is_file():
+                    yield enfant
+                    rendus += 1
+            except OSError:
+                continue
+
+
 # ══════════════════════════════════════════════════════════════════════════
 #  SPOTLIGHT
 # ══════════════════════════════════════════════════════════════════════════
@@ -150,26 +202,32 @@ def _echapper(mot: str) -> str:
 
 
 def _chemin(mot: str) -> str:
-    """Le mot cherche dans le CHEMIN COMPLET, pas dans le seul nom de fichier.
+    """Le mot cherche dans le NOM de l'entree — fichier OU DOSSIER.
 
-    ⚠️ LE DOSSIER PORTE SOUVENT LE SEUL MOT UTILE, ET JE L'IGNORAIS.
+    ⚠️ J'AI ESSAYE `kMDItemPath`, ET C'ETAIT UNE REGRESSION.
 
-    Releve sur la machine. Le dossier s'appelle « avis d impositions » et
-    contient trois fichiers :
+    Le probleme d'origine est reel : le dossier « avis d impositions »
+    contient `impos 2024 1.pdf`, `impos 2024 2.pdf` (sans le t) et
+    `impots 2024 3.pdf`. Deux avis sur trois n'ont aucun mot cherchable dans
+    leur NOM — leur dossier les nomme tous les trois.
 
-        impos 2024 1.pdf     ← « impos », sans le t
-        impos 2024 2.pdf     ← « impos », sans le t
-        impots 2024 3.pdf    ← le seul que Nova trouvait
+    J'ai donc cherche dans `kMDItemPath`, qui contient le chemin complet.
+    Consequence relevee sur la machine, avec une transcription pourtant
+    PARFAITE :
 
-    `kMDItemFSName` ne voit que le nom du fichier. Deux avis sur trois
-    n'avaient donc aucun mot cherchable — alors que leur dossier les nommait
-    tous les trois, sans ambiguite.
+        « mes impots de 2024 »  →  Je n'ai trouve aucun fichier
 
-    L'incoherence etait interne : `_mots_du_chemin`, cote classement, lisait
-    deja le chemin ENTIER. La requete cherchait moins loin que le classement,
-    donc le classement n'a jamais eu la chance de faire son travail.
+    `impots 2024 3.pdf` etait retrouve par son nom avant ce changement. Il ne
+    l'etait plus apres. `kMDItemPath` est un attribut que Spotlight EXPOSE
+    mais n'INDEXE pas : une requete dessus ne rend rien, en silence et sans
+    erreur — le pire mode de panne.
+
+    Le besoin est comble autrement, et sur du solide : un DOSSIER est une
+    entree indexee comme une autre. Il ressort donc de la meme requete, et
+    `_avec_les_dossiers` remplace chaque dossier trouve par les fichiers
+    qu'il contient. Le tri se fait en Python, la ou l'on sait ce qu'on fait.
     """
-    return f'kMDItemPath == "*{mot}*"cd'
+    return f'kMDItemFSName == "*{mot}*"cd'
 
 
 def _texte(mot: str) -> str:
@@ -331,7 +389,7 @@ class Spotlight:
 
         precise = interrogation_par_groupes(groupes(recherche.mots), recherche.mots)
         if precise:
-            for chemin in self._lancer(precise):
+            for chemin in _avec_les_dossiers(self._lancer(precise)):
                 if not acceptable(chemin, recherche):
                     continue
                 if (trouve := _trouvaille(chemin, precis=True)) is not None:
@@ -343,7 +401,7 @@ class Spotlight:
         # exiger qu'ils soient tous la. C'est le filet, pas la methode.
         large = interrogation(recherche.mots, tous=False)
         if large:
-            for chemin in self._lancer(large):
+            for chemin in _avec_les_dossiers(self._lancer(large)):
                 if chemin in vus or not acceptable(chemin, recherche):
                     continue
                 if (trouve := _trouvaille(chemin, precis=False)) is not None:

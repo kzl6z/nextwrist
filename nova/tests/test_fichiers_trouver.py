@@ -136,17 +136,21 @@ def test_le_parcours_ne_descend_pas_dans_les_zones_interdites(tmp_path):
 # ══════════════════════════════════════════════════════════════════════════
 #  L'INTERROGATION SPOTLIGHT
 # ══════════════════════════════════════════════════════════════════════════
-def test_l_interrogation_cherche_dans_le_chemin_et_dans_le_texte():
-    """⚠️ LE CHEMIN, PAS LE SEUL NOM DE FICHIER.
+def test_l_interrogation_cherche_dans_le_nom_et_dans_le_texte():
+    """⚠️ `kMDItemPath` N'EST PAS INDEXE PAR SPOTLIGHT.
 
-    Releve sur la machine : le dossier « avis d impositions » contenait
-    `impos 2024 1.pdf`, `impos 2024 2.pdf` et `impots 2024 3.pdf`. Deux avis
-    sur trois n'ont aucun mot cherchable dans leur NOM — leur dossier les
-    nomme tous les trois.
+    J'avais cherche dedans pour attraper le nom du DOSSIER. Une requete sur
+    cet attribut ne rend rien — en silence, sans erreur. Releve sur la
+    machine avec une transcription pourtant parfaite : « mes impots de 2024 »
+    ne trouvait plus `impots 2024 3.pdf`, que son NOM designait pourtant.
+
+    Le nom du dossier reste cherchable, mais par `_avec_les_dossiers` : un
+    dossier est une entree indexee comme une autre.
     """
     question = interrogation(["releve"], tous=True)
 
-    assert "kMDItemPath" in question, "le dossier porte souvent le seul mot utile"
+    assert "kMDItemFSName" in question
+    assert "kMDItemPath" not in question, "cet attribut n'est pas indexe"
     assert "kMDItemTextContent" in question
     assert "*releve*" in question
 
@@ -519,9 +523,9 @@ def test_un_synonyme_ne_se_cherche_que_dans_le_nom():
     question = interrogation_par_groupes(groupes(recherche.mots), recherche.mots)
 
     dans_le_texte = set(re.findall(r'TextContent == "\*(\w+)\*"', question))
-    dans_le_chemin = set(re.findall(r'Path == "\*(\w+)\*"', question))
+    dans_le_nom = set(re.findall(r'FSName == "\*(\w+)\*"', question))
 
-    assert "avis" in dans_le_chemin, "le synonyme reste cherchable par le chemin"
+    assert "avis" in dans_le_nom, "le synonyme reste cherchable par le nom"
     assert "avis" not in dans_le_texte, "mais jamais dans le contenu des fichiers"
     assert "taxe" not in dans_le_texte
     # Le mot prononce, lui, garde le droit d'etre cherche dans le texte.
@@ -720,3 +724,56 @@ def test_sans_aucune_correspondance_on_garde_tout(maison):
     assert len(utiles) == 1, "le groupe releve/compte est conserve"
     # Et par le cablage : rien ne doit remonter.
     assert classer([hasard], recherche) == []
+
+
+def test_un_dossier_trouve_rend_les_fichiers_qu_il_contient():
+    """⚠️ CE QUI REMPLACE `kMDItemPath`, ET SUR DU SOLIDE.
+
+    Le dossier « avis d impositions » contient `impos 2024 1.pdf` et
+    `impos 2024 2.pdf` — deux fichiers dont le NOM ne porte aucun mot
+    cherchable. Leur dossier, lui, les nomme : il ressort de la meme requete
+    Spotlight, puisqu'un dossier est une entree indexee comme une autre.
+
+    On n'ouvre pas un dossier ; on remplace donc le dossier par ce qu'il
+    contient. Le tri se fait en Python, ou `is_dir()` ne ment pas.
+    """
+    import tempfile
+
+    from nova.fichiers.moteurs import _avec_les_dossiers
+
+    racine = Path(tempfile.mkdtemp())
+    dossier = racine / "avis d impositions"
+    dossier.mkdir()
+    for nom in ("impos 2024 1.pdf", "impos 2024 2.pdf"):
+        (dossier / nom).write_text("x")
+    seul = racine / "ailleurs.pdf"
+    seul.write_text("x")
+
+    rendus = sorted(p.name for p in _avec_les_dossiers([dossier, seul]))
+
+    assert rendus == ["ailleurs.pdf", "impos 2024 1.pdf", "impos 2024 2.pdf"]
+
+
+def test_un_gros_dossier_ne_deverse_pas_tout_le_classement():
+    """Un dossier « Documents » qui correspondrait par accident ne doit pas
+    noyer le classement sous dix mille fichiers."""
+    import tempfile
+
+    from nova.fichiers.moteurs import FICHIERS_PAR_DOSSIER, _avec_les_dossiers
+
+    dossier = Path(tempfile.mkdtemp()) / "Documents"
+    dossier.mkdir()
+    for i in range(FICHIERS_PAR_DOSSIER + 15):
+        (dossier / f"fichier-{i:03d}.pdf").write_text("x")
+
+    assert len(list(_avec_les_dossiers([dossier]))) == FICHIERS_PAR_DOSSIER
+
+
+def test_une_entree_disparue_ne_fait_pas_tomber_l_expansion():
+    """Spotlight garde des entrees pour des fichiers deplaces : les rendre
+    ferait proposer d'ouvrir le vide, mais lever serait pire."""
+    from nova.fichiers.moteurs import _avec_les_dossiers
+
+    assert list(_avec_les_dossiers([Path("/nulle/part/du/tout")])) == [
+        Path("/nulle/part/du/tout")
+    ]
