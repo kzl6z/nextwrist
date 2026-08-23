@@ -330,3 +330,34 @@ def test_charger_un_gros_lexique_reste_lineaire():
     # tas volontairement charge : 8,7. La marge a 25 laisse passer une machine
     # lente sans laisser passer un retour au quadratique.
     assert grand < petit * 25, f"chargement non lineaire : {petit:.4f} -> {grand:.4f}"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ LA CIBLE D'UNE ACTION, DEPOUILLEE DE SES DETERMINANTS
+# ══════════════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize(
+    ("phrase", "cible"),
+    [
+        # Releve en conditions reelles. « ouvre LA photo » marchait, « ouvre
+        # CETTE photo » non : « cette » ne figurait pas dans BRUIT_CIBLE. La
+        # cible arrivait entiere, le contexte ne se reconnaissait plus, et
+        # Nova ouvrait une capture d'ecran a la place de l'image trouvee.
+        ("ouvre cette photo", "photo"),
+        ("ouvre cette Photos", "Photos"),
+        ("ouvre ce fichier", "fichier"),
+        ("ouvre mes photos", "photos"),
+        # Ce qui marchait continue de marcher.
+        ("ouvre la photo", "photo"),
+        ("ouvre l'application Chrome", "Chrome"),
+        ("ouvre Roblox", "Roblox"),
+    ],
+)
+def test_le_demonstratif_ne_reste_jamais_colle_a_la_cible(phrase, cible):
+    """⚠️ « cette » NE FAIT JAMAIS PARTIE D'UN NOM D'APPLICATION.
+
+    Le retirer ne coute rien, et sans lui la cible ne peut etre confrontee ni
+    au catalogue des applications ni au contexte de la conversation.
+    """
+    from nova.voice import intentions
+
+    assert intentions.reconnaitre(phrase).cible == cible, phrase
