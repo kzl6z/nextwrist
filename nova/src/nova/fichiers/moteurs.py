@@ -149,8 +149,27 @@ def _echapper(mot: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", mot)
 
 
-def _nom(mot: str) -> str:
-    return f'kMDItemFSName == "*{mot}*"cd'
+def _chemin(mot: str) -> str:
+    """Le mot cherche dans le CHEMIN COMPLET, pas dans le seul nom de fichier.
+
+    ⚠️ LE DOSSIER PORTE SOUVENT LE SEUL MOT UTILE, ET JE L'IGNORAIS.
+
+    Releve sur la machine. Le dossier s'appelle « avis d impositions » et
+    contient trois fichiers :
+
+        impos 2024 1.pdf     ← « impos », sans le t
+        impos 2024 2.pdf     ← « impos », sans le t
+        impots 2024 3.pdf    ← le seul que Nova trouvait
+
+    `kMDItemFSName` ne voit que le nom du fichier. Deux avis sur trois
+    n'avaient donc aucun mot cherchable — alors que leur dossier les nommait
+    tous les trois, sans ambiguite.
+
+    L'incoherence etait interne : `_mots_du_chemin`, cote classement, lisait
+    deja le chemin ENTIER. La requete cherchait moins loin que le classement,
+    donc le classement n'a jamais eu la chance de faire son travail.
+    """
+    return f'kMDItemPath == "*{mot}*"cd'
 
 
 def _texte(mot: str) -> str:
@@ -165,7 +184,7 @@ def interrogation(mots: Iterable[str], *, tous: bool) -> str:
     mot de la page.
     """
     morceaux = [
-        f"({_nom(propre)} || {_texte(propre)})"
+        f"({_chemin(propre)} || {_texte(propre)})"
         for mot in mots
         if (propre := _echapper(mot))
     ]
@@ -236,9 +255,9 @@ def interrogation_par_groupes(
                 continue
             dans_le_texte = any(_meme_mot(propre, dit) for dit in exiges)
             variantes.append(
-                f"({_nom(propre)} || {_texte(propre)})"
+                f"({_chemin(propre)} || {_texte(propre)})"
                 if dans_le_texte
-                else _nom(propre)
+                else _chemin(propre)
             )
         if variantes:
             conditions.append("(" + " || ".join(variantes) + ")")

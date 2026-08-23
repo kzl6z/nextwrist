@@ -71,6 +71,8 @@ _PROPRES: frozenset[str] = frozenset(
     vers environ autour genre exemple part sais connais
     besoin besoins faut faudrait envie souhaite souhaiterais
     tiens tient tenir porte portais figure apparait voit
+    autre autres meme memes reste restant suivant suivante precedent
+    deux trois quatre cinq sept huit dix douze quinze vingt
     """.split()
     # ⚠️ « BESOIN » EST LA POUR UNE RAISON PRECISE, RELEVEE SUR LA MACHINE.
     #

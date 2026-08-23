@@ -51,7 +51,7 @@ def _mots_du_chemin(chemin: Path) -> str:
     return re.sub(r"[^a-z0-9]+", " ", sans_accents(str(chemin)).lower())
 
 
-def score(trouve: Trouvaille, recherche: Recherche) -> float:
+def score(trouve: Trouvaille, recherche: Recherche, utiles=None) -> float:
     """A quel point ce fichier repond a la question, entre 0 et 1.
 
     ⚠️ CE QU'ON MESURE EST LA COUVERTURE DES IDEES, PAS DES MOTS.
@@ -89,7 +89,10 @@ def score(trouve: Trouvaille, recherche: Recherche) -> float:
     # declenchait jamais. Un score sature ne classe plus.
     note = 0.20 + (0.12 if trouve.precis else 0.0)
 
-    cherches = groupes(recherche.mots)
+    # `utiles` vient de `classer`, qui a vu TOUS les candidats : il en a
+    # ecarte les idees que pas un seul fichier ne porte. Appele seul — un banc,
+    # un outil — on retombe sur toutes les idees cherchees.
+    cherches = utiles if utiles else groupes(recherche.mots)
     if cherches:
         couverts = sum(
             1 for groupe in cherches if any(mot in texte for mot in groupe)
@@ -124,11 +127,58 @@ def score(trouve: Trouvaille, recherche: Recherche) -> float:
     return max(0.0, min(1.0, note))
 
 
+def groupes_utiles(trouves: list[Trouvaille], recherche: Recherche):
+    """Les idees cherchees qu'AU MOINS UN candidat porte reellement.
+
+    ⚠️ CE CORRECTIF REMPLACE UNE LISTE DE MOTS VIDES QUI NE FINIRA JAMAIS.
+
+    Le score mesure la part des idees couvertes. Un mot parasite que la liste
+    des mots vides ne connait pas encore forme sa propre idee, qu'aucun
+    fichier ne peut couvrir — et il fait donc baisser TOUS les candidats sous
+    le seuil. Le meme defaut est revenu trois fois de suite, avec un mot
+    different a chaque fois :
+
+        « j'ai BESOIN que tu me retrouves… »   → un groupe « besoin »
+        « ou je TIENS une casquette »          → un groupe « tiens »
+        « les DEUX AUTRES avis d'imposition »  → deux groupes de plus
+
+    Chaque fois, la correction etait d'ajouter le mot a la liste. Chaque fois,
+    le mot suivant repassait. Une liste de mots vides ne peut pas contenir le
+    francais.
+
+    Ici, ce sont les RESULTATS qui tranchent : si aucun des fichiers remontes
+    ne porte « autres », alors « autres » ne designait pas un fichier, et il
+    sort du calcul. Le raisonnement s'auto-calibre, et il est juste dans les
+    deux sens — quand un mot rare comme « edf » ne correspond a rien, c'est
+    qu'aucun fichier ne parle d'EDF, et il n'y a de toute facon rien a rendre.
+    """
+    from nova.fichiers.requete import groupes
+
+    tous = groupes(recherche.mots)
+    textes = [_mots_du_chemin(t.chemin) for t in trouves]
+    utiles = tuple(
+        groupe
+        for groupe in tous
+        if any(mot in texte for texte in textes for mot in groupe)
+    )
+    if len(utiles) < len(tous):
+        ignores = [
+            sorted(g)[0] for g in tous if g not in utiles
+        ]
+        log.info(
+            "Mots sans correspondance, ecartes du calcul : %s", ignores
+        )
+    # Si RIEN n'est couvert, on garde tout : mieux vaut noter bas que noter
+    # sur un ensemble vide, ou tout le monde vaudrait la note maximale.
+    return utiles or tous
+
+
 def classer(
     trouves: list[Trouvaille], recherche: Recherche, limite: int = COMBIEN
 ) -> list[tuple[Trouvaille, float]]:
     """Les meilleurs fichiers, du plus au moins pertinent."""
-    notes = [(t, score(t, recherche)) for t in trouves]
+    utiles = groupes_utiles(trouves, recherche) if trouves else ()
+    notes = [(t, score(t, recherche, utiles)) for t in trouves]
     retenus = [(t, n) for t, n in notes if n >= SEUIL]
     # A score egal, le plus recent : entre deux releves de mars et d'avril, on
     # parle presque toujours du dernier.

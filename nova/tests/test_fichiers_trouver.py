@@ -136,10 +136,17 @@ def test_le_parcours_ne_descend_pas_dans_les_zones_interdites(tmp_path):
 # ══════════════════════════════════════════════════════════════════════════
 #  L'INTERROGATION SPOTLIGHT
 # ══════════════════════════════════════════════════════════════════════════
-def test_l_interrogation_cherche_dans_le_nom_et_dans_le_texte():
+def test_l_interrogation_cherche_dans_le_chemin_et_dans_le_texte():
+    """⚠️ LE CHEMIN, PAS LE SEUL NOM DE FICHIER.
+
+    Releve sur la machine : le dossier « avis d impositions » contenait
+    `impos 2024 1.pdf`, `impos 2024 2.pdf` et `impots 2024 3.pdf`. Deux avis
+    sur trois n'ont aucun mot cherchable dans leur NOM — leur dossier les
+    nomme tous les trois.
+    """
     question = interrogation(["releve"], tous=True)
 
-    assert "kMDItemFSName" in question
+    assert "kMDItemPath" in question, "le dossier porte souvent le seul mot utile"
     assert "kMDItemTextContent" in question
     assert "*releve*" in question
 
@@ -512,9 +519,9 @@ def test_un_synonyme_ne_se_cherche_que_dans_le_nom():
     question = interrogation_par_groupes(groupes(recherche.mots), recherche.mots)
 
     dans_le_texte = set(re.findall(r'TextContent == "\*(\w+)\*"', question))
-    dans_le_nom = set(re.findall(r'FSName == "\*(\w+)\*"', question))
+    dans_le_chemin = set(re.findall(r'Path == "\*(\w+)\*"', question))
 
-    assert "avis" in dans_le_nom, "le synonyme reste cherchable par son nom"
+    assert "avis" in dans_le_chemin, "le synonyme reste cherchable par le chemin"
     assert "avis" not in dans_le_texte, "mais jamais dans le contenu des fichiers"
     assert "taxe" not in dans_le_texte
     # Le mot prononce, lui, garde le droit d'etre cherche dans le texte.
@@ -590,3 +597,111 @@ def test_un_avis_d_imposition_se_retrouve_de_bout_en_bout(maison, monkeypatch):
     # « aucun fichier correspondant a BESOIN IMPOTS de 2024 » etait la phrase
     # reellement prononcee par Nova.
     assert "besoin" not in sortie.lower()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ LE DOSSIER « avis d impositions » DE LA MACHINE
+#
+#      impos 2024 1.pdf     ← « impos », sans le t
+#      impos 2024 2.pdf     ← « impos », sans le t
+#      impots 2024 3.pdf    ← le seul que Nova trouvait
+# ══════════════════════════════════════════════════════════════════════════
+def test_le_dossier_retrouve_les_fichiers_que_leur_nom_ne_nomme_pas(
+    maison, monkeypatch
+):
+    """⚠️ DEUX AVIS SUR TROIS N'ONT AUCUN MOT CHERCHABLE DANS LEUR NOM.
+
+    Leur DOSSIER les nomme tous les trois. La requete ne regardait que
+    `kMDItemFSName` — alors que le classement, lui, lisait deja le chemin
+    entier. La requete cherchait moins loin que le classement, qui n'a donc
+    jamais eu la chance de faire son travail.
+    """
+    _poser(
+        maison,
+        [
+            "Desktop/avis d impositions/impos 2024 1.pdf",
+            "Desktop/avis d impositions/impos 2024 2.pdf",
+            "Desktop/avis d impositions/impots 2024 3.pdf",
+            "Desktop/vacances.pdf",
+        ],
+        annee=2024,
+    )
+    import nova.outils as outils
+
+    monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
+
+    sortie = bloc("retrouve-moi mes avis d'imposition de 2024")
+
+    for nom in ("impos 2024 1.pdf", "impos 2024 2.pdf", "impots 2024 3.pdf"):
+        assert nom in sortie, f"{nom} manquait — c'est le dossier qui le nomme"
+    assert "vacances.pdf" not in sortie
+
+
+def test_trois_fichiers_egaux_n_en_ouvrent_aucun(maison, monkeypatch):
+    """Nova doit les LISTER, pas en ouvrir un au hasard.
+
+    C'est le meme garde-fou que pour les images et les applications, et c'est
+    exactement ce qu'on veut ici : « les deux autres » n'a de sens que si les
+    trois ont ete nommes.
+    """
+    _poser(
+        maison,
+        [
+            "Desktop/avis d impositions/impos 2024 1.pdf",
+            "Desktop/avis d impositions/impos 2024 2.pdf",
+            "Desktop/avis d impositions/impots 2024 3.pdf",
+        ],
+        annee=2024,
+    )
+    ouvertes: list[str] = []
+    import nova.outils as outils
+
+    monkeypatch.setattr(
+        outils, "executer_outil", lambda nom, **kw: ouvertes.append(kw["chemin"])
+    )
+
+    bloc("retrouve-moi mes avis d'imposition de 2024")
+
+    assert ouvertes == [], "trois candidats a egalite n'en designent aucun"
+
+
+def test_un_mot_parasite_ne_fait_plus_tomber_toute_la_recherche(maison, monkeypatch):
+    """⚠️ LA CORRECTION STRUCTURELLE, PLUTOT QU'UN MOT VIDE DE PLUS.
+
+    « les DEUX AUTRES avis d'imposition » : chaque mot inconnu formait une
+    idee de plus, qu'aucun fichier ne pouvait couvrir, et TOUS les candidats
+    tombaient sous le seuil. Le meme defaut est revenu trois fois avec un mot
+    different — « besoin », « tiens », « autres ».
+
+    Ce sont maintenant les RESULTATS qui tranchent : une idee que pas un seul
+    fichier ne porte sort du calcul.
+    """
+    from nova.fichiers.trouver import groupes_utiles
+
+    _poser(maison, ["Desktop/avis d impositions/impos 2024 1.pdf"], annee=2024)
+    import nova.outils as outils
+
+    monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
+
+    recherche = lire("les zorglub avis d'imposition", aujourdhui=MAINTENANT)
+    assert "zorglub" in recherche.mots, "le mot inconnu est bien cherche"
+
+    trouve = _trouvaille(str(maison / "Desktop/avis d impositions/impos 2024 1.pdf"))
+    utiles = groupes_utiles([trouve], recherche)
+
+    assert not any("zorglub" in g for g in utiles), "l'idee morte est ecartee"
+    assert score(trouve, recherche, utiles) >= 0.42, "le fichier reste au-dessus du seuil"
+
+
+def test_sans_aucune_correspondance_on_garde_tout(maison):
+    """Si RIEN n'est couvert, noter sur un ensemble vide donnerait la note
+    maximale a tout le monde. On garde alors toutes les idees."""
+    from nova.fichiers.trouver import groupes_utiles
+
+    recherche = lire("mon releve de compte", aujourdhui=MAINTENANT)
+    hasard = _trouvaille("/h/Downloads/chat.png", annee=2011, precis=False)
+
+    utiles = groupes_utiles([hasard], recherche)
+
+    assert len(utiles) == 1, "le groupe releve/compte est conserve"
+    assert score(hasard, recherche, utiles) < 0.42
