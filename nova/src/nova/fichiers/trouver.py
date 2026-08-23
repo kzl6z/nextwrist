@@ -269,6 +269,61 @@ def _signal_fichier() -> re.Pattern[str]:
 _SIGNAL_FICHIER = _signal_fichier()
 
 
+#: « le deuxieme », « la troisieme », « le dernier ».
+#:
+#: ⚠️ CE MOT NE DESIGNE RIEN TOUT SEUL. IL COMPTE DANS UNE LISTE ANNONCEE.
+#:
+#: C'est pour cela que le bloc de reponse NUMEROTE les fichiers : un rang ne
+#: veut dire quelque chose que si l'on a entendu l'ordre. Annoncer une liste
+#: sans numeros puis accepter « le deuxieme » reviendrait a parier sur le fait
+#: que la personne les a comptes elle-meme.
+_ORDINAUX: dict[str, int] = {
+    "premier": 1, "premiere": 1, "1er": 1, "1ere": 1,
+    "deuxieme": 2, "second": 2, "seconde": 2, "2eme": 2, "2e": 2,
+    "troisieme": 3, "3eme": 3, "3e": 3,
+    "quatrieme": 4, "4eme": 4, "4e": 4,
+    "cinquieme": 5, "5eme": 5, "5e": 5,
+    #: Le dernier se compte a l'envers : la liste n'a pas toujours la meme
+    #: longueur, et « le dernier » designe toujours le meme.
+    "dernier": -1, "derniere": -1,
+}
+
+
+def rang_demande(cible: str) -> int | None:
+    """« le deuxieme » → 2. « le dernier » → -1. Sinon `None`.
+
+    Rend un rang a partir de 1, tel qu'on le prononce — pas un indice a partir
+    de zero. Convertir ici plutot qu'a l'appel evite l'erreur de decalage
+    classique, qui ouvrirait systematiquement le fichier d'a cote.
+    """
+    if not cible:
+        return None
+    for mot in sans_accents(cible).lower().split():
+        if (rang := _ORDINAUX.get(mot)) is not None:
+            return rang
+        # « ouvre le 2 » : un chiffre isole, et seulement isole. « 2024 » ne
+        # designe pas le 2024e fichier.
+        if mot.isdigit() and 1 <= int(mot) <= 9:
+            return int(mot)
+    return None
+
+
+def _au_rang(liste: tuple, rang: int):
+    """L'element au rang demande, ou `None` s'il n'existe pas.
+
+    ⚠️ ON NE RABAT PAS SUR LE PLUS PROCHE.
+
+    « ouvre le cinquieme » quand il n'y en a que trois est une meconnaissance,
+    pas une approximation : ouvrir le troisieme a la place serait une reussite
+    apparente sur un fichier que personne n'a demande.
+    """
+    if not liste:
+        return None
+    if rang == -1:
+        return liste[-1]
+    return liste[rang - 1] if 1 <= rang <= len(liste) else None
+
+
 def fichier_en_tete_pour(cible: str):
     """Le fichier retenu, si « cible » le designe. Rend un `Path` ou `None`.
 
@@ -299,6 +354,22 @@ def fichier_en_tete_pour(cible: str):
 
     retenue = focus.derniere("fichier")
     if retenue is None or not cible:
+        return None
+
+    # ⚠️ LE RANG L'EMPORTE SUR TOUT LE RESTE.
+    #
+    # « ouvre le deuxieme avis d'imposition » contient de quoi recouper le
+    # fichier retenu — « avis », « imposition » — et le recoupement rendrait
+    # donc le PREMIER. Le rang est l'information la plus precise de la phrase :
+    # il passe avant.
+    if (rang := rang_demande(cible)) is not None:
+        if (choisi := _au_rang(retenue.liste, rang)) is not None:
+            log.info("Rang %d demande : %s", rang, choisi.name)
+            return choisi
+        log.info(
+            "Rang %d demande, mais la liste annoncee en compte %d.",
+            rang, len(retenue.liste),
+        )
         return None
 
     plat = sans_accents(cible).lower()
@@ -372,6 +443,25 @@ def _ouvrir_si_evident(classes) -> Trouvaille | None:
         log.warning("Fichier trouve mais non ouvert : %s", erreur)
         return None
     return meilleur
+
+
+def _comment_choisir(classes) -> str:
+    """La consigne de fin quand Nova n'a rien ouvert.
+
+    ⚠️ ELLE DOIT DIRE COMMENT CHOISIR, PAS SEULEMENT QU'ELLE N'A PAS CHOISI.
+
+    Trois avis d'imposition qui se valent : Nova refuse d'en ouvrir un au
+    hasard, et c'est le bon comportement. Mais s'arreter la laisse quelqu'un
+    devant trois noms sans savoir quoi dire ensuite. On lui donne la phrase
+    qui marche — et elle marche parce que la liste est numerotee.
+    """
+    if len(classes) < 2:
+        return "Propose de l'ouvrir si c'est le bon.\n\n"
+    return (
+        "Tu n'en as ouvert aucun : plusieurs se valent, et en ouvrir un au "
+        "hasard serait pire qu'attendre. Dis-le, en une phrase, puis invite a "
+        "choisir par son RANG — par exemple « ouvre le deuxieme ».\n\n"
+    )
 
 
 def _rien_trouve(recherche: Recherche) -> str:
@@ -459,13 +549,24 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
         description=f"{meilleur.nom} ({meilleur.date_lisible()})",
         origine="recherche de fichier",
         genre="fichier",
+        # ⚠️ DANS L'ORDRE EXACT OU NOVA VA LES ANNONCER.
+        #
+        # C'est ce qui donne un sens a « ouvre le deuxieme ». Retenir un autre
+        # ordre que celui qui sort de la bouche de Nova ouvrirait un fichier
+        # que personne n'a designe, en ayant l'air d'obeir.
+        liste=tuple(t.chemin for t, _ in classes),
     )
     ouvert = _ouvrir_si_evident(classes)
 
+    # ⚠️ NUMEROTES, ET CE N'EST PAS DE LA MISE EN FORME.
+    #
+    # « ouvre le deuxieme » n'a de sens que si l'ordre a ete ENTENDU. Une liste
+    # a puces obligerait a compter soi-meme — et Nova lit ce bloc a voix
+    # haute, ou l'on ne revient pas en arriere.
     lignes = "\n".join(
-        f"- {t.nom} ({int(n * 100)} % de correspondance) — "
+        f"{rang}. {t.nom} ({int(n * 100)} % de correspondance) — "
         f"dans {t.dossier}, modifie le {t.date_lisible()}"
-        for t, n in classes
+        for rang, (t, n) in enumerate(classes, start=1)
     )
     quoi = " ".join(recherche.mots) or "ce que tu decris"
     log.info(
@@ -485,7 +586,7 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
         + (
             "Dis aussi que tu viens de l'ouvrir.\n\n"
             if ouvert is not None
-            else "Propose de l'ouvrir si c'est le bon.\n\n"
+            else _comment_choisir(classes)
         )
         # ⚠️ ON ENUMERE CE QUI S'INVENTE, PLUTOT QUE D'INTERDIRE D'INVENTER.
         #

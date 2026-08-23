@@ -59,6 +59,22 @@ class Retenue:
     #: le genre est ce qui permet a chaque cote de ne reprendre que ce qui le
     #: concerne.
     genre: str = "image"
+    #: Les autres candidats presentes en meme temps, DANS L'ORDRE ANNONCE.
+    #:
+    #: ⚠️ CE QUI PERMET « OUVRE LE DEUXIEME ».
+    #:
+    #: Nova annonce parfois plusieurs fichiers — trois avis d'imposition qui
+    #: se valent, qu'elle refuse d'ouvrir au hasard. « Le deuxieme » ne
+    #: designe alors rien si l'on n'a garde que le meilleur.
+    #:
+    #: ⚠️ ET C'EST ICI, PAS DANS UNE SECONDE MEMOIRE.
+    #:
+    #: Une liste rangee ailleurs aurait son propre delai d'expiration, et les
+    #: deux finiraient par se contredire : « la » designant un fichier et
+    #: « le deuxieme » un autre, tires de deux instants differents. La liste
+    #: qu'on a annoncee et le fichier dont on parle sont la meme chose vue de
+    #: deux facons ; ils vivent et meurent ensemble.
+    liste: tuple[Path, ...] = ()
 
 
 _retenue: Retenue | None = None
@@ -71,12 +87,18 @@ def retenir(
     description: str = "",
     origine: str = "regard",
     genre: str = "image",
+    liste: tuple[Path, ...] = (),
 ) -> None:
-    """Note le fichier dont on vient de parler."""
+    """Note le fichier dont on vient de parler, et ceux annonces avec lui."""
     global _retenue
     with _verrou:
         _retenue = Retenue(
-            Path(chemin), description, origine, time.monotonic(), genre
+            Path(chemin),
+            description,
+            origine,
+            time.monotonic(),
+            genre,
+            tuple(Path(c) for c in liste),
         )
     log.info("%s retenu (%s) : %s", genre.capitalize(), origine, Path(chemin).name)
 

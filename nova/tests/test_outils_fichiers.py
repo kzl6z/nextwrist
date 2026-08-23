@@ -325,3 +325,116 @@ def test_le_cablage_d_ouverture_passe_par_l_orchestrateur(tmp_path, monkeypatch)
     assert interruption is None, interruption
     assert retenue.outil == "ouvrir_fichier", retenue.outil
     assert arguments == {"chemin": str(papier)}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  « OUVRE LE DEUXIEME »
+# ══════════════════════════════════════════════════════════════════════════
+def _trois_avis(tmp_path, monkeypatch):
+    """Le dossier de la machine : trois avis qui se valent, aucun ouvert."""
+    from nova.fichiers import trouver
+
+    dossier = tmp_path / "Desktop" / "avis d impositions"
+    dossier.mkdir(parents=True)
+    for nom in ("impos 2024 1.pdf", "impos 2024 2.pdf", "impots 2024 3.pdf"):
+        (dossier / nom).write_text("x")
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+
+    import nova.outils as outils
+
+    monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
+    return dossier
+
+
+def test_la_liste_annoncee_est_numerotee(tmp_path, monkeypatch):
+    """⚠️ SANS NUMEROS, « LE DEUXIEME » NE DESIGNE RIEN.
+
+    Nova lit ce bloc a voix haute : on ne revient pas en arriere pour compter.
+    Le rang doit avoir ete ENTENDU.
+    """
+    from nova.fichiers.trouver import bloc
+
+    _trois_avis(tmp_path, monkeypatch)
+
+    sortie = bloc("retrouve-moi mes avis d'imposition de 2024")
+
+    assert "1. " in sortie and "2. " in sortie and "3. " in sortie
+    # Et la consigne dit COMMENT choisir, pas seulement qu'on n'a pas choisi.
+    assert "ouvre le deuxieme" in sortie
+
+
+def test_ouvre_le_deuxieme_ouvre_le_deuxieme(tmp_path, monkeypatch):
+    """LE BANC CENTRAL, depuis la phrase prononcee jusqu'a l'outil."""
+    from nova import orchestrator
+    from nova.core import actions
+    from nova.fichiers.trouver import bloc
+    from nova.voice import intentions
+
+    dossier = _trois_avis(tmp_path, monkeypatch)
+    sortie = bloc("retrouve-moi mes avis d'imposition de 2024")
+    annonces = [
+        ligne.split(". ", 1)[1].split(" (")[0]
+        for ligne in sortie.splitlines()
+        if ligne[:2] in ("1.", "2.", "3.")
+    ]
+    assert len(annonces) == 3, annonces
+
+    for phrase, rang in [
+        ("ouvre le premier", 1),
+        ("ouvre le deuxième", 2),
+        ("ouvre le troisième", 3),
+        ("ouvre le dernier", 3),
+        ("ouvre le 2", 2),
+        # ⚠️ LE RANG L'EMPORTE SUR LE RECOUPEMENT DE MOTS.
+        #
+        # Cette phrase contient « avis » et « imposition », qui recoupent le
+        # fichier retenu — le recoupement rendrait donc le PREMIER.
+        ("ouvre le deuxième avis d'imposition", 2),
+    ]:
+        intention = intentions.reconnaitre(phrase)
+        action = actions.action_pour(intention.nom)
+        retenue, arguments, interruption = orchestrator._confronter_au_reel(  # noqa: SLF001
+            action, intention.cible, confirme=False
+        )
+        assert interruption is None, (phrase, interruption)
+        assert retenue.outil == "ouvrir_fichier", (phrase, retenue.outil)
+        attendu = str(dossier / annonces[rang - 1])
+        assert arguments == {"chemin": attendu}, phrase
+
+
+def test_un_rang_qui_n_existe_pas_n_ouvre_rien(tmp_path, monkeypatch):
+    """⚠️ ON NE RABAT PAS SUR LE PLUS PROCHE.
+
+    « le cinquieme » quand il y en a trois est une meconnaissance, pas une
+    approximation. Ouvrir le troisieme serait une reussite apparente sur un
+    fichier que personne n'a demande.
+    """
+    from nova.fichiers.trouver import bloc, fichier_en_tete_pour
+
+    _trois_avis(tmp_path, monkeypatch)
+    bloc("retrouve-moi mes avis d'imposition de 2024")
+
+    assert fichier_en_tete_pour("cinquième") is None
+
+
+def test_un_rang_sans_liste_annoncee_n_ouvre_rien(tmp_path, monkeypatch):
+    """Un rang ne veut rien dire hors d'une liste qu'on vient d'entendre."""
+    from nova.fichiers.trouver import fichier_en_tete_pour
+    from nova.vision import focus
+
+    papier = tmp_path / "avis-imposition-2024.pdf"
+    papier.write_text("x")
+    focus.retenir(papier, origine="recherche de fichier", genre="fichier")
+
+    assert fichier_en_tete_pour("deuxième") is None
+    # Le fichier retenu reste atteignable par ses mots, comme avant.
+    assert fichier_en_tete_pour("avis d'imposition") == papier
+
+
+def test_le_rang_ne_detourne_pas_une_application(tmp_path, monkeypatch):
+    """« ouvre Photoshop 2024 » contient un chiffre, pas un rang."""
+    from nova.fichiers.trouver import rang_demande
+
+    assert rang_demande("Photoshop 2024") is None
+    assert rang_demande("Roblox") is None
+    assert rang_demande("deuxième") == 2
