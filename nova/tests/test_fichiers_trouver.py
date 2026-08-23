@@ -352,3 +352,112 @@ def test_un_pdf_retenu_ne_part_pas_dans_le_moteur_de_vision(maison, monkeypatch)
     assert focus.derniere("fichier") is not None, "le fichier est bien retenu"
     assert focus.derniere("image") is None, "mais pas comme une image"
     assert image_en_tete_pour("photo") is None
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ LES PAPIERS QUE LE DECLENCHEUR NE CONNAISSAIT PAS
+# ══════════════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # Releve en une phrase : « ca marche avec les cartes d'identite ? ».
+        # Non. Le declencheur avait ete ecrit a partir du seul exemple donne
+        # — « mon releve de compte » — et ne couvrait donc que la banque.
+        # « retrouve-moi ma carte d'identite » ne declenchait RIEN, en
+        # silence : Nova repondait comme a une question ordinaire.
+        "retrouve-moi ma carte d'identité",
+        "où est ma carte d'identité",
+        "cherche mon passeport",
+        "retrouve mon permis de conduire",
+        "cherche ma carte vitale",
+        "où est ma carte grise",
+        "trouve mon titre de séjour",
+        "trouve mon acte de naissance",
+        "où est mon livret de famille",
+        "retrouve mon ordonnance",
+        "trouve-moi mon diplôme",
+        "cherche mon attestation d'assurance",
+    ],
+)
+def test_les_papiers_d_identite_declenchent_la_recherche(phrase):
+    assert demande_de_fichier(phrase), phrase
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # ⚠️ CES MOTS-LA SONT D'ABORD DU FRANCAIS ORDINAIRE.
+        #
+        # « carte », « avis », « analyse », « resultat », « sejour » figurent
+        # dans les familles de synonymes — ils servent a ELARGIR une
+        # recherche, pas a la DECLENCHER. Les accepter comme signal ferait
+        # fouiller le disque a chaque question de culture generale.
+        "cherche la carte du monde",
+        "cherche l'avis des critiques sur ce film",
+        "trouve-moi une bonne analyse de ce texte",
+        "cherche le résultat du match",
+        "trouve-moi un séjour pas cher",
+        "trouve-moi une idée de cadeau",
+    ],
+)
+def test_un_mot_ordinaire_ne_declenche_pas_une_fouille(phrase):
+    assert not demande_de_fichier(phrase), phrase
+
+
+def test_le_declencheur_et_l_elargissement_lisent_la_meme_source():
+    """⚠️ DEUX LISTES DE VOCABULAIRE AURAIENT DIVERGE DES LA PREMIERE
+       CORRECTION.
+
+    L'une saurait reconnaitre « carte d'identite », l'autre saurait l'elargir
+    a « passeport » — et personne ne verrait laquelle manque. Ce banc exige
+    que tout mot capable de DECLENCHER une recherche sache aussi l'ELARGIR.
+    """
+    from nova.fichiers.requete import FAMILLES, PAPIERS
+
+    connus = {mot for famille in FAMILLES for mot in famille}
+    orphelins = sorted(
+        mot
+        for mot in PAPIERS
+        if " " not in mot and mot not in connus and mot.rstrip("s") not in connus
+    )
+
+    assert orphelins == [], (
+        f"ces mots declenchent une recherche mais n'elargissent rien : {orphelins}"
+    )
+
+
+def test_une_carte_d_identite_se_retrouve_de_bout_en_bout(maison, monkeypatch):
+    """Le vrai cablage, du francais parle jusqu'au fichier ouvert."""
+    _poser(
+        maison,
+        ["Documents/Papiers/carte-identite-recto.pdf", "Documents/vacances.pdf"],
+        annee=2024,
+    )
+    ouvertes: list[str] = []
+    import nova.outils as outils
+
+    monkeypatch.setattr(
+        outils, "executer_outil", lambda nom, **kw: ouvertes.append(kw["chemin"])
+    )
+
+    sortie = bloc("Nova, retrouve-moi ma carte d'identité s'il te plaît")
+
+    assert "carte-identite-recto.pdf" in sortie
+    assert "vacances.pdf" not in sortie
+    assert ouvertes == [str(maison / "Documents/Papiers/carte-identite-recto.pdf")]
+
+
+def test_un_passeport_se_retrouve_par_synonyme(maison, monkeypatch):
+    """⚠️ ON DIT « MES PAPIERS D'IDENTITE », LE FICHIER S'APPELLE
+       « passeport.pdf ».
+
+    C'est exactement ce que la table de synonymes existe pour rattraper.
+    """
+    _poser(maison, ["Documents/passeport-2023.pdf"], annee=2023)
+    import nova.outils as outils
+
+    monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
+
+    sortie = bloc("retrouve-moi ma carte d'identité")
+
+    assert "passeport-2023.pdf" in sortie

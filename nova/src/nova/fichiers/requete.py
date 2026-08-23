@@ -104,14 +104,69 @@ FAMILLES: tuple[tuple[str, ...], ...] = (
     ("contrat", "contrats", "engagement", "bail", "convention", "avenant"),
     ("attestation", "attestations", "certificat", "justificatif", "preuve"),
     ("assurance", "assurances", "mutuelle", "garantie", "sinistre"),
-    ("identite", "passeport", "carte", "permis", "cni"),
+    ("identite", "passeport", "carte", "permis", "cni", "conduire",
+     "vitale", "sejour", "grise", "titre"),
+    ("etat_civil", "naissance", "acte", "livret", "famille", "mariage",
+     "deces", "domicile", "residence"),
     ("cv", "curriculum", "candidature", "lettre", "motivation"),
-    ("ordonnance", "medical", "medicale", "sante", "analyse", "resultat"),
+    ("ordonnance", "medical", "medicale", "sante", "analyse", "resultat",
+     "vaccin", "vaccination", "radio", "bilan"),
     # Etudes et travail
     ("releve_notes", "notes", "bulletin_scolaire", "diplome", "attestation_scolaire"),
     ("rapport", "rapports", "compte_rendu", "memoire", "these", "expose"),
     ("presentation", "diapo", "diapos", "slides", "soutenance"),
 )
+
+
+#: Les mots qui, a eux seuls, prouvent qu'on parle d'un PAPIER range quelque
+#: part — et pas d'une idee.
+#:
+#: ⚠️ CETTE LISTE MANQUAIT, ET LA FONCTIONNALITE NE MARCHAIT QUE POUR MON
+#:    PROPRE EXEMPLE.
+#:
+#: Le declencheur exige deux signaux : un verbe de recherche, et un mot qui
+#: designe un fichier. J'avais ecrit le second a partir de la phrase qu'on
+#: m'avait donnee — « mon releve de compte » — donc il couvrait la banque et
+#: rien d'autre. « retrouve-moi ma carte d'identite » ne declenchait RIEN, et
+#: silencieusement : Nova repondait comme a une question ordinaire.
+#:
+#: ⚠️ ON PENCHE VERS LE FAUX POSITIF, ET C'EST UN CHOIX.
+#:
+#: Les deux erreurs ne coutent pas le meme prix. Chercher pour rien coute une
+#: interrogation d'index et une phrase « je n'ai trouve aucun fichier » —
+#: visible, comprehensible, sans consequence. Ne pas chercher coute la
+#: fonctionnalite, et personne ne sait pourquoi.
+#:
+#: Restent dehors les mots de `FAMILLES` qui sont d'abord des mots ordinaires
+#: du francais : « carte » (du monde, SIM, de voeux), « note », « avis »,
+#: « analyse », « lettre », « compte », « resultat ». Chacun apparait dans des
+#: questions qui n'ont rien a voir avec un fichier.
+PAPIERS: frozenset[str] = frozenset(
+    """
+    releve releves facture factures quittance quittances devis
+    contrat contrats bail avenant
+    attestation attestations certificat certificats justificatif justificatifs
+    assurance assurances mutuelle sinistre
+    identite passeport cni permis vitale grise
+    naissance livret mariage deces domicile
+    ordonnance ordonnances vaccination vaccin
+    diplome diplomes curriculum
+    impot impots fiscal imposition taxe declaration
+    bulletin bulletins paie rib iban bancaire
+    soutenance
+    """.split()
+) | {
+    # ⚠️ CERTAINS PAPIERS N'EXISTENT QU'EN DEUX MOTS.
+    #
+    # « sejour » seul est un mot ordinaire — « trouve-moi un sejour pas cher »
+    # partait fouiller le disque. « titre de sejour » ne peut rien designer
+    # d'autre qu'un papier. Le mot compose tranche la ou le mot seul ne le
+    # peut pas ; c'est la meme regle que « capture d'ecran » dans le module
+    # de vision.
+    "titre de sejour",
+    "acte de naissance",
+    "livret de famille",
+}
 
 
 #: Les types de fichiers qu'on sait nommer a l'oral.
@@ -238,6 +293,34 @@ def _genres(plat: str) -> tuple[str, ...]:
         genre for genre, mots_du_genre in _DIT_LE_GENRE
         if presents.intersection(mots_du_genre)
     )
+
+
+def groupes(mots: tuple[str, ...]) -> tuple[frozenset[str], ...]:
+    """Les GROUPES DE SENS cherches — un par famille touchee, un par mot isole.
+
+    ⚠️ CE QUI SE MESURE N'EST PAS LE MOT, C'EST L'IDEE.
+
+    « carte d'identite » et « passeport » sont le meme groupe. Un fichier
+    nomme `passeport-2023.pdf` couvre donc entierement une recherche de carte
+    d'identite, alors qu'il n'en porte aucun mot.
+
+    Sans cette notion, la table de synonymes ne servait a rien : elle faisait
+    bien REMONTER le passeport, puis le classement le notait sur les mots
+    absents et il tombait sous le seuil. La fonctionnalite annoncee par le
+    module ne marchait pas de bout en bout — trouve par un banc, pas par la
+    relecture.
+
+    Les mots sans famille — « edf », un nom propre — forment chacun leur
+    groupe. Ce sont les plus discriminants : ils doivent peser autant qu'une
+    famille entiere.
+    """
+    trouves: list[frozenset[str]] = []
+    for mot in mots:
+        famille = next((f for f in FAMILLES if mot in f), None)
+        groupe = frozenset(f for f in famille if "_" not in f) if famille else {mot}
+        if groupe not in trouves:
+            trouves.append(frozenset(groupe))
+    return tuple(trouves)
 
 
 def _elargir(mots: tuple[str, ...]) -> tuple[str, ...]:

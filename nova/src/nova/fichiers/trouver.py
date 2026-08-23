@@ -52,7 +52,23 @@ def _mots_du_chemin(chemin: Path) -> str:
 
 
 def score(trouve: Trouvaille, recherche: Recherche) -> float:
-    """A quel point ce fichier repond a la question, entre 0 et 1."""
+    """A quel point ce fichier repond a la question, entre 0 et 1.
+
+    ⚠️ CE QU'ON MESURE EST LA COUVERTURE DES IDEES, PAS DES MOTS.
+
+    Premiere version : la part des mots CHERCHES presents dans le chemin, et
+    un petit bonus forfaitaire si un synonyme apparaissait. Consequence, vue
+    par un banc et pas par la relecture : `passeport-2023.pdf` ne portait
+    aucun des mots de « carte d'identite », touchait donc le plancher, et
+    tombait sous le seuil. La table de synonymes faisait remonter le bon
+    fichier — et le classement le jetait juste apres.
+
+    On compte donc les GROUPES DE SENS couverts. « carte d'identite » et
+    « passeport » sont le meme groupe : le fichier couvre la recherche en
+    entier.
+    """
+    from nova.fichiers.requete import groupes
+
     texte = _mots_du_chemin(trouve.chemin)
     presents = {mot for mot in recherche.mots if mot in texte}
 
@@ -63,16 +79,26 @@ def score(trouve: Trouvaille, recherche: Recherche) -> float:
     # qu'ils sont dans la page : c'est une trouvaille, pas un hasard. Le
     # reduire a zero parce que le nom est muet reviendrait a ignorer la seule
     # chose que Spotlight sait faire et que nous ne savons pas.
-    note = 0.50 if trouve.precis else 0.22
+    #
+    # ⚠️ ET LE BAREME LAISSE DE LA PLACE AU-DESSUS DE LUI.
+    #
+    # Plancher + precision + couverture + mot exact faisaient 1,00 a eux
+    # seuls. Deux fichiers egalement bien nommes, l'un portant l'annee
+    # demandee et l'autre pas, plafonnaient donc tous les deux a 1,00 : le
+    # bonus d'annee ne departageait plus rien, et la marge d'ouverture ne se
+    # declenchait jamais. Un score sature ne classe plus.
+    note = 0.20 + (0.12 if trouve.precis else 0.0)
 
-    if recherche.mots:
-        note += 0.30 * (len(presents) / len(recherche.mots))
-    # Les synonymes rapportent, mais moins : ils disent le sujet, pas le mot.
-    synonymes = {
-        mot for mot in recherche.elargis if mot not in recherche.mots and mot in texte
-    }
-    if synonymes:
-        note += 0.08
+    cherches = groupes(recherche.mots)
+    if cherches:
+        couverts = sum(
+            1 for groupe in cherches if any(mot in texte for mot in groupe)
+        )
+        note += 0.42 * (couverts / len(cherches))
+    # Le mot EXACT vaut un peu mieux que son synonyme : entre `passeport.pdf`
+    # et `carte-identite.pdf`, on prefere celui qui emploie les mots dits.
+    if presents:
+        note += 0.06
 
     if recherche.annee:
         annee = str(recherche.annee)
@@ -165,15 +191,32 @@ _CHERCHER = re.compile(
 #: Le verbe seul ne dit rien : « trouve-moi une idee de cadeau » l'emploie
 #: aussi. Il faut le mot qui designe un objet range quelque part — un type de
 #: fichier, un genre de papier, ou le mot « fichier » lui-meme.
-_SIGNAL_FICHIER = re.compile(
-    r"\b(?:fichiers?|documents?|dossiers?|papiers?|pdf|tableur|excel|word|"
-    r"telechargements?|bureau|disque|ordinateur|mon pc|sur mon mac|"
-    r"releves?|extraits?|factures?|contrats?|attestations?|certificats?|"
-    r"justificatifs?|devis|quittances?|bulletins?|fiches? de paie|"
-    r"impots?|declarations?|assurances?|ordonnances?|diplomes?|"
-    r"cv|lettres?|rapports?|memoires?|presentations?|notes?)\b",
-    re.IGNORECASE,
+#: Ce qui nomme le CONTENANT : « dans mes fichiers », « sur mon disque ».
+_CONTENANTS = (
+    "fichiers?", "documents?", "dossiers?", "papiers?", "pdf", "tableur",
+    "excel", "word", "telechargements?", "bureau", "disque", "ordinateur",
+    "mon pc", "sur mon mac", "cv", "rapports?", "presentations?",
 )
+
+
+def _signal_fichier() -> re.Pattern[str]:
+    """Le motif du second signal, bati sur la liste des papiers.
+
+    ⚠️ IL EST DEDUIT DE `requete.PAPIERS`, PAS RECOPIE A COTE.
+
+    Deux listes de vocabulaire administratif dans deux modules auraient
+    diverge a la premiere correction — l'une saurait reconnaitre « carte
+    d'identite », l'autre saurait l'elargir a « passeport », et personne ne
+    verrait laquelle manque. Le declencheur et l'elargissement lisent donc la
+    meme source.
+    """
+    from nova.fichiers.requete import PAPIERS
+
+    mots = "|".join(sorted(_CONTENANTS) + sorted(PAPIERS))
+    return re.compile(rf"\b(?:{mots})\b", re.IGNORECASE)
+
+
+_SIGNAL_FICHIER = _signal_fichier()
 
 
 def demande_de_fichier(texte: str) -> bool:
