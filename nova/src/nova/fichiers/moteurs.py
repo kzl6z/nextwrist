@@ -49,9 +49,19 @@ log = get_logger(__name__)
 #: Au-dela, on n'attend plus : la question de l'utilisateur est en cours.
 DELAI_S = 6.0
 
-#: Plafond de resultats rapportes par un moteur. Au-dela, ce n'est plus une
-#: recherche, c'est un listing — et le classement n'y changerait rien.
-PLAFOND = 400
+#: Plafond de resultats rapportes par un moteur.
+#:
+#: ⚠️ CE PLAFOND TRONQUE UN ENSEMBLE NON TRIE — DONC IL PERD DES REPONSES.
+#:
+#: `mdfind` ne classe rien : les premiers rendus ne sont pas les meilleurs.
+#: Releve sur la machine — 2907 resultats, tronques a 400, zero retenu au
+#: classement. Le bon fichier n'etait probablement pas dans les 400.
+#:
+#: La vraie correction est en amont (`interrogation_par_groupes`, qui ne
+#: cherche plus les synonymes dans le TEXTE). Le plafond reste, mais plus
+#: haut : ce qu'il coute est une lecture de `stat` par fichier, ce qu'il fait
+#: perdre est la reponse.
+PLAFOND = 1200
 
 #: Ce qu'on ne parcourt jamais.
 #:
@@ -139,23 +149,100 @@ def _echapper(mot: str) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", mot)
 
 
+def _nom(mot: str) -> str:
+    return f'kMDItemFSName == "*{mot}*"cd'
+
+
+def _texte(mot: str) -> str:
+    return f'kMDItemTextContent == "*{mot}*"cd'
+
+
 def interrogation(mots: Iterable[str], *, tous: bool) -> str:
-    """L'interrogation Spotlight pour ces mots.
+    """L'interrogation Spotlight pour ces mots, sans notion de synonyme.
 
-    `tous` vrai exige que chaque mot soit present — c'est la passe PRECISE.
-    Faux se contente d'un seul — c'est la passe LARGE, celle des synonymes.
-
-    Chaque mot est cherche dans le NOM et dans le TEXTE : « releve » peut
-    etre le titre du fichier comme le premier mot de la page.
+    Sert la passe de repli et les bancs. Chaque mot est cherche dans le NOM et
+    dans le TEXTE : « releve » peut etre le titre du fichier comme le premier
+    mot de la page.
     """
     morceaux = [
-        f'(kMDItemFSName == "*{propre}*"cd || kMDItemTextContent == "*{propre}*"cd)'
+        f"({_nom(propre)} || {_texte(propre)})"
         for mot in mots
         if (propre := _echapper(mot))
     ]
     if not morceaux:
         return ""
     return (" && " if tous else " || ").join(morceaux)
+
+
+def _meme_mot(a: str, b: str) -> bool:
+    """« impots » et « impot » sont le MEME mot. « impots » et « taxe » non.
+
+    ⚠️ LA DIFFERENCE DECIDE DE CE QU'ON CHERCHE DANS LE TEXTE DES DOCUMENTS.
+
+    On dit « mes impotS » et l'avis ecrit « impôt sur le revenu » — au
+    singulier. Chercher le texte pour le seul mot prononce raterait le
+    document ; l'ouvrir a tous les synonymes ramenerait tout document francais
+    contenant « avis ».
+
+    Une variante de nombre ou de genre n'est pas un synonyme, c'est le meme
+    mot : elle garde donc le droit d'etre cherchee dans le contenu. Quatre
+    lettres communes en prefixe suffisent a le decider, et evitent qu'« an »
+    ou « cv » ne s'accrochent a n'importe quoi.
+    """
+    court, long = sorted((a, b), key=len)
+    return len(court) >= 4 and long.startswith(court)
+
+
+def interrogation_par_groupes(
+    groupes: Iterable[frozenset[str]], mots: Iterable[str]
+) -> str:
+    """L'interrogation qui exige chaque IDEE, en acceptant ses synonymes.
+
+    ⚠️ CETTE FONCTION EXISTE PARCE QUE LA PRECEDENTE RAMENAIT 2907 FICHIERS.
+
+    Releve sur la machine, mot pour mot :
+
+        Recherche de fichier : mots=['avis','imposition','impots'] annee=2004
+        Spotlight : 2907 resultats ramenes a 400.
+        Fichiers : 5 candidat(s), 0 retenu(s)
+
+    La passe large etait un OU sur toute la famille elargie — « avis »,
+    « declaration », « taxe », « fiscal » — cherchee dans le TEXTE de chaque
+    fichier du disque. Autant dire : tout document francais un peu long. Le
+    plafond de 400 tranchait ensuite au hasard, et le bon fichier n'etait
+    peut-etre meme pas dedans. Le classement n'y pouvait plus rien : ce qu'on
+    ne lui donne pas, il ne peut pas le remonter.
+
+    Deux corrections, et la seconde est la vraie :
+
+    1. ET ENTRE LES IDEES, OU A L'INTERIEUR. « impots » ET « 2024 », pas
+       « impots » OU « avis » OU « taxe ». Chaque groupe de sens doit etre
+       represente — c'est la meme notion de groupe que le classement.
+
+    2. ⚠️ UN SYNONYME NE SE CHERCHE QUE DANS LE NOM.
+
+       Un fichier dont le NOM porte « avis » est un avis d'imposition. Un
+       fichier dont le CONTENU contient « avis » est n'importe quel document
+       francais — le mot y est ordinaire. Les mots reellement prononces
+       gardent le droit d'etre cherches dans le texte ; ce sont eux que la
+       personne a en tete.
+    """
+    exiges = {propre for mot in mots if (propre := _echapper(mot))}
+    conditions: list[str] = []
+    for groupe in groupes:
+        variantes: list[str] = []
+        for mot in sorted(groupe):
+            if not (propre := _echapper(mot)):
+                continue
+            dans_le_texte = any(_meme_mot(propre, dit) for dit in exiges)
+            variantes.append(
+                f"({_nom(propre)} || {_texte(propre)})"
+                if dans_le_texte
+                else _nom(propre)
+            )
+        if variantes:
+            conditions.append("(" + " || ".join(variantes) + ")")
+    return " && ".join(conditions)
 
 
 class Spotlight:
@@ -191,40 +278,57 @@ class Spotlight:
             return []
         lignes = [ligne for ligne in resultat.stdout.splitlines() if ligne.strip()]
         if len(lignes) > PLAFOND:
-            log.info("Spotlight : %d resultats ramenes a %d.", len(lignes), PLAFOND)
+            # ⚠️ UNE TRONCATURE N'EST PAS UNE STATISTIQUE, C'EST UNE PERTE.
+            #
+            # `mdfind` ne trie pas : les 400 gardes sont un echantillon
+            # arbitraire, et le bon fichier peut ne pas en faire partie. Le
+            # classement ne pourra alors rien remonter, et l'echec ressemblera
+            # a « ce fichier n'existe pas ». C'etait le cas sur la machine —
+            # 2907 resultats, zero retenu — et la ligne etait en INFO, noyee.
+            log.warning(
+                "Spotlight : %d resultats, tronques a %d. La recherche est trop "
+                "large : le bon fichier peut avoir ete ecarte avant le classement.",
+                len(lignes), PLAFOND,
+            )
         return [Path(ligne) for ligne in lignes[:PLAFOND]]
 
     def chercher(self, recherche: Recherche) -> list[Trouvaille]:
         """Les fichiers qui correspondent, en deux passes.
 
-        ⚠️ LA PASSE PRECISE D'ABORD, ET C'EST TOUT L'INTERET.
+        ⚠️ LA PASSE PRECISE PORTE DEJA LES SYNONYMES, ET C'EST LE CHANGEMENT.
 
-        « releve compte » exige les deux mots : peu de resultats, presque tous
-        bons. Si elle ne rend rien, on elargit aux synonymes avec un simple
-        OU — beaucoup de resultats, dont le bon, et c'est au classement de le
-        remonter.
+        Elle exige chaque IDEE — « impots » ET « 2024 » — en acceptant pour
+        chacune n'importe lequel de ses mots. Elle est donc a la fois etroite
+        et tolerante : `avis-imposition-2024.pdf` repond a « mes impots de
+        2024 » sans qu'on ait besoin d'une passe large.
 
-        Faire l'inverse — chercher large puis affiner — ferait payer le
-        parcours du gros ensemble a chaque fois, y compris quand la question
-        etait facile.
+        La passe large ne sert plus que de dernier recours, et sur les mots
+        REELLEMENT PRONONCES : un OU sur toute la famille elargie ramenait
+        2907 fichiers sur cette machine, tranches a 400 au hasard.
         """
         vus: dict[Path, Trouvaille] = {}
-        passes = [(recherche.mots, True)]
-        if len(recherche.elargis) > len(recherche.mots):
-            passes.append((recherche.elargis, False))
 
-        for mots, tous in passes:
-            question = interrogation(mots, tous=tous)
-            if not question:
-                continue
-            for chemin in self._lancer(question):
+        from nova.fichiers.requete import groupes
+
+        precise = interrogation_par_groupes(groupes(recherche.mots), recherche.mots)
+        if precise:
+            for chemin in self._lancer(precise):
+                if not acceptable(chemin, recherche):
+                    continue
+                if (trouve := _trouvaille(chemin, precis=True)) is not None:
+                    vus[chemin] = trouve
+        if vus:
+            return list(vus.values())
+
+        # Rien de precis : on retente sur les seuls mots prononces, sans
+        # exiger qu'ils soient tous la. C'est le filet, pas la methode.
+        large = interrogation(recherche.mots, tous=False)
+        if large:
+            for chemin in self._lancer(large):
                 if chemin in vus or not acceptable(chemin, recherche):
                     continue
-                if (trouve := _trouvaille(chemin, precis=tous)) is not None:
+                if (trouve := _trouvaille(chemin, precis=False)) is not None:
                     vus[chemin] = trouve
-            # Une passe precise qui rend de quoi repondre s'arrete la.
-            if tous and len(vus) >= 3:
-                break
         return list(vus.values())
 
 

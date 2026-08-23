@@ -14,6 +14,7 @@ descendre dans `~/Library`, ne jamais ouvrir hors des dossiers declares.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -461,3 +462,131 @@ def test_un_passeport_se_retrouve_par_synonyme(maison, monkeypatch):
     sortie = bloc("retrouve-moi ma carte d'identité")
 
     assert "passeport-2023.pdf" in sortie
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ CE QUE LES JOURNAUX DE LA MACHINE ONT MONTRE
+#
+#      Recherche de fichier : mots=['besoin', 'impots'] annee=2024
+#      Spotlight : 2984 resultats ramenes a 400.
+#      Fichiers : 8 candidat(s), 0 retenu(s)
+# ══════════════════════════════════════════════════════════════════════════
+def test_besoin_n_est_pas_un_mot_a_chercher():
+    """⚠️ « j'ai BESOIN que tu me retrouves mes impots » CHERCHAIT « besoin ».
+
+    Pire que du bruit : la passe precise exige que chaque groupe de sens soit
+    present, et « besoin » formait son propre groupe. Aucun fichier ne pouvait
+    satisfaire la requete — et Nova lisait « aucun fichier correspondant a
+    BESOIN IMPOTS de 2024 » a voix haute.
+    """
+    recherche = lire(
+        "j'ai besoin que tu me retrouves mes impôts de 2024", aujourdhui=MAINTENANT
+    )
+
+    assert recherche.mots == ("impots",)
+    assert recherche.annee == 2024
+
+
+def test_aucun_commentaire_ne_fuit_dans_les_mots_vides():
+    """La liste des mots vides est un `\"\"\".split()` : un `#` y deviendrait un
+    mot vide nomme « # », et le commentaire avec."""
+    from nova.fichiers.requete import _PROPRES
+
+    assert all(mot.isalpha() for mot in _PROPRES), sorted(
+        m for m in _PROPRES if not m.isalpha()
+    )
+
+
+def test_un_synonyme_ne_se_cherche_que_dans_le_nom():
+    """⚠️ LA CORRECTION QUI VALAIT 2907 RESULTATS.
+
+    Un fichier dont le NOM porte « avis » est un avis d'imposition. Un fichier
+    dont le CONTENU contient « avis » est n'importe quel document francais.
+    Chercher les synonymes dans le texte ramenait tout le disque, tronque a
+    400 au hasard — et le bon fichier n'y etait plus.
+    """
+    from nova.fichiers.moteurs import interrogation_par_groupes
+    from nova.fichiers.requete import groupes
+
+    recherche = lire("retrouve mes impôts de 2024", aujourdhui=MAINTENANT)
+    question = interrogation_par_groupes(groupes(recherche.mots), recherche.mots)
+
+    dans_le_texte = set(re.findall(r'TextContent == "\*(\w+)\*"', question))
+    dans_le_nom = set(re.findall(r'FSName == "\*(\w+)\*"', question))
+
+    assert "avis" in dans_le_nom, "le synonyme reste cherchable par son nom"
+    assert "avis" not in dans_le_texte, "mais jamais dans le contenu des fichiers"
+    assert "taxe" not in dans_le_texte
+    # Le mot prononce, lui, garde le droit d'etre cherche dans le texte.
+    assert "impots" in dans_le_texte
+
+
+def test_le_pluriel_prononce_retrouve_le_singulier_ecrit():
+    """On dit « mes impotS », l'avis ecrit « impôt sur le revenu »."""
+    from nova.fichiers.moteurs import interrogation_par_groupes
+    from nova.fichiers.requete import groupes
+
+    recherche = lire("retrouve mes impôts", aujourdhui=MAINTENANT)
+    question = interrogation_par_groupes(groupes(recherche.mots), recherche.mots)
+
+    dans_le_texte = set(re.findall(r'TextContent == "\*(\w+)\*"', question))
+
+    assert {"impot", "impots"} <= dans_le_texte, (
+        "une variante de nombre n'est pas un synonyme, c'est le meme mot"
+    )
+
+
+def test_chaque_idee_est_exigee_et_pas_seulement_l_une_d_elles():
+    """⚠️ ET ENTRE LES IDEES, OU A L'INTERIEUR.
+
+    « facture EDF » veut les deux : un OU ramenait toutes les factures du
+    disque plus tout ce qui mentionne EDF.
+    """
+    from nova.fichiers.moteurs import interrogation_par_groupes
+    from nova.fichiers.requete import groupes
+
+    recherche = lire("retrouve ma facture EDF", aujourdhui=MAINTENANT)
+    question = interrogation_par_groupes(groupes(recherche.mots), recherche.mots)
+
+    assert " && " in question, question
+    # Deux groupes : la famille « facture », et « edf » qui n'en a aucune.
+    assert question.count(" && ") == 1
+
+
+def test_le_meme_mot_ne_s_accroche_pas_a_n_importe_quoi():
+    from nova.fichiers.moteurs import _meme_mot
+
+    assert _meme_mot("impots", "impot")
+    assert _meme_mot("fiscale", "fiscal")
+    assert not _meme_mot("impots", "taxe")
+    assert not _meme_mot("avis", "avenant"), "trois lettres communes ne suffisent pas"
+    assert not _meme_mot("cv", "cvtheque")
+
+
+def test_un_avis_d_imposition_se_retrouve_de_bout_en_bout(maison, monkeypatch):
+    """La demande exacte de la machine, jusqu'au fichier ouvert."""
+    _poser(
+        maison,
+        [
+            "Documents/Impots/avis-imposition-2024.pdf",
+            "Documents/vacances.pdf",
+            "Documents/Impots/avis-imposition-2019.pdf",
+        ],
+        annee=2024,
+    )
+    ouvertes: list[str] = []
+    import nova.outils as outils
+
+    monkeypatch.setattr(
+        outils, "executer_outil", lambda nom, **kw: ouvertes.append(kw["chemin"])
+    )
+
+    sortie = bloc("j'ai besoin que tu me retrouves mes impôts de 2024")
+
+    assert "avis-imposition-2024.pdf" in sortie
+    assert "vacances.pdf" not in sortie
+    # ⚠️ ET LE NOM CHERCHE EST LISIBLE A VOIX HAUTE.
+    #
+    # « aucun fichier correspondant a BESOIN IMPOTS de 2024 » etait la phrase
+    # reellement prononcee par Nova.
+    assert "besoin" not in sortie.lower()

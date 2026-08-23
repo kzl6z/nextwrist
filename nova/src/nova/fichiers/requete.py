@@ -69,7 +69,19 @@ _PROPRES: frozenset[str] = frozenset(
     quelque part fond rappelle rappeler souviens souvenir imagine imaginons
     date datant datent remonte annee annees an ans mois semaine semaines
     vers environ autour genre exemple part sais connais
+    besoin besoins faut faudrait envie souhaite souhaiterais
     """.split()
+    # ⚠️ « BESOIN » EST LA POUR UNE RAISON PRECISE, RELEVEE SUR LA MACHINE.
+    #
+    # « j'ai BESOIN que tu me retrouves mes impots de 2024 » cherchait un
+    # fichier nomme « besoin ». Pire que du bruit : la passe precise exige que
+    # CHAQUE groupe de sens soit present, et « besoin » formait son propre
+    # groupe. Aucun fichier ne pouvait satisfaire la requete, et Nova lisait
+    # « aucun fichier correspondant a BESOIN IMPOTS de 2024 » a voix haute.
+    #
+    # ⚠️ ET AUCUN COMMENTAIRE NE PEUT ENTRER DANS LA CHAINE AU-DESSUS.
+    #
+    # C'est un `""".split()` : un `#` y devient un mot vide nomme « # ».
 )
 
 
