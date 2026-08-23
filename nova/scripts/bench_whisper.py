@@ -137,10 +137,21 @@ class Resultat:
     secondes: float = 0.0
     audio_secondes: float = 0.0
     exemples: list[tuple[str, str]] = None  # (attendu, obtenu) quand ca differe
+    #: theme -> [mots attendus, erreurs]. Voir `enregistrer_voix.THEMES`.
+    themes: dict = None
 
     def __post_init__(self) -> None:
         if self.exemples is None:
             self.exemples = []
+        if self.themes is None:
+            self.themes = {}
+
+    def precision_du_theme(self, theme: str) -> float | None:
+        """La part de mots justes sur ce theme, ou `None` s'il est absent."""
+        compte = self.themes.get(theme)
+        if not compte or not compte[0]:
+            return None
+        return max(0.0, 1 - compte[1] / compte[0])
 
     @property
     def precision(self) -> float:
@@ -220,6 +231,8 @@ def mesurer(modele: str, beam: int, paires: list[tuple[Path, str]], amorce: str)
     # Nova le garde resident.
     transcribe._modele(modele)
 
+    from enregistrer_voix import theme_de
+
     for audio, attendu in paires:
         octets = audio.read_bytes()
         depart = time.perf_counter()
@@ -234,6 +247,9 @@ def mesurer(modele: str, beam: int, paires: list[tuple[Path, str]], amorce: str)
         resultat.mots_totaux += len(mots_attendus)
         erreurs = distance_mots(mots_attendus, mots_obtenus)
         resultat.erreurs += erreurs
+        compte = resultat.themes.setdefault(theme_de(attendu), [0, 0])
+        compte[0] += len(mots_attendus)
+        compte[1] += erreurs
         if erreurs:
             resultat.exemples.append((attendu, obtenu))
 
@@ -411,6 +427,29 @@ def main() -> int:
                 f"  {r.modele:8} beam {r.beam} : {supplement:+.1f}s de calcul, "
                 f"{erreurs_evitees:+d} erreurs — {verdict} ({gagne:+.1f}s)"
             )
+
+    # ── LA VENTILATION PAR THEME ────────────────────────────────────────
+    #
+    # ⚠️ C'EST ELLE QUI DECIDE, PAS LA MOYENNE.
+    #
+    # Mesure faite sur cette machine : `small` en beam 5 rend 80 % de mots
+    # justes AU TOTAL, et 100 % sur les six phrases de fichiers. Les phrases
+    # d'astronomie tirent la moyenne vers le bas alors qu'elles repondent a un
+    # probleme resolu depuis. Choisir sur la moyenne, c'est choisir sur un
+    # melange de deux questions qui n'ont plus rien a voir.
+    ordre = ("fichiers", "noms propres", "connaissance", "formes courtes", "autre")
+    presents = [t for t in ordre if any(t in r.themes for r in resultats)]
+    if presents:
+        print("\nPAR THEME — la moyenne cache ce qui compte")
+        entete = "  ".join(f"{t[:13]:>13}" for t in presents)
+        print(f"\n{'modele':10} {'beam':>5}  {entete}")
+        print("-" * (17 + len(entete)))
+        for r in resultats:
+            cases = []
+            for theme in presents:
+                part = r.precision_du_theme(theme)
+                cases.append(f"{part:>12.0%} " if part is not None else f"{'—':>13}")
+            print(f"{r.modele:10} {r.beam:>5}  " + "  ".join(cases))
 
     pire = max(resultats, key=lambda r: r.erreurs)
     if pire.exemples:

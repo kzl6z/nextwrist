@@ -277,3 +277,61 @@ def test_la_commande_soufflee_est_celle_qu_on_veut_voir_tapee():
             if "uv run python scripts/bench_whisper.py" not in ligne:
                 continue
             assert "MODELES" in ligne, f"{fichier} : {ligne.strip()}"
+
+
+# ── La ventilation par theme ──────────────────────────────────────────────
+def test_chaque_phrase_de_reference_a_un_theme():
+    """⚠️ UNE PHRASE SANS THEME DISPARAIT DE LA VENTILATION.
+
+    Elle compterait dans la moyenne et nulle part ailleurs — donc elle
+    pourrait faire pencher la decision sans qu'on voie ou.
+    """
+    from enregistrer_voix import PHRASES, THEMES
+
+    assert [p for p in PHRASES if p not in THEMES] == []
+
+
+def test_le_theme_survit_a_la_ponctuation():
+    """Le .txt ecrit sur le disque peut differer de la constante d'une
+    apostrophe. Un theme perdu pour une virgule ferait disparaitre une ligne
+    du tableau sans rien dire."""
+    from enregistrer_voix import theme_de
+
+    assert theme_de("Ouvre ce fichier.") == "fichiers"
+    assert theme_de("ouvre ce fichier") == "fichiers"
+    assert theme_de("  OUVRE, CE FICHIER !  ") == "fichiers"
+    assert theme_de("une phrase que personne n'a enregistree") == "autre"
+
+
+def test_la_precision_par_theme_se_calcule_separement():
+    """⚠️ C'EST CE CHIFFRE QUI DECIDE, PAS LA MOYENNE.
+
+    Mesure faite sur la machine : `small` en beam 5 rend 80 % de mots justes
+    AU TOTAL et 100 % sur les six phrases de fichiers. Les phrases
+    d'astronomie tirent la moyenne vers le bas alors qu'elles repondent a un
+    probleme resolu depuis.
+    """
+    from bench_whisper import Resultat
+
+    r = Resultat("small", 5, themes={"fichiers": [46, 0], "connaissance": [40, 10]})
+
+    assert r.precision_du_theme("fichiers") == 1.0
+    assert r.precision_du_theme("connaissance") == 0.75
+    assert r.precision_du_theme("absent") is None
+
+
+def test_un_theme_sans_mot_ne_divise_pas_par_zero():
+    from bench_whisper import Resultat
+
+    assert Resultat("base", 1, themes={"vide": [0, 0]}).precision_du_theme("vide") is None
+
+
+def test_une_precision_par_theme_ne_descend_jamais_sous_zero():
+    """Whisper peut rendre PLUS de mots que la phrase n'en contient — une
+    repetition en boucle. Le taux d'erreur depasse alors 100 %, et une
+    precision negative dans un tableau ne veut rien dire."""
+    from bench_whisper import Resultat
+
+    r = Resultat("base", 1, themes={"fichiers": [10, 25]})
+
+    assert r.precision_du_theme("fichiers") == 0.0

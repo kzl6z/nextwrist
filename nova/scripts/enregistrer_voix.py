@@ -86,6 +86,63 @@ PHRASES: tuple[str, ...] = (
 )
 
 
+#: A quel probleme chaque phrase repond.
+#:
+#: ⚠️ UN SCORE GLOBAL MELANGE DEUX QUESTIONS QUI N'ONT PLUS RIEN A VOIR.
+#:
+#: Les phrases d'astronomie datent d'un probleme resolu ; celles de fichiers
+#: sont le probleme d'aujourd'hui. Une moyenne des deux peut monter de sept
+#: points sans qu'aucun « impots » ne soit rattrape — ou l'inverse. Mesure
+#: faite sur cette machine : `small` en beam 5 rend 80 % de mots justes au
+#: total, et 100 % sur les six phrases de fichiers. Le chiffre qui decide
+#: n'etait pas celui qu'on regardait.
+THEMES: dict[str, str] = {
+    "Quel est le diamètre de la Terre ?": "connaissance",
+    "Quelles sont les planètes du système solaire ?": "connaissance",
+    "Qu'est-ce qu'un trou noir ?": "connaissance",
+    "Quelle est la plus grande planète du système solaire ?": "connaissance",
+    "Explique-moi la relativité générale en deux phrases.": "connaissance",
+    "Qui était Charles Aznavour ?": "noms propres",
+    "Ouvre Discord.": "noms propres",
+    "Lance EcoleDirecte.": "noms propres",
+    "Est-ce qu'Adam est rentré ?": "noms propres",
+    "Rappelle-moi d'appeler Bérangère demain matin.": "noms propres",
+    "Quelle heure est-il ?": "formes courtes",
+    "Quel jour sommes-nous ?": "formes courtes",
+    "Dans mon PC, j'ai mes impôts de 2024, peux-tu me les retrouver ?": "fichiers",
+    "Trouve-moi les deux autres avis d'imposition de 2024.": "fichiers",
+    "Retrouve-moi ma carte d'identité.": "fichiers",
+    "Peux-tu me retrouver la photo où je tiens une casquette blanche ?": "fichiers",
+    "Ouvre ce fichier.": "fichiers",
+    "Ouvre le deuxième.": "fichiers",
+}
+
+
+def _clef(phrase: str) -> str:
+    """Une phrase reduite a ses lettres, pour survivre a la ponctuation."""
+    import unicodedata
+
+    plat = "".join(
+        c
+        for c in unicodedata.normalize("NFD", phrase or "")
+        if unicodedata.category(c) != "Mn"
+    ).lower()
+    return "".join(c for c in plat if c.isalnum())
+
+
+_PAR_CLEF = {_clef(phrase): theme for phrase, theme in THEMES.items()}
+
+
+def theme_de(phrase: str) -> str:
+    """Le theme d'une phrase de reference, ou « autre ».
+
+    Compare sur les lettres seules : le .txt ecrit sur le disque peut differer
+    de la constante par une apostrophe ou un point, et un theme perdu pour une
+    virgule ferait disparaitre une ligne du tableau sans rien dire.
+    """
+    return _PAR_CLEF.get(_clef(phrase), "autre")
+
+
 def ecrire_wav(chemin: Path, pcm: bytes, taux: int = TAUX) -> None:
     """Ecrit du PCM 16 bits mono dans un fichier WAV lisible par Whisper."""
     chemin.parent.mkdir(parents=True, exist_ok=True)
