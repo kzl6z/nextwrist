@@ -64,6 +64,18 @@ POLITESSES: tuple[str, ...] = (
 BRUIT_CIBLE: tuple[str, ...] = (
     "l application", "l appli", "le logiciel", "le programme", "le site",
     "la page", "le fichier", "le dossier", "moi", "le", "la", "les", "l", "un", "une", "du", "de",
+    # ⚠️ LES DEMONSTRATIFS MANQUAIENT, ET CA SE VOYAIT UNE PHRASE PLUS LOIN.
+    #
+    # Releve en conditions reelles. Nova venait de trouver IMG_8156.JPG ; on
+    # lui dit « ouvre cette photo », et elle a ouvert une capture d'ecran
+    # sans rapport. La cible arrivait comme « cette photo » au lieu de
+    # « photo », donc le contexte — l'image dont on venait de parler — ne se
+    # reconnaissait plus, et le repli ouvrait la plus recente du dossier.
+    #
+    # « cette » ne fait jamais partie d'un nom d'application ; le retirer ne
+    # coute rien et rend « ouvre cette photo » equivalent a « ouvre la photo »,
+    # qui marchait deja.
+    "ce", "cet", "cette", "ces", "mon", "ma", "mes",
 )
 
 

@@ -88,11 +88,34 @@ _PROPRES: frozenset[str] = frozenset(
 )
 
 
+#: Les RADICAUX des verbes qui demandent, plutot que leurs conjugaisons.
+#:
+#: ⚠️ ON NE PEUT PAS ENUMERER LES CONJUGAISONS DU FRANCAIS.
+#:
+#: La liste contenait « retrouve », « retrouver », « retrouves ». Releve sur
+#: la machine : « retrouveZ-les-moi » est passe au travers, et Nova a dit a
+#: voix haute « je n'ai trouve aucun fichier correspondant a PEU RETROUVEZ de
+#: 2024 ». Ajouter « retrouvez » aurait laisse passer « retrouverais ».
+#:
+#: Un radical couvre la conjugaison entiere. Quatre lettres minimum et un
+#: prefixe : assez pour attraper toute la famille, trop court pour attraper un
+#: nom de fichier — aucun papier ne s'appelle « montrez ».
+_RADICAUX: tuple[str, ...] = (
+    "retrouv", "trouv", "cherch", "montr", "ouvr", "donn", "affich",
+    "localis", "regard", "recuper", "sort", "ramen", "rappell",
+)
+
+
 def vides() -> frozenset[str]:
     """Les mots a ignorer. Ceux du catalogue, plus ceux des fichiers."""
     from nova.vision.catalogue import VIDES
 
     return VIDES | _PROPRES
+
+
+def _est_un_verbe_de_demande(mot: str) -> bool:
+    """« retrouvez », « montreras », « ouvrirais » — quelle que soit la forme."""
+    return any(mot.startswith(radical) for radical in _RADICAUX)
 
 
 #: Ce qu'on dit, et ce que les fichiers s'appellent vraiment.
@@ -368,7 +391,10 @@ def lire(texte: str, *, aujourdhui: datetime | None = None) -> Recherche:
     mots = tuple(
         m
         for m in plat.split()
-        if len(m) > 2 and m not in ignores and not m.isdigit()
+        if len(m) > 2
+        and m not in ignores
+        and not m.isdigit()
+        and not _est_un_verbe_de_demande(m)
     )
     # Un mot qui ne sert qu'a nommer le TYPE ne sert pas a chercher le nom :
     # « en pdf » filtre l'extension, il ne se cherche pas dans le titre.

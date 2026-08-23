@@ -372,8 +372,12 @@ def fichier_en_tete_pour(cible: str):
         )
         return None
 
-    plat = sans_accents(cible).lower()
-    if _PRONOM_SEUL.fullmatch(plat.strip()):
+    # Meme depouillement que pour les images : « ouvre-LE » arrive comme
+    # « -le », et le tiret ne peut pas etre retire en amont sans casser la
+    # reprise d'image.
+    from nova.vision.regard import _depouiller
+
+    if not _depouiller(cible):
         return retenue.chemin
 
     cherches = lire(cible).mots
@@ -393,10 +397,6 @@ def fichier_en_tete_pour(cible: str):
         )
         else None
     )
-
-
-#: « ouvre-LE », « ouvre-LA » : rien a recouper, et rien d'autre a designer.
-_PRONOM_SEUL = re.compile(r"(?:le|la|les|ca|cela|celui|celle)", re.IGNORECASE)
 
 
 def demande_de_fichier(texte: str) -> bool:

@@ -236,11 +236,31 @@ class Settings(BaseSettings):
     # Le garde-fou de `transcribe.py` reste par-dessus : un texte deja present
     # dans l'amorce, rendu avec une confiance basse, est refuse quoi qu'il
     # arrive.
+    # ⚠️ LE VOCABULAIRE DES PAPIERS Y FIGURE, ET CE N'EST PAS DECORATIF.
+    #
+    # Releve en conditions reelles, la phrase dite etant « j'ai des fichiers
+    # d'IMPOTS de 2024, retrouve-les-moi » :
+    #
+    #     entendu  « j'ai des fichiers, d'UN PEU 2024, retrouvez-les-moi »
+    #
+    # « impots » et « un peu » sont proches a l'oreille, et « un peu » est
+    # infiniment plus frequent en francais : Whisper choisit le mot courant,
+    # exactement comme « monte le son » devenait « montre le son ».
+    #
+    # Retrouver un fichier repose entierement sur ce mot-la. Le rater ne
+    # degrade pas la reponse, il la rend impossible — et l'echec ressemble a
+    # « ce fichier n'existe pas », ce qui envoie chercher au mauvais endroit.
+    #
+    # Ce sont des FRAGMENTS nominaux, jamais des phrases : la lecon du
+    # paragraphe ci-dessus tient, un groupe nominal ne peut pas ressortir
+    # comme une demande.
     whisper_amorce_dictee: str = (
         "Nova, assistante vocale francaise. Tournures : qu'est-ce qu'un, "
         "qu'est-ce que, quelle heure, quel jour, pourquoi, explique-moi, "
         "parle-moi de, ouvre, ferme, monte le son, baisse le son. "
-        "Culture generale, applications, dates, heures, noms propres."
+        "Culture generale, applications, dates, heures, noms propres. "
+        "Papiers : impots, avis d'imposition, releve de compte, facture, "
+        "carte d'identite, passeport, contrat, attestation, ordonnance."
     )
     # ── Synthese vocale locale ────────────────────────────────────────────
     #

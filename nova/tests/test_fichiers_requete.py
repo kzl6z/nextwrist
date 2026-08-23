@@ -135,3 +135,35 @@ def test_une_phrase_sans_rien_a_chercher_est_fausse():
     assert lire("mon releve", aujourdhui=MAINTENANT)
     # Une annee seule suffit : « mes documents de 2024 » est une recherche.
     assert Recherche(annee=2024)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ ON NE PEUT PAS ENUMERER LES CONJUGAISONS DU FRANCAIS
+# ══════════════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize(
+    ("phrase", "attendus"),
+    [
+        # Releve sur la machine : « retrouveZ » est passe au travers d'une
+        # liste qui contenait « retrouve », « retrouver », « retrouves ».
+        # Nova a dit a voix haute « aucun fichier correspondant a PEU
+        # RETROUVEZ de 2024 ».
+        ("dans mon PC, j'ai des fichiers d'impôts de 2024, retrouvez-les-moi", ["impots"]),
+        ("tu me retrouverais mon relevé de compte", ["releve", "compte"]),
+        ("montrez-moi ma facture EDF", ["facture", "edf"]),
+        ("tu pourrais m'afficher mon attestation", ["attestation"]),
+        ("cherchez mes bulletins de paie", ["bulletins", "paie"]),
+    ],
+)
+def test_aucune_forme_conjuguee_ne_se_cherche(phrase, attendus):
+    assert list(lire(phrase, aujourdhui=MAINTENANT).mots) == attendus, phrase
+
+
+def test_un_radical_n_attrape_pas_un_nom_de_papier():
+    """Le radical doit couvrir la conjugaison sans manger un vrai mot."""
+    from nova.fichiers.requete import _est_un_verbe_de_demande
+
+    assert _est_un_verbe_de_demande("retrouvez")
+    assert _est_un_verbe_de_demande("montreras")
+    assert not _est_un_verbe_de_demande("ordonnance")
+    assert not _est_un_verbe_de_demande("attestation")
+    assert not _est_un_verbe_de_demande("declaration")

@@ -179,6 +179,35 @@ _MOT_D_IMAGE_SEUL: frozenset[str] = frozenset(
 )
 
 
+#: Ce qui reste accroche a une cible et ne designe rien.
+#:
+#: ⚠️ CETTE SECONDE PASSE EXISTE PARCE QUE LA PREMIERE NE PEUT PAS TOUT VOIR.
+#:
+#: `intentions.BRUIT_CIBLE` retire UN prefixe, sur des mots entiers. Il ne
+#: peut rien contre « ouvre-LA », dont la cible arrive comme « -la » : le
+#: tiret colle au pronom, et il n'y a plus de mot entier a reconnaitre.
+#:
+#: On ne corrige pas ca en amont — le tiret est ce qui distingue l'enclitique
+#: (« analyse-la ») de l'article (« analyse la situation »), et le detruire
+#: casserait la reprise d'image. Il se retire ICI, ou l'on sait deja qu'on
+#: cherche quelque chose a ouvrir.
+_ACCROCHES: frozenset[str] = frozenset(
+    {"la", "le", "les", "l", "ce", "cet", "cette", "ces", "ca", "cela",
+     "celle", "celui", "mon", "ma", "mes", "de", "du", "des", "moi"}
+)
+
+
+def _depouiller(cible: str) -> str:
+    """« -la » → « la », « cette photo » → « photo ». Rend `""` s'il ne reste rien."""
+    mots = [m for m in re.split(r"[^\w]+", sans_accents(cible or "").lower()) if m]
+    if not mots:
+        return ""
+    utiles = [m for m in mots if m not in _ACCROCHES]
+    # Si TOUT etait une accroche, c'est que la cible etait un pronom seul —
+    # « ouvre-la ». Elle ne peut alors designer que ce dont on vient de parler.
+    return " ".join(utiles)
+
+
 def image_en_tete_pour(cible: str):
     """L'image retenue, si « cible » ne designe rien de plus precis qu'elle.
 
@@ -187,7 +216,12 @@ def image_en_tete_pour(cible: str):
     """
     from nova.vision import focus
 
-    if sans_accents(cible or "").strip().lower() not in _MOT_D_IMAGE_SEUL:
+    if not (cible or "").strip():
+        return None
+    reste = _depouiller(cible)
+    # Vide = la cible n'etait qu'un pronom (« ouvre-la ») : elle designe
+    # forcement ce dont on vient de parler.
+    if reste and reste not in _MOT_D_IMAGE_SEUL:
         return None
     retenue = focus.derniere("image")
     return retenue.chemin if retenue is not None else None

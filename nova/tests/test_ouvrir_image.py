@@ -371,3 +371,62 @@ def test_hors_macos_l_outil_le_dit(tmp_path, monkeypatch):
         OuvrirImage(tmp_path).executer("x.png")
 
     assert "macOS" in str(refus.value)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ « OUVRE CETTE PHOTO » OUVRAIT UNE CAPTURE D'ECRAN
+# ══════════════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # Releve en conditions reelles. Nova venait de trouver IMG_8156.JPG,
+        # on lui dit « ouvre cette photo », et elle a ouvert
+        # « Capture d'ecran 2026-08-23 a 23.26.12.png ».
+        "ouvre cette Photos",
+        "ouvre cette photo",
+        "ouvre cette image",
+        "ouvre la photo",
+        "ouvre mes photos",
+        # ⚠️ LE TIRET SURVIT AU DEPOUILLEMENT CENTRAL, ET C'EST VOULU.
+        #
+        # `intentions.BRUIT_CIBLE` retire des MOTS ENTIERS ; la cible arrive
+        # comme « -la ». On ne corrige pas ca en amont : le tiret distingue
+        # l'enclitique (« analyse-la ») de l'article (« analyse la
+        # situation »), et le detruire casserait la reprise d'image.
+        "ouvre-la",
+    ],
+)
+def test_un_demonstratif_ne_fait_pas_perdre_l_image_en_tete(phrase, tmp_path):
+    from nova.vision import focus
+    from nova.vision.regard import image_en_tete_pour
+    from nova.voice import intentions
+
+    image = tmp_path / "IMG_8156.JPG"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    cible = intentions.reconnaitre(phrase).cible
+    assert image_en_tete_pour(cible) is None, "sans image en tete, l'application gagne"
+
+    focus.retenir(image, description="une main tenant une casquette", origine="recherche")
+    try:
+        assert image_en_tete_pour(cible) == image, phrase
+    finally:
+        focus.oublier()
+
+
+@pytest.mark.parametrize("phrase", ["ouvre Roblox", "ouvre Google Chrome", "ouvre Spotify"])
+def test_une_application_reste_une_application_meme_avec_une_image_en_tete(
+    phrase, tmp_path
+):
+    """Le repli n'enleve jamais rien : une application installee gagne."""
+    from nova.vision import focus
+    from nova.vision.regard import image_en_tete_pour
+    from nova.voice import intentions
+
+    image = tmp_path / "IMG_8156.JPG"
+    image.write_bytes(b"\x89PNG\r\n\x1a\n")
+    focus.retenir(image, origine="recherche")
+    try:
+        assert image_en_tete_pour(intentions.reconnaitre(phrase).cible) is None, phrase
+    finally:
+        focus.oublier()
