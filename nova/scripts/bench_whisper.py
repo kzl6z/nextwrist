@@ -1,6 +1,7 @@
 """Mesure la PRECISION de la transcription, sur TA voix, sur TA machine.
 
-    uv run python scripts/bench_whisper.py
+    make whisper MODELES=base,small     la question courante, en 2 modeles
+    make whisper                        tout, `medium` compris (1,5 Go)
 
 POURQUOI CET OUTIL EXISTE
 
@@ -280,7 +281,7 @@ def associer_les_textes() -> int:
     print("\n⚠️  VERIFIE LA LISTE CI-DESSUS AVANT DE MESURER.")
     print("    Si une ligne ne correspond pas a ce que tu as reellement dit,")
     print("    corrige le .txt : le banc mesurerait un ecart qui n'existe pas.\n")
-    print("Puis :  uv run python scripts/bench_whisper.py\n")
+    print("Puis :  make whisper MODELES=base,small\n")
     return 0
 
 
@@ -335,7 +336,7 @@ choisirait un modele pour quelqu'un d'autre.
 
 Puis, dans les deux cas :
 
-    uv run python scripts/bench_whisper.py
+    make whisper MODELES=base,small
 
 Huit phrases suffisent pour trancher. Douze donnent un chiffre plus stable.
 """)

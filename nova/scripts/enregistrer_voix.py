@@ -320,7 +320,7 @@ Aucune entree audio utilisable.
   2. Le Terminal a-t-il l'autorisation ? Reglages Systeme >
      Confidentialite et securite > Microphone > Terminal.
   3. Si rien n'y fait, le mode sans micro est decrit par :
-         uv run python scripts/bench_whisper.py
+         make whisper MODELES=base,small
 """)
     return 1
 
@@ -366,7 +366,7 @@ ceux dont on ne se sert pas. C'est sans consequence, l'enregistrement tourne.
     a_faire = PHRASES[numero - 1 :]
     if not a_faire:
         print(f"Les {len(PHRASES)} phrases sont deja enregistrees.")
-        print("Lance la mesure :  uv run python scripts/bench_whisper.py\n")
+        print("Lance la mesure :  make whisper MODELES=base,small\n")
         return 0
 
     # UNE seule ouverture pour toute la seance. Le micro tourne ensuite en
@@ -427,7 +427,7 @@ ceux dont on ne se sert pas. C'est sans consequence, l'enregistrement tourne.
     print(f"\n{enregistrees} phrase(s) enregistree(s), {total} au total.")
     if total >= 8:
         print("\nAssez pour trancher. Lance la mesure :")
-        print("    uv run python scripts/bench_whisper.py\n")
+        print("    make whisper MODELES=base,small\n")
     else:
         print(f"\nIl en faut au moins huit pour un chiffre fiable ({total} pour l'instant).")
         print("Relance ce script quand tu veux, il reprend ou il s'est arrete.\n")

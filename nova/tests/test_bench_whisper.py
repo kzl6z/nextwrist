@@ -254,3 +254,26 @@ def test_les_phrases_qui_echouent_aujourd_hui_sont_mesurees():
     plat = " ".join(PHRASES).lower()
     for mot in ("impôts", "imposition", "carte d'identité", "casquette", "fichier"):
         assert mot in plat, mot
+
+
+def test_la_commande_soufflee_est_celle_qu_on_veut_voir_tapee():
+    """⚠️ UN OUTIL QUI SOUFFLE UNE COMMANDE DOIT SOUFFLER LA BONNE.
+
+    `enregistrer_voix` finissait par « uv run python scripts/bench_whisper.py »,
+    sans `MODELES`. Suivi tel quel, ce conseil fait telecharger `medium` —
+    1,5 Go et une longue attente pour un modele qui ne tiendra pas sur 8 Go a
+    cote du reste. L'outil contredisait la consigne.
+    """
+    from pathlib import Path
+
+    racine = Path(__file__).resolve().parent.parent
+    for fichier in ("scripts/enregistrer_voix.py", "scripts/bench_whisper.py"):
+        texte = (racine / fichier).read_text()
+        for ligne in texte.splitlines():
+            # On ne regarde que les lignes qui PROPOSENT de lancer la mesure,
+            # pas celles qui parlent du fichier ou passent « --associer ».
+            if "bench_whisper.py" not in ligne or "--associer" in ligne:
+                continue
+            if "uv run python scripts/bench_whisper.py" not in ligne:
+                continue
+            assert "MODELES" in ligne, f"{fichier} : {ligne.strip()}"
