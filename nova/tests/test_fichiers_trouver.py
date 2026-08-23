@@ -683,14 +683,28 @@ def test_un_mot_parasite_ne_fait_plus_tomber_toute_la_recherche(maison, monkeypa
 
     monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
 
-    recherche = lire("les zorglub avis d'imposition", aujourdhui=MAINTENANT)
-    assert "zorglub" in recherche.mots, "le mot inconnu est bien cherche"
+    # Deux mots inconnus, et un fichier remonte par la passe de repli — la
+    # situation exacte de la machine : « les DEUX AUTRES avis d'imposition »
+    # formait deux idees de plus qu'aucun fichier ne pouvait couvrir.
+    recherche = lire("les zorglub schtroumpf avis d'imposition", aujourdhui=MAINTENANT)
+    assert {"zorglub", "schtroumpf"} <= set(recherche.mots)
 
-    trouve = _trouvaille(str(maison / "Desktop/avis d impositions/impos 2024 1.pdf"))
+    trouve = _trouvaille(
+        str(maison / "Desktop/avis d impositions/impos 2024 1.pdf"), precis=False
+    )
+
+    # ⚠️ ON PASSE PAR `classer`, PAS PAR LA FONCTION D'AIDE.
+    #
+    # Une premiere version de ce banc appelait `groupes_utiles` directement.
+    # Retirer le correctif du cablage la laissait passer — elle verifiait la
+    # piece, pas son montage. C'est la meme erreur que le tuple de dossiers et
+    # que `image_en_tete_pour` : trois fois dans ce projet.
+    assert classer([trouve], recherche), (
+        "le mot inconnu ne doit plus faire tomber le fichier sous le seuil"
+    )
+
     utiles = groupes_utiles([trouve], recherche)
-
     assert not any("zorglub" in g for g in utiles), "l'idee morte est ecartee"
-    assert score(trouve, recherche, utiles) >= 0.42, "le fichier reste au-dessus du seuil"
 
 
 def test_sans_aucune_correspondance_on_garde_tout(maison):
@@ -704,4 +718,5 @@ def test_sans_aucune_correspondance_on_garde_tout(maison):
     utiles = groupes_utiles([hasard], recherche)
 
     assert len(utiles) == 1, "le groupe releve/compte est conserve"
-    assert score(hasard, recherche, utiles) < 0.42
+    # Et par le cablage : rien ne doit remonter.
+    assert classer([hasard], recherche) == []
