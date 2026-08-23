@@ -169,6 +169,12 @@ async def lifespan(app: FastAPI):
         from nova.outils.vision import enregistrer_outils_vision
 
         enregistrer_outils_vision(registre_outils, settings.root / "data")
+        # Retrouver un fichier ne charge aucun modele : ces outils-la
+        # servent sur toute machine, et le reglage decide seulement de ce qui
+        # se declenche tout seul dans la conversation.
+        from nova.outils.fichiers import enregistrer_outils_fichiers
+
+        enregistrer_outils_fichiers(registre_outils)
         log.info("Outils disponibles : %s", ", ".join(registre_outils.noms()))
 
         # ⚠️ LES AGENTS N'ETAIENT INSCRITS NULLE PART.

@@ -582,13 +582,37 @@ def build_system_prompt(
     # `regard.bloc` commence par une expression reguliere. Elle rend `""` en
     # zero milliseconde pour l'ecrasante majorite des questions — ce qui est
     # la condition pour que ce branchement ne coute rien a personne.
+    # ⚠️ LA RECHERCHE DE FICHIERS PASSE AVANT LE REGARD, ET IL LE FAUT.
+    #
+    # « retrouve dans mes fichiers ou dans mes photos mon releve de compte de
+    # 2024 » contient le mot « photos ». Le catalogue d'images le prend pour
+    # lui et part chercher une casquette — reponse exacte a une autre
+    # question. Le mot « releve » est un signal bien plus specifique que
+    # « photos » : il tranche.
+    #
+    # ⚠️ ET UN SEUL DES DEUX BLOCS PART.
+    #
+    # Deux recherches concurrentes dans le meme prompt — l'une qui dit « aucune
+    # image ne correspond », l'autre qui nomme un PDF — font choisir un modele
+    # de deux milliards de parametres au hasard, ou melanger les deux.
+    trouve_un_fichier = False
     try:
-        from nova.vision import regard
+        from nova.fichiers import trouver
 
-        ajouter("regard", regard.bloc(user_message))
+        if bloc_fichier := trouver.bloc(user_message):
+            ajouter("fichiers", bloc_fichier)
+            trouve_un_fichier = True
     except Exception as exc:  # noqa: BLE001
-        # Une capacite en panne degrade la reponse, elle ne l'empeche jamais.
-        log.warning("Vision indisponible : %s", exc)
+        log.warning("Recherche de fichiers indisponible : %s", exc)
+
+    if not trouve_un_fichier:
+        try:
+            from nova.vision import regard
+
+            ajouter("regard", regard.bloc(user_message))
+        except Exception as exc:  # noqa: BLE001
+            # Une capacite en panne degrade la reponse, elle ne l'empeche jamais.
+            log.warning("Vision indisponible : %s", exc)
 
     hits: list[SearchHit] = []
     ms_recherche = 0.0

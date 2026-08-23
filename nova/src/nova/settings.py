@@ -385,6 +385,32 @@ class Settings(BaseSettings):
     # 90 s couvre largement la generation la plus lente observee (~30 s) et
     # le chargement d'un modele depuis le disque (~21 s), tout en laissant
     # 30 s de marge sous le plafond de l'application.
+    # ── Retrouver un fichier sur la machine ──────────────────────────────
+    #
+    # ⚠️ CE REGLAGE ELARGIT CE QUE NOVA A LE DROIT DE NOMMER — PAS DE LIRE.
+    #
+    # La distinction est toute la surete de cette fonctionnalite, et elle
+    # merite d'etre dite en clair. Retrouver un fichier rend un NOM, un
+    # dossier, une date et une taille. Nova ne l'ouvre pas, ne le lit pas, et
+    # n'en raconte pas le contenu : lire reste borne a `vision_dossiers` et au
+    # dossier de travail, par `LireFichier` et `vision/images.py`, exactement
+    # comme avant.
+    #
+    # C'est ce qui permet de mettre `~` ici sans contredire le paragraphe
+    # au-dessus, qui refuse `~` pour la vision. La vision RACONTE ; la
+    # recherche DESIGNE.
+    #
+    # `nova/fichiers/moteurs.py` retire en plus les zones qui ne contiennent
+    # jamais de papiers personnels et souvent des secrets : `~/Library`, les
+    # dossiers caches, les depots de code, et tout fichier de clef.
+    fichiers_dossiers: str = "~"
+    # Mettre `false` desactive la recherche de fichiers dans la conversation.
+    #
+    # Contrairement a la vision, elle est active par defaut : elle ne charge
+    # aucun modele, n'occupe aucune memoire, et interroge un index que macOS
+    # tient deja. Le cout d'une question qui ne cherche aucun fichier est
+    # celui de deux expressions regulieres.
+    fichiers_actifs: bool = True
     request_timeout: float = 90.0
     log_level: str = "INFO"
 

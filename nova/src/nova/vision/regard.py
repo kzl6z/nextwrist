@@ -155,7 +155,9 @@ def _image_en_tete() -> bool:
     """Une image est-elle encore « celle dont on parle » ?"""
     from nova.vision import focus
 
-    return focus.derniere() is not None
+    # Genre « image » exige : la recherche de fichiers retient dans la meme
+    # memoire, et un PDF ne se decrit pas avec un modele de vision.
+    return focus.derniere("image") is not None
 
 
 #: Les mots qui, seuls, ne peuvent designer qu'« une image » en general.
@@ -187,7 +189,7 @@ def image_en_tete_pour(cible: str):
 
     if sans_accents(cible or "").strip().lower() not in _MOT_D_IMAGE_SEUL:
         return None
-    retenue = focus.derniere()
+    retenue = focus.derniere("image")
     return retenue.chemin if retenue is not None else None
 
 
@@ -707,7 +709,10 @@ def bloc(texte: str) -> str:
             # venait de trouver et d'ouvrir. La reponse etait alors juste sur
             # une image que personne n'avait demandee : une erreur qui a l'air
             # de marcher, donc la plus couteuse a diagnostiquer.
-            elif _designe_la_retenue(texte) and (retenue := focus.derniere()) is not None:
+            elif (
+                _designe_la_retenue(texte)
+                and (retenue := focus.derniere("image")) is not None
+            ):
                 cible, provenance = retenue.chemin, "retenue"
             else:
                 cible, provenance = la_plus_recente(dossiers), "devinee"
