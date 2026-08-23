@@ -15,6 +15,12 @@ perf:             ## Ou passent les millisecondes (Nova doit tourner)
 vision:           ## Ou partent les secondes de la vision  (IMAGE=photo.jpg [COTE=672] [MODELE=moondream])
 	COTE=$(COTE) MODELE=$(MODELE) uv run python scripts/bench_vision.py $(IMAGE)
 
+voix:             ## Ta voix : enregistrer les phrases de reference
+	uv run python scripts/enregistrer_voix.py
+
+whisper:          ## base contre small : precision ET duree  (MODELES=base,small)
+	MODELES=$(MODELES) uv run python scripts/bench_whisper.py
+
 images:           ## Ce que Nova a deja regarde  (CHERCHE="casquette" | FORCER=1)
 	CHERCHE=$(CHERCHE) FORCER=$(FORCER) uv run python scripts/images.py
 

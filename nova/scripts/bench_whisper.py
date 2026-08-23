@@ -65,6 +65,29 @@ CONFIGURATIONS: tuple[tuple[str, int], ...] = (
 )
 
 
+def configurations() -> tuple[tuple[str, int], ...]:
+    """Les configurations a mesurer, restreintes par `MODELES=` s'il est pose.
+
+    ⚠️ MESURER `medium` COUTE UN TELECHARGEMENT DE ~1,5 Go ET UNE LONGUE
+       ATTENTE, POUR UN MODELE QUI NE TIENDRA PAS SUR 8 Go A COTE DU RESTE.
+
+    La question posee est « base ou small ». Y repondre ne devrait pas obliger
+    a mesurer ce qu'on n'installera pas :
+
+        MODELES=base,small uv run python scripts/bench_whisper.py
+
+    Sans la variable, on mesure tout : c'est le comportement d'origine, et
+    c'est le bon quand on ne sait pas encore ce qu'on cherche.
+    """
+    import os
+
+    demandes = [m.strip() for m in os.environ.get("MODELES", "").split(",") if m.strip()]
+    if not demandes:
+        return CONFIGURATIONS
+    retenues = tuple((m, b) for m, b in CONFIGURATIONS if m in demandes)
+    return retenues or CONFIGURATIONS
+
+
 # ── Comparer deux phrases ─────────────────────────────────────────────────
 
 
@@ -336,7 +359,7 @@ def main() -> int:
     print("Le premier passage de chaque modele inclut son telechargement.\n")
 
     resultats: list[Resultat] = []
-    for modele, beam in CONFIGURATIONS:
+    for modele, beam in configurations():
         print(f"  {modele} (beam {beam})… ", end="", flush=True)
         try:
             resultat = mesurer(modele, beam, paires, amorce)

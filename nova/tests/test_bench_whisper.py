@@ -206,3 +206,51 @@ def test_l_association_sans_fichier_le_dit(tmp_path, monkeypatch):
 
     monkeypatch.setattr(bench_whisper, "DOSSIER", tmp_path)
     assert bench_whisper.associer_les_textes() == 1
+
+
+# ── Le choix des configurations mesurees ──────────────────────────────────
+def test_on_peut_restreindre_les_modeles_mesures(monkeypatch):
+    """⚠️ MESURER `medium` COUTE 1,5 Go ET UNE LONGUE ATTENTE.
+
+    La question posee est « base ou small ». Y repondre ne doit pas obliger a
+    mesurer un modele qui ne tiendra pas sur 8 Go a cote du reste.
+    """
+    from bench_whisper import configurations
+
+    monkeypatch.setenv("MODELES", "base,small")
+
+    assert {m for m, _ in configurations()} == {"base", "small"}
+
+
+def test_sans_variable_on_mesure_tout(monkeypatch):
+    from bench_whisper import CONFIGURATIONS, configurations
+
+    monkeypatch.delenv("MODELES", raising=False)
+
+    assert configurations() == CONFIGURATIONS
+
+
+def test_une_valeur_inconnue_ne_vide_pas_la_mesure(monkeypatch):
+    """Un nom mal tape rendrait une liste vide, donc une mesure sans resultat
+    et sans explication. On retombe sur tout plutot que sur rien."""
+    from bench_whisper import CONFIGURATIONS, configurations
+
+    monkeypatch.setenv("MODELES", "smal")
+
+    assert configurations() == CONFIGURATIONS
+
+
+def test_les_phrases_qui_echouent_aujourd_hui_sont_mesurees():
+    """⚠️ UNE MESURE SUR LES ANCIENNES PHRASES REPONDRAIT A L'ANCIENNE
+       QUESTION.
+
+    Les phrases de reference dataient d'un probleme d'astronomie, resolu
+    depuis. Celles qui cassent maintenant sont celles de la recherche de
+    fichiers — « impots » entendu « empeaux », « casquette » entendu
+    « cascade ».
+    """
+    from enregistrer_voix import PHRASES
+
+    plat = " ".join(PHRASES).lower()
+    for mot in ("impôts", "imposition", "carte d'identité", "casquette", "fichier"):
+        assert mot in plat, mot

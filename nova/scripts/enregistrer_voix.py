@@ -58,6 +58,31 @@ PHRASES: tuple[str, ...] = (
     # Phrases longues : la ou le decodage glouton derape.
     "Explique-moi la relativité générale en deux phrases.",
     "Rappelle-moi d'appeler Bérangère demain matin.",
+    # ── RETROUVER UN FICHIER ────────────────────────────────────────────
+    #
+    # ⚠️ CES PHRASES-LA SONT CELLES QUI ECHOUENT AUJOURD'HUI.
+    #
+    # Les precedentes datent d'un probleme d'astronomie, resolu depuis. Une
+    # mesure faite sur elles dirait si `small` transcrit mieux « trou noir » —
+    # pas s'il rattrape ce qui casse la recherche de fichiers.
+    #
+    # Chacune est reproduite telle qu'elle a ete DITE, avec en regard ce que
+    # `base` en a fait en conditions reelles :
+    #
+    #     impots        -> « empeaux », « un peu », « empo »
+    #     2024          -> « 24004 »
+    #     casquette     -> « cascade », « casquet »
+    #     ouvre ce      -> « ouvre, moisse, »
+    #     avis          -> « envie »
+    #
+    # Un mot rate ici ne degrade pas la reponse : il la rend impossible, et
+    # l'echec ressemble a « ce fichier n'existe pas ».
+    "Dans mon PC, j'ai mes impôts de 2024, peux-tu me les retrouver ?",
+    "Trouve-moi les deux autres avis d'imposition de 2024.",
+    "Retrouve-moi ma carte d'identité.",
+    "Peux-tu me retrouver la photo où je tiens une casquette blanche ?",
+    "Ouvre ce fichier.",
+    "Ouvre le deuxième.",
 )
 
 
