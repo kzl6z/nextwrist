@@ -528,11 +528,10 @@ def _comment_choisir(classes) -> str:
     qui marche — et elle marche parce que la liste est numerotee.
     """
     if len(classes) < 2:
-        return "Propose de l'ouvrir si c'est le bon.\n\n"
+        return "Propose de l'ouvrir si c'est le bon."
     return (
-        "Tu n'en as ouvert aucun : plusieurs se valent, et en ouvrir un au "
-        "hasard serait pire qu'attendre. Dis-le, en une phrase, puis invite a "
-        "choisir par son RANG — par exemple « ouvre le deuxieme ».\n\n"
+        "tu n'en as ouvert aucun car plusieurs se valent : invite a choisir "
+        "par son rang, « ouvre le deuxieme »."
     )
 
 
@@ -657,31 +656,42 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
         quoi, len(classes), meilleur.nom, meilleure_note * 100,
     )
 
+    # ⚠️ LA CONSIGNE D'ABORD, LES DONNEES ENSUITE. L'ORDRE EST LE CORRECTIF.
+    #
+    # Le bloc se terminait par une consigne de quatre lignes. Releve en
+    # conditions reelles, Nova l'a LUE A VOIX HAUTE :
+    #
+    #     « La carte est dans ~/Desktop/pdf2png/CNI BERANGERE RECTO-1.png,
+    #       modifiee le 21 juillet 2026. Tu n'as pas lu ces fichiers. Leur
+    #       contenu, les montants, les noms qui y figurent, le nombre de
+    #       pages : rien de tout cela ne doit figurer dans ta reponse. »
+    #
+    # Un modele de trois milliards de parametres CONTINUE ce qu'il vient de
+    # lire. Terminer sur une instruction, c'est lui demander de la recopier.
+    # Terminer sur la LISTE DES FICHIERS, c'est lui demander d'en parler.
+    #
+    # C'est la meme lecon que `_empechement` cote vision — « la consigne vient
+    # avant la raison » — et je ne l'avais appliquee qu'a moitie.
+    combien = (
+        f"Nomme LES {len(classes)} fichiers avec leur numero."
+        if len(classes) > 1
+        else f"Nomme le fichier : {meilleur.nom}."
+    )
+    suite = (
+        "Dis que tu viens de l'ouvrir."
+        if ouvert is not None
+        else _comment_choisir(classes)
+    )
     bloc_trouve = (
         "## Recherche de fichier\n\n"
         + entendu
-        + f"Recherche demandee : « {quoi} »\n"
-        "Fichiers trouves sur la machine, le meilleur en premier — c'est la "
-        "SEULE chose que Nova sait d'eux :\n"
-        f"<<<\n{lignes}\n>>>\n\n"
-        "Ta reponse : dis en francais, en une ou deux phrases, quel fichier "
-        f"correspond — en le nommant : {meilleur.nom}, et en disant dans quel "
-        "dossier il se trouve et de quand il date.\n"
-        + (
-            "Dis aussi que tu viens de l'ouvrir.\n\n"
-            if ouvert is not None
-            else _comment_choisir(classes)
-        )
-        # ⚠️ ON ENUMERE CE QUI S'INVENTE, PLUTOT QUE D'INTERDIRE D'INVENTER.
-        #
-        # La lecon du bloc de vision, mot pour mot : une consigne negative
-        # demande a un modele de deux milliards de parametres de reconnaitre
-        # ce qu'il ne doit pas faire. Ici le risque est precis — il va
-        # RACONTER ce que le document contient, alors que Nova ne l'a pas
-        # ouvert.
-        + "Tu n'as pas lu ces fichiers. Leur contenu, les montants, les noms "
-        "qui y figurent, le nombre de pages : rien de tout cela ne figure "
-        "entre <<< >>>, donc rien de tout cela ne doit figurer dans ta "
-        "reponse."
+        + "Ta reponse, en francais, DEUX PHRASES AU PLUS :\n"
+        f"- {combien}\n"
+        "- dis le dossier et la date.\n"
+        f"- {suite}\n"
+        "- tu n'as pas lu ces fichiers : ne dis rien de leur contenu.\n\n"
+        f"Recherche demandee : « {quoi} ». Fichiers trouves, le meilleur en "
+        "premier — c'est la SEULE chose que Nova sait d'eux :\n"
+        f"<<<\n{lignes}\n>>>"
     )
     return bloc_trouve, True

@@ -191,9 +191,20 @@ _MOT_D_IMAGE_SEUL: frozenset[str] = frozenset(
 #: (« analyse-la ») de l'article (« analyse la situation »), et le detruire
 #: casserait la reprise d'image. Il se retire ICI, ou l'on sait deja qu'on
 #: cherche quelque chose a ouvrir.
+#: ⚠️ « OUVRE CELUI-CI AUSSI » N'OUVRAIT RIEN.
+#:
+#: Releve en conditions reelles, juste apres que Nova ait nomme un second
+#: fichier : « Je ne trouve pas d'application "celui-ci aussi" ». « celui »
+#: etait bien reconnu, « ci » et « aussi » non — il restait donc deux mots a
+#: recouper, et ils ne recoupaient rien.
+#:
+#: Ces mots-la n'ajoutent aucune designation : ils accompagnent celle qui est
+#: deja faite. « celui-ci », « celui-la », « aussi », « encore » disent tous
+#: « le meme genre de chose que ce dont on vient de parler ».
 _ACCROCHES: frozenset[str] = frozenset(
     {"la", "le", "les", "l", "ce", "cet", "cette", "ces", "ca", "cela",
-     "celle", "celui", "mon", "ma", "mes", "de", "du", "des", "moi"}
+     "celle", "celui", "ceux", "celles", "mon", "ma", "mes", "de", "du",
+     "des", "moi", "ci", "aussi", "encore", "egalement", "meme", "aut"}
 )
 
 

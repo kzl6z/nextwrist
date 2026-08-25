@@ -588,3 +588,114 @@ def test_une_hypothese_qui_ne_trouve_rien_laisse_les_mots_d_origine(
     assert classes == []
     assert recherche.entendu == ()
     assert "empeaux" in recherche.mots
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ NOVA LISAIT MA CONSIGNE A VOIX HAUTE
+# ══════════════════════════════════════════════════════════════════════════
+def test_la_consigne_vient_avant_les_donnees(tmp_path, monkeypatch):
+    """Releve en conditions reelles :
+
+        « La carte est dans ~/Desktop/pdf2png/CNI BERANGERE RECTO-1.png,
+          modifiee le 21 juillet 2026. Tu n'as pas lu ces fichiers. Leur
+          contenu, les montants, les noms qui y figurent, le nombre de
+          pages : rien de tout cela ne doit figurer dans ta reponse. »
+
+    Un modele de trois milliards de parametres CONTINUE ce qu'il vient de
+    lire. Terminer le bloc sur une instruction, c'est lui demander de la
+    recopier ; terminer sur la liste des fichiers, c'est lui demander d'en
+    parler.
+    """
+    from nova.fichiers import trouver
+
+    dossier = tmp_path / "Documents"
+    dossier.mkdir()
+    (dossier / "impots-2024.pdf").write_text("x")
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+
+    import nova.outils as outils
+
+    monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
+
+    sortie = trouver.bloc("retrouve mes impôts de 2024")
+
+    assert sortie.rstrip().endswith(">>>"), (
+        "le bloc doit finir sur les fichiers, pas sur une instruction"
+    )
+    consigne = sortie.index("Ta reponse")
+    donnees = sortie.index("<<<")
+    assert consigne < donnees, "la consigne vient AVANT les donnees"
+
+
+def test_plusieurs_fichiers_sont_tous_annonces(tmp_path, monkeypatch):
+    """⚠️ NOVA N'EN NOMMAIT QU'UN SUR TROIS.
+
+    La consigne disait « nomme le fichier : {le meilleur} ». Le modele
+    obeissait — et les deux autres restaient invisibles, alors qu'ils
+    figuraient dans la liste juste en dessous.
+    """
+    from nova.fichiers import trouver
+
+    dossier = tmp_path / "Desktop" / "avis d impositions"
+    dossier.mkdir(parents=True)
+    for nom in ("impos 2024 1.pdf", "impos 2024 2.pdf", "impots 2024 3.pdf"):
+        (dossier / nom).write_text("x")
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+
+    import nova.outils as outils
+
+    monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
+
+    sortie = trouver.bloc("retrouve mes impôts de 2024")
+
+    assert "Nomme LES 3 fichiers" in sortie
+    assert "ouvre le deuxieme" in sortie, "et comment en choisir un"
+
+
+def test_un_seul_fichier_ne_demande_pas_d_en_nommer_trois(tmp_path, monkeypatch):
+    from nova.fichiers import trouver
+
+    dossier = tmp_path / "Documents"
+    dossier.mkdir()
+    (dossier / "impots-2024.pdf").write_text("x")
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+
+    import nova.outils as outils
+
+    monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
+
+    sortie = trouver.bloc("retrouve mes impôts de 2024")
+
+    assert "Nomme le fichier : impots-2024.pdf" in sortie
+    assert "LES " not in sortie
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # Releve en conditions reelles, juste apres que Nova ait nomme un
+        # second fichier : « Je ne trouve pas d'application "celui-ci
+        # aussi" ». « celui » etait reconnu, « ci » et « aussi » non.
+        "ouvre celui-ci aussi",
+        "ouvre celui-ci",
+        "ouvre celui-là",
+        "ouvre-le aussi",
+        "ouvre celle-ci également",
+    ],
+)
+def test_celui_ci_designe_le_fichier_dont_on_vient_de_parler(phrase, tmp_path):
+    from nova.fichiers.trouver import fichier_en_tete_pour
+    from nova.vision import focus
+    from nova.voice import intentions
+
+    papier = tmp_path / "impos 2024 2.pdf"
+    papier.write_text("x")
+    cible = intentions.reconnaitre(phrase).cible
+
+    assert fichier_en_tete_pour(cible) is None, "sans rien en tete, rien a ouvrir"
+
+    focus.retenir(papier, origine="recherche de fichier", genre="fichier")
+    try:
+        assert fichier_en_tete_pour(cible) == papier, phrase
+    finally:
+        focus.oublier()
