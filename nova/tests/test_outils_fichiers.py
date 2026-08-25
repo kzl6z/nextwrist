@@ -830,9 +830,8 @@ def test_ouvrir_tout_sans_liste_annoncee_reste_une_application(monkeypatch):
 def test_un_echec_sur_un_fichier_n_arrete_pas_les_autres(monkeypatch):
     """Trois avis, le deuxieme deplace entre-temps : ouvrir le premier puis
     abandonner serait le pire des deux mondes."""
-    from nova import orchestrator
-
     import nova.outils as outils
+    from nova import orchestrator
 
     def capricieux(nom, **kw):
         if "2" in kw["chemin"]:
