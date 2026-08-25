@@ -87,26 +87,40 @@ def executer(demande: DemandeAction) -> ReponseAction:
             niveau=fait.niveau, intention="proposition_acceptee", cible=None,
         )
 
-    intention = voice_intentions.reconnaitre(demande.texte)
-
     # ⚠️ « OUVRE LES 3 » N'EST PAS UN NOM D'APPLICATION.
     #
-    # Nova vient d'annoncer trois fichiers numerotes : « les trois » est la
-    # suite naturelle de sa propre phrase. Sans ce branchement, la cible
-    # « trois » partait au catalogue des applications — « Je ne trouve pas
+    # Nova vient d'annoncer trois fichiers : « les trois » est la suite
+    # naturelle de sa propre phrase. Sans ce branchement, la cible « trois »
+    # partait au catalogue des applications — « Je ne trouve pas
     # d'application "trois" sur cette machine ».
-    if intention.nom == "ouvrir_application":
-        from nova.fichiers import trouver
+    #
+    # ⚠️ AVANT LA RECONNAISSANCE D'INTENTION, ET C'EST LE CORRECTIF.
+    #
+    # Ce branchement etait a l'interieur du cas `ouvrir_application`, donc
+    # apres `reconnaitre`. Il ne pouvait par construction rien faire quand
+    # l'intention n'etait PAS reconnue — or c'est exactement ce qui arrivait :
+    #
+    #     « peux-tu tous les ouvrir »  →  cible « », intention non reconnue
+    #
+    # La cible est ce qui SUIT le verbe ; le verbe etant en dernier, il ne
+    # suivait rien. La phrase partait au modele de langue, qui repondait
+    # poliment sans rien ouvrir.
+    #
+    # La demande ne depend d'aucune intention : elle se lit sur la phrase, et
+    # elle exige une liste deja annoncee. Elle passe donc avant.
+    from nova.fichiers import trouver
 
-        if trouver.demande_tout_ouvrir(intention.cible) and (
-            liste := trouver.liste_en_tete()
-        ):
-            fait = orchestrator.ouvrir_toute_la_liste(liste)
-            log.info("« %s » → %d fichier(s) ouvert(s)", demande.texte, len(liste))
-            return ReponseAction(
-                etat=fait.etat, message=fait.message, outil=fait.outil,
-                niveau=fait.niveau, intention="ouvrir_tout", cible=None,
-            )
+    if trouver.demande_tout_ouvrir(demande.texte) and (
+        liste := trouver.liste_en_tete()
+    ):
+        fait = orchestrator.ouvrir_toute_la_liste(liste)
+        log.info("« %s » → %d fichier(s) ouvert(s)", demande.texte, len(liste))
+        return ReponseAction(
+            etat=fait.etat, message=fait.message, outil=fait.outil,
+            niveau=fait.niveau, intention="ouvrir_tout", cible=None,
+        )
+
+    intention = voice_intentions.reconnaitre(demande.texte)
 
     # On reconstruit une `Comprehension` minimale : ce point d'entree accepte
     # du TEXTE, pas de l'audio. La confiance acoustique vient de l'appelant,

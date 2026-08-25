@@ -819,11 +819,27 @@ def test_une_proposition_acceptee_passe_par_le_portillon(monkeypatch):
 #  ⚠️ « OUVRE LES 3 » CHERCHAIT UNE APPLICATION « TROIS »
 # ══════════════════════════════════════════════════════════════════════════
 @pytest.mark.parametrize(
-    "phrase", ["ouvre les 3", "ouvre les trois", "ouvre tout", "ouvre-les tous"]
+    "phrase",
+    [
+        "ouvre les 3",
+        "ouvre les trois",
+        "ouvre tout",
+        "ouvre-les tous",
+        # ⚠️ CELLES-CI NE DECLENCHAIENT RIEN, ET C'EST LA PLUS NATURELLE.
+        #
+        # Releve en conditions reelles. Le branchement vivait a l'interieur du
+        # cas `ouvrir_application`, donc APRES la reconnaissance d'intention.
+        # Ici le verbe est en dernier : la cible est ce qui le SUIT, elle etait
+        # donc vide, l'intention n'etait pas reconnue, et le branchement ne
+        # pouvait par construction jamais s'executer.
+        "peux-tu tous les ouvrir",
+        "tu peux tous les ouvrir",
+        "tous les ouvrir",
+    ],
 )
 def test_ouvrir_toute_la_liste_annoncee(phrase, tmp_path, monkeypatch):
-    """Nommer les fichiers 1, 2, 3 invite a dire « les trois » : c'est la
-    suite naturelle de la phrase que Nova vient de prononcer."""
+    """Annoncer trois documents invite a dire « les trois » : c'est la suite
+    naturelle de la phrase que Nova vient de prononcer."""
     from fastapi.testclient import TestClient
 
     from nova.api.app import app
@@ -861,6 +877,38 @@ def test_ouvrir_tout_sans_liste_annoncee_reste_une_application(monkeypatch):
     reponse = TestClient(app).post("/v1/action", json={"texte": "ouvre les 3"})
 
     assert reponse.json()["intention"] != "ouvrir_tout"
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # ⚠️ « TOUT DE SUITE » N'EST PAS UNE TOTALITE.
+        #
+        # La phrase contient « ouvre » et « tout ». Ouvrir la liste entiere
+        # serait l'exemple type de la reussite apparente.
+        "ouvre tout de suite Chrome",
+        "ouvre-moi ça tout de suite",
+        # ⚠️ « MONTRE » NE DIT PAS D'OUVRIR.
+        #
+        # C'est une demande de description, pas l'ordre d'ouvrir quatre
+        # fenetres.
+        "montre-moi toutes les photos",
+        # Un rang n'est pas une totalite.
+        "ouvre le deuxième",
+        "ouvre le dernier",
+        "ouvre Chrome",
+    ],
+)
+def test_ce_qui_n_ouvre_pas_toute_la_liste(phrase):
+    """⚠️ LA PHRASE ENTIERE EST UN FILET PLUS LARGE — IL FAUT DONC LE BORNER.
+
+    Lire le verbe et la totalite n'importe ou dans la phrase rattrape « peux-tu
+    tous les ouvrir ». Cela rattraperait aussi « ouvre tout de suite Chrome »
+    si l'on n'y prenait pas garde.
+    """
+    from nova.fichiers.trouver import demande_tout_ouvrir
+
+    assert not demande_tout_ouvrir(phrase), phrase
 
 
 def test_un_echec_sur_un_fichier_n_arrete_pas_les_autres(monkeypatch):

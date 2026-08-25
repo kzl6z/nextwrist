@@ -341,9 +341,50 @@ _TOUT_OUVRIR = re.compile(
 )
 
 
-def demande_tout_ouvrir(cible: str) -> bool:
-    """« ouvre les 3 », « ouvre tout » : la liste entiere, pas un rang."""
-    return bool(_TOUT_OUVRIR.match(sans_accents(cible or "").strip().lower()))
+#: ⚠️ ET « PEUX-TU TOUS LES OUVRIR » NE DECLENCHAIT RIEN DU TOUT.
+#:
+#: Releve en conditions reelles, juste apres que Nova ait annonce trois avis.
+#: `_TOUT_OUVRIR` est ancre aux deux bouts et s'applique a la CIBLE — ce qui
+#: SUIT le verbe. Ici le verbe est en dernier :
+#:
+#:     « peux-tu tous les ouvrir »  →  cible « », intention non reconnue
+#:
+#: La phrase partait donc au modele de langue, qui a repondu poliment sans
+#: rien ouvrir. « ouvre les 3 » marchait, « peux-tu les ouvrir tous » aussi —
+#: seule la forme ou le quantificateur PRECEDE le verbe echouait, et c'est la
+#: plus naturelle des trois.
+#:
+#: On regarde donc la phrase entiere : un verbe d'ouverture ET un mot de
+#: totalite, dans n'importe quel ordre.
+_VERBE_D_OUVERTURE = re.compile(r"\b(?:ouvr\w*|affich\w*)\b")
+
+#: ⚠️ « MONTRE » EN EST VOLONTAIREMENT ABSENT.
+#:
+#: « montre-moi toutes les photos » est une demande de description, pas
+#: l'ordre d'ouvrir quatre fenetres. Le verbe doit dire OUVRIR.
+#:
+#: ⚠️ ET « TOUT DE SUITE » N'EST PAS UNE TOTALITE.
+#:
+#: « ouvre tout de suite » contient « ouvre » et « tout ». Sans cette garde,
+#: il ouvrirait la liste entiere — l'exemple type de la reussite apparente.
+_TOTALITE = re.compile(
+    r"\b(?:tous|toutes)\b"
+    r"|\btout\b(?! de suite)(?! a l heure)"
+    r"|\bles (?:2|3|4|5|deux|trois|quatre|cinq)\b"
+)
+
+
+def demande_tout_ouvrir(texte: str) -> bool:
+    """« ouvre les 3 », « ouvre tout », « peux-tu tous les ouvrir ».
+
+    Accepte aussi bien la CIBLE seule — « tous », « les 3 », ce que la
+    reconnaissance d'intention extrait apres le verbe — que la phrase
+    entiere, ou le verbe peut venir en dernier.
+    """
+    plat = _plat(texte)
+    if _TOUT_OUVRIR.match(plat):
+        return True
+    return bool(_VERBE_D_OUVERTURE.search(plat) and _TOTALITE.search(plat))
 
 
 def liste_en_tete() -> tuple:
