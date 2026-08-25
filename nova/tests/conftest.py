@@ -52,3 +52,36 @@ def sans_conversation_ouverte():
     session.oublier()
     yield
     session.oublier()
+
+
+@pytest.fixture(autouse=True)
+def moteur_de_fichiers_identique_partout(monkeypatch):
+    """⚠️ LES BANCS DE FICHIERS NE MESURAIENT PAS LA MEME CHOSE SELON LA MACHINE.
+
+    `moteur()` choisit Spotlight des que `/usr/bin/mdfind` existe. Sur un Mac,
+    il existe : VINGT-HUIT bancs lancaient donc le vrai Spotlight contre un
+    `tmp_path` — un dossier de `/var/folders` que l'index ne connait pas. Ils
+    ne trouvaient rien, et ils tombaient.
+
+    Sur la machine de developpement, sous Linux, `mdfind` n'existe pas, le
+    parcours a la main prenait le relais, et les vingt-huit passaient.
+
+    Releve tel quel : `git pull && make test` sur le Mac, une colonne de F que
+    je n'avais aucun moyen de voir ici.
+
+    ⚠️ ET C'EST LE PIRE SENS POUR UN BANC : IL PASSAIT LA OU IL NE PROTEGEAIT
+       RIEN, ET IL TOMBAIT LA OU LE CODE EST BON.
+
+    Ce que ces bancs protegent, c'est la traduction du francais, le
+    classement, et le cablage jusqu'a l'outil. Le moteur qui va chercher n'est
+    pas leur sujet : on le fixe, pour qu'ils mesurent la meme chose partout.
+
+    ⚠️ CE N'EST PAS UNE FACON DE NE PAS TESTER SPOTLIGHT.
+
+    `Spotlight.chercher` a ses propres bancs, qui remplacent `_lancer` — sa
+    seule sortie vers le systeme — et verifient les deux passes sans jamais
+    dependre de l'index de la machine.
+    """
+    from nova.fichiers import moteurs
+
+    monkeypatch.setattr(moteurs.Spotlight, "disponible", staticmethod(lambda: False))
