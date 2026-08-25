@@ -85,3 +85,55 @@ def moteur_de_fichiers_identique_partout(monkeypatch):
     from nova.fichiers import moteurs
 
     monkeypatch.setattr(moteurs.Spotlight, "disponible", staticmethod(lambda: False))
+
+
+@pytest.fixture(autouse=True)
+def reglages_de_reference(monkeypatch):
+    """⚠️ LES BANCS TOURNAIENT SUR LE `.env` DE CELUI QUI LES LANCE.
+
+    `Settings` lit `ROOT/.env` et les variables `NOVA_*`. Ce fichier n'est pas
+    versionne — c'est normal, il porte des mots de passe — et il differe donc
+    sur chaque machine. La suite ne mesurait pas le meme code selon qui la
+    lancait.
+
+    Releve tel quel, `make test` sur le Mac contre la machine de developpement :
+
+        tests/test_core_briques.py:128
+        assert disponible() is False
+        E   assert True is False
+
+    Son `.env` porte `NOVA_VISION_ACTIVE=true`. La vision EST disponible chez
+    lui : le banc disait vrai, et il tombait. Une trentaine d'autres suivaient.
+
+    ⚠️ ET C'EST LE PIRE SENS POUR UN BANC : IL TOMBAIT LA OU LE CODE EST BON.
+
+    Pire, l'un d'eux ne tombait pas — il ne rendait JAMAIS LA MAIN.
+    `test_il_ne_demarre_pas_quand_la_vision_est_eteinte` appelle `entretenir`,
+    qui sort aussitot quand la vision est eteinte et entre dans sa boucle
+    d'entretien quand elle est allumee. Le banc n'eteignait rien : il comptait
+    sur la machine. Sur le Mac, la suite s'arretait la, pour toujours.
+
+    Les bancs tournent donc sur les valeurs par DEFAUT, celles du code, les
+    memes partout. Un banc qui a besoin d'un reglage le pose lui-meme.
+
+    ⚠️ CE N'EST PAS UNE FACON D'IGNORER LA CONFIGURATION REELLE.
+
+    Verifier qu'un `.env` est coherent est un autre travail, qui se fait au
+    demarrage de Nova. Une suite qui depend d'un fichier non versionne ne
+    protege rien : elle rapporte l'etat d'une machine.
+    """
+    import os
+
+    from nova.settings import Settings, get_settings
+
+    for cle in [c for c in os.environ if c.startswith("NOVA_")]:
+        monkeypatch.delenv(cle, raising=False)
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    # ⚠️ `get_settings` EST MIS EN CACHE : SANS CECI, ON GARDERAIT L'ANCIEN.
+    #
+    # Une douzaine de modules font `from nova.settings import get_settings` au
+    # niveau du module : remplacer la fonction ne les atteindrait pas. Vider le
+    # cache, si — ils appellent tous le meme objet mis en cache.
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
