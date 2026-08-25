@@ -273,3 +273,25 @@ def test_le_mot_de_reveil_ouvre_la_conversation_pour_la_suite(faux):
     appeler()
 
     assert session.est_ouverte(), "« Nova » ouvre la fenetre pour les tours suivants"
+
+
+def test_au_revoir_ne_reveille_jamais_nova(faux):
+    """⚠️ « AU REVOIR » EST UNE VARIANTE DU MOT DE REVEIL.
+
+    Whisper, ne connaissant pas « Nova », le rend parfois « au revoir » — la
+    liste `VARIANTES_DEBUT` l'accepte donc en tete d'enonce. Consequence
+    relevee sur un simple bruit : Nova se reveillait pour dire au revoir, et
+    repondait longuement.
+
+    Le conge est desormais teste AVANT tout le reste, et sans condition de
+    session.
+    """
+    from nova.voice import session
+
+    faux(reveil="Au revoir.", dictee="Au revoir.")
+
+    resultat = appeler()
+
+    assert resultat["wake"] is False
+    assert resultat["commande"] == ""
+    assert not session.est_ouverte()

@@ -79,7 +79,8 @@ def executer(demande: DemandeAction) -> ReponseAction:
 
     if (acceptee := session.accord(demande.texte)) is not None:
         outil, arguments = acceptee
-        fait = orchestrator.executer_outil_propose(outil, arguments)
+        comme = session.libelle()
+        fait = orchestrator.executer_outil_propose(outil, arguments, comme=comme)
         log.info("Proposition acceptee « %s » → %s", demande.texte, fait.etat)
         return ReponseAction(
             etat=fait.etat, message=fait.message, outil=fait.outil,
@@ -87,6 +88,25 @@ def executer(demande: DemandeAction) -> ReponseAction:
         )
 
     intention = voice_intentions.reconnaitre(demande.texte)
+
+    # ⚠️ « OUVRE LES 3 » N'EST PAS UN NOM D'APPLICATION.
+    #
+    # Nova vient d'annoncer trois fichiers numerotes : « les trois » est la
+    # suite naturelle de sa propre phrase. Sans ce branchement, la cible
+    # « trois » partait au catalogue des applications — « Je ne trouve pas
+    # d'application "trois" sur cette machine ».
+    if intention.nom == "ouvrir_application":
+        from nova.fichiers import trouver
+
+        if trouver.demande_tout_ouvrir(intention.cible) and (
+            liste := trouver.liste_en_tete()
+        ):
+            fait = orchestrator.ouvrir_toute_la_liste(liste)
+            log.info("« %s » → %d fichier(s) ouvert(s)", demande.texte, len(liste))
+            return ReponseAction(
+                etat=fait.etat, message=fait.message, outil=fait.outil,
+                niveau=fait.niveau, intention="ouvrir_tout", cible=None,
+            )
 
     # On reconstruit une `Comprehension` minimale : ce point d'entree accepte
     # du TEXTE, pas de l'audio. La confiance acoustique vient de l'appelant,

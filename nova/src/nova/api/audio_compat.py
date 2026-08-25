@@ -163,7 +163,23 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
     # ══════════════════════════════════════════════════════════════════════
     from nova.voice import session
 
-    if session.est_ouverte() and session.demande_de_veille(texte):
+    # ⚠️ UN CONGE NE REVEILLE JAMAIS, MEME HORS CONVERSATION.
+    #
+    # Releve en conditions reelles, sur un simple bruit :
+    #
+    #     [reveil] 1536 ms → « Oh! »
+    #     enchaine sur : « Au revoir. »
+    #     Nova : « Au revoir. Le temps est calme et la nuit commence a
+    #              s'approcher. »
+    #
+    # « au revoir » figure dans `wake.VARIANTES_DEBUT` — Whisper, ne
+    # connaissant pas « Nova », le rend parfois ainsi. Un bruit transcrit
+    # « au revoir » reveillait donc Nova pour lui dire au revoir, et elle
+    # repondait.
+    #
+    # On teste le conge AVANT tout le reste, et sans condition de session :
+    # dire au revoir ne peut pas etre une facon de dire bonjour.
+    if session.demande_de_veille(texte):
         session.fermer("conge")
         return {"wake": False, "text": texte, "commande": "", "confiance": None}
 

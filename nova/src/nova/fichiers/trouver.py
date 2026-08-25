@@ -323,6 +323,38 @@ _ORDINAUX: dict[str, int] = {
 }
 
 
+#: « ouvre les 3 », « ouvre tout », « ouvre-les tous ».
+#:
+#: ⚠️ SANS CECI, « OUVRE LES TROIS » CHERCHAIT UNE APPLICATION « TROIS ».
+#:
+#: Releve en conditions reelles, juste apres que Nova ait annonce trois avis
+#: d'imposition numerotes : « Je ne trouve pas d'application "trois" sur cette
+#: machine. » Nommer les fichiers 1, 2, 3 invite a dire « les trois » — c'est
+#: la suite naturelle de la phrase qu'elle vient de prononcer.
+_TOUT_OUVRIR = re.compile(
+    r"^(?:les? |la |l )?"
+    r"(?:tous?|toutes?|tout|"
+    r"(?:les )?(?:2|3|4|5|deux|trois|quatre|cinq)"
+    r")"
+    r"(?: les? (?:deux|trois|quatre|cinq|2|3|4|5))?$",
+    re.IGNORECASE,
+)
+
+
+def demande_tout_ouvrir(cible: str) -> bool:
+    """« ouvre les 3 », « ouvre tout » : la liste entiere, pas un rang."""
+    return bool(_TOUT_OUVRIR.match(sans_accents(cible or "").strip().lower()))
+
+
+def liste_en_tete() -> tuple:
+    """Les fichiers que Nova vient d'annoncer, dans l'ordre. Vide s'il n'y en a
+    plus — la liste meurt avec la retenue, comme « le deuxieme »."""
+    from nova.vision import focus
+
+    retenue = focus.derniere("fichier")
+    return retenue.liste if retenue is not None else ()
+
+
 def rang_demande(cible: str) -> int | None:
     """« le deuxieme » → 2. « le dernier » → -1. Sinon `None`.
 
@@ -590,6 +622,22 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
     questions — la condition pour qu'un branchement de plus sur le chemin de
     la conversation ne ralentisse personne.
 
+    ⚠️ LE BOOLEEN DIT « TROUVE AVEC CERTITUDE », PAS « TROUVE ».
+
+    Un resultat obtenu par SECONDE LECTURE phonetique est une hypothese. Il
+    rend `False`, et son bloc ne sort donc qu'en dernier recours — apres que
+    le catalogue d'images a eu sa chance. Releve en conditions reelles :
+
+        « trouve une photo ou je tiens une casquette blanche dans mon PC »
+        → J'ai ouvert DST_Chapitre_1_Bilan.pdf
+
+    « blanche » ressemble a « bilan » (0,67), « bilan » a trouve un devoir de
+    maths, et comme la recherche de fichiers avait TROUVE quelque chose, le
+    catalogue d'images — qui connaissait la casquette — n'a jamais parle.
+
+    Une hypothese ne doit pas faire taire une certitude. C'est la meme regle
+    que pour l'echec, avec la meme raison.
+
     ⚠️ POURQUOI L'APPELANT A BESOIN DU BOOLEEN.
 
     Un bloc « aucun fichier ne correspond » est du texte comme un autre : rien
@@ -620,6 +668,8 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
         return "", False
     if not classes:
         return _rien_trouve(recherche), False
+    # Une seconde lecture est une hypothese : elle ne pre-empte personne.
+    certain = not recherche.entendu
 
     meilleur, meilleure_note = classes[0]
 
@@ -670,7 +720,20 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
     if ouvert is None and len(classes) == 1:
         from nova.voice import session
 
-        session.proposer("ouvrir_fichier", {"chemin": str(meilleur.chemin)})
+        # ⚠️ NOVA DIRA « TA CARTE D'IDENTITE », PAS « CNI BERANGERE RECTO-1 ».
+        #
+        # Demande textuelle : « quand je lui dis d'ouvrir la carte d'identite
+        # je veux qu'elle arrete de donner le nom du dossier, elle peut
+        # l'appeler carte d'identite ».
+        #
+        # Le nom du fichier sert a DESIGNER, pas a converser : « pdf2png/CNI
+        # BERANGERE RECTO-1.png » est illisible a voix haute. Les mots de la
+        # demande, eux, sont ceux de la personne.
+        session.proposer(
+            "ouvrir_fichier",
+            {"chemin": str(meilleur.chemin)},
+            comme=" ".join(recherche.mots) or meilleur.nom,
+        )
 
     # ⚠️ NUMEROTES, ET CE N'EST PAS DE LA MISE EN FORME.
     #
@@ -746,4 +809,4 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
         "premier — c'est la SEULE chose que Nova sait d'eux :\n"
         f"<<<\n{lignes}\n>>>"
     )
-    return bloc_trouve, True
+    return bloc_trouve, certain

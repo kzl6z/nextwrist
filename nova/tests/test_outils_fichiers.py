@@ -9,6 +9,8 @@ un fichier de clef. C'est le seul endroit du module ou une erreur se paie.
 
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 
 from nova.outils.fichiers import FichierRefuse, borner
@@ -775,3 +777,99 @@ def test_une_proposition_acceptee_passe_par_le_portillon(monkeypatch):
     resultat = orchestrator.executer_outil_propose("eteindre_ordinateur", {})
 
     assert resultat.etat == "a_confirmer"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ « OUVRE LES 3 » CHERCHAIT UNE APPLICATION « TROIS »
+# ══════════════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize(
+    "phrase", ["ouvre les 3", "ouvre les trois", "ouvre tout", "ouvre-les tous"]
+)
+def test_ouvrir_toute_la_liste_annoncee(phrase, tmp_path, monkeypatch):
+    """Nommer les fichiers 1, 2, 3 invite a dire « les trois » : c'est la
+    suite naturelle de la phrase que Nova vient de prononcer."""
+    from fastapi.testclient import TestClient
+
+    from nova.api.app import app
+    from nova.fichiers import trouver
+
+    dossier = tmp_path / "Desktop" / "avis d impositions"
+    dossier.mkdir(parents=True)
+    noms = ["impos 2024 1.pdf", "impos 2024 2.pdf", "impots 2024 3.pdf"]
+    for nom in noms:
+        (dossier / nom).write_text("x")
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+
+    ouvertes: list[str] = []
+    import nova.outils as outils
+
+    monkeypatch.setattr(
+        outils, "executer_outil", lambda nom, **kw: ouvertes.append(kw["chemin"]) or "ok"
+    )
+
+    trouver.bloc("retrouve mes impôts de 2024")
+    assert ouvertes == [], "trois candidats a egalite n'en ouvrent aucun"
+
+    reponse = TestClient(app).post("/v1/action", json={"texte": phrase})
+
+    assert reponse.json()["intention"] == "ouvrir_tout", phrase
+    assert sorted(pathlib.Path(c).name for c in ouvertes) == sorted(noms)
+
+
+def test_ouvrir_tout_sans_liste_annoncee_reste_une_application(monkeypatch):
+    """Hors d'une liste annoncee, « ouvre tout » ne designe rien."""
+    from fastapi.testclient import TestClient
+
+    from nova.api.app import app
+
+    reponse = TestClient(app).post("/v1/action", json={"texte": "ouvre les 3"})
+
+    assert reponse.json()["intention"] != "ouvrir_tout"
+
+
+def test_un_echec_sur_un_fichier_n_arrete_pas_les_autres(monkeypatch):
+    """Trois avis, le deuxieme deplace entre-temps : ouvrir le premier puis
+    abandonner serait le pire des deux mondes."""
+    from nova import orchestrator
+
+    import nova.outils as outils
+
+    def capricieux(nom, **kw):
+        if "2" in kw["chemin"]:
+            raise OSError("disparu")
+        return "ok"
+
+    monkeypatch.setattr(outils, "executer_outil", capricieux)
+
+    resultat = orchestrator.ouvrir_toute_la_liste(["/a/1.pdf", "/a/2.pdf", "/a/3.pdf"])
+
+    assert resultat.etat == "executee"
+    assert "2 fichiers sur 3" in resultat.message
+
+
+def test_nova_dit_les_mots_de_la_demande_pas_le_nom_du_fichier(tmp_path, monkeypatch):
+    """⚠️ « CNI BERANGERE RECTO-1.png » EST ILLISIBLE A VOIX HAUTE.
+
+    Demande textuelle : « qu'elle arrete de donner le nom du dossier, elle
+    peut l'appeler carte d'identite ».
+    """
+    from fastapi.testclient import TestClient
+
+    from nova.api.app import app
+    from nova.fichiers import trouver
+
+    dossier = tmp_path / "Desktop" / "pdf2png" / "CNI BERANGERE RECTO"
+    dossier.mkdir(parents=True)
+    (dossier / "CNI BERANGERE RECTO-1.png").write_text("x")
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+
+    import nova.outils as outils
+
+    monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "peu importe")
+
+    trouver.bloc("retrouve ma carte d'identité")
+    reponse = TestClient(app).post("/v1/action", json={"texte": "oui"}).json()
+
+    assert "carte identite" in reponse["message"]
+    assert "CNI BERANGERE" not in reponse["message"]
+    assert ".png" not in reponse["message"]

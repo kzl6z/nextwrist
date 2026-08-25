@@ -197,3 +197,52 @@ def test_fermer_la_conversation_efface_la_proposition():
     session.fermer()
 
     assert session.en_attente() is None
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ UN CONGE NE REVEILLE JAMAIS
+# ══════════════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # Releve en conditions reelles, sur un simple bruit :
+        #     [reveil] 1536 ms → « Oh! »  →  enchaine sur : « Au revoir. »
+        #     Nova : « Au revoir. Le temps est calme… »
+        # « au revoir » figure dans `wake.VARIANTES_DEBUT` : Whisper, ne
+        # connaissant pas « Nova », le rend parfois ainsi.
+        "Au revoir.",
+        "c'est bon, tu peux t'éteindre",
+        "c'est bon tu peux te mettre en veille",
+        "éteins-toi",
+        "j'ai fini",
+        "merci Nova",
+        "ok c'est bon",
+        "c'est tout, merci",
+    ],
+)
+def test_les_congés_reellement_prononces_sont_reconnus(phrase):
+    assert session.demande_de_veille(phrase), phrase
+
+
+def test_un_conge_ferme_meme_hors_conversation():
+    """Dire au revoir ne peut pas etre une facon de dire bonjour."""
+    assert not session.est_ouverte()
+
+    assert session.demande_de_veille("au revoir")
+
+    session.fermer()
+    assert not session.est_ouverte()
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "merci de m'ouvrir ça",
+        "merci beaucoup pour ton aide sur les impôts",
+        "retrouve mes impôts",
+        "ouvre le deuxième",
+        "oui",
+    ],
+)
+def test_ce_qui_n_est_toujours_pas_un_conge(phrase):
+    assert not session.demande_de_veille(phrase), phrase

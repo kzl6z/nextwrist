@@ -1284,7 +1284,36 @@ def _confronter_au_reel(
     return action, {action.argument: retenu}, None
 
 
-def executer_outil_propose(outil: str, arguments: dict) -> Resultat:
+def ouvrir_toute_la_liste(chemins) -> Resultat:
+    """Ouvre tous les fichiers que Nova vient d'annoncer. Ne leve jamais.
+
+    ⚠️ UN ECHEC SUR L'UN N'ARRETE PAS LES AUTRES.
+
+    Trois avis d'imposition, le deuxieme deplace entre-temps : ouvrir le
+    premier puis abandonner serait le pire des deux mondes. On ouvre ce qu'on
+    peut et on dit combien.
+    """
+    from nova.outils import executer_outil
+
+    ouverts, rates = [], []
+    for chemin in chemins:
+        try:
+            executer_outil("ouvrir_fichier", chemin=str(chemin))
+        except Exception as erreur:  # noqa: BLE001
+            log.warning("« %s » non ouvert : %s", chemin, erreur)
+            rates.append(str(chemin))
+        else:
+            ouverts.append(str(chemin))
+
+    if not ouverts:
+        return Resultat("echouee", "Je n'ai réussi à en ouvrir aucun.")
+    combien = f"J'ai ouvert les {len(ouverts)} fichiers."
+    if rates:
+        combien = f"J'ai ouvert {len(ouverts)} fichiers sur {len(ouverts) + len(rates)}."
+    return Resultat("executee", combien, outil="ouvrir_fichier")
+
+
+def executer_outil_propose(outil: str, arguments: dict, *, comme: str = "") -> Resultat:
     """Execute une action que NOVA a proposee et que l'utilisateur a acceptee.
 
     ⚠️ ELLE PASSE PAR LE MEME PORTILLON QUE TOUTES LES AUTRES.
@@ -1305,7 +1334,13 @@ def executer_outil_propose(outil: str, arguments: dict) -> Resultat:
     except Exception as erreur:  # noqa: BLE001
         log.warning("Proposition acceptee mais impossible : %s", erreur)
         return Resultat("echouee", str(erreur), outil=outil, arguments=arguments)
-    return Resultat("executee", str(message), outil=outil, arguments=arguments)
+    # ⚠️ ON DIT CE QUE LA PERSONNE A DEMANDE, PAS LE NOM DU FICHIER.
+    #
+    # « J'ai ouvert CNI BERANGERE RECTO-1.png » est illisible a voix haute et
+    # ne ressemble a rien de ce qui a ete dit. « J'ai ouvert ta carte
+    # d'identite » reprend ses mots.
+    dit = f"J'ai ouvert ta {comme}." if comme else str(message)
+    return Resultat("executee", dit, outil=outil, arguments=arguments)
 
 
 def executer_intention(comprise, *, confirme: bool = False) -> Resultat:

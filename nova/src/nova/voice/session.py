@@ -58,6 +58,7 @@ DUREE_S = 45.0
 
 _ouverte_jusqu_a: float = 0.0
 _proposition: tuple[str, dict] | None = None
+_libelle: str = ""
 _verrou = threading.Lock()
 
 
@@ -70,21 +71,32 @@ def _plat(texte: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", sans.lower()).strip()
 
 
-#: Ce qui referme la conversation, dit sans ambiguite.
+#: Ce qui referme la conversation.
 #:
-#: ⚠️ CES PHRASES DOIVENT ETRE COMPLETES, PAS DES MOTS.
+#: ⚠️ LA PHRASE ENTIERE DOIT ETRE UN CONGE, PAS UN MOT DEDANS.
 #:
 #: « merci » seul apparait au milieu d'une demande — « merci de m'ouvrir
-#: ca ». Le prendre pour un congé couperait la conversation au pire moment.
-#: Une phrase de congé se prononce seule, et c'est ce qu'on exige.
+#: ca ». Le prendre pour un conge couperait la conversation au pire moment.
+#: Le motif est donc ancre aux deux bouts.
+#:
+#: ⚠️ MAIS « c'est bon, tu peux t'eteindre » N'ETAIT PAS RECONNU NON PLUS.
+#:
+#: La premiere version exigeait une correspondance exacte avec une liste, et
+#: l'on ne dit jamais deux fois la meme formule. On admet donc une amorce
+#: optionnelle — « c'est bon », « ok », « merci » — et une queue de
+#: politesse, tout en gardant les deux ancres.
 _CONGE = re.compile(
-    r"^(?:"
-    r"c est bon(?: merci)?|c est tout|ca ira|ca suffit|"
-    r"mets? toi en veille|va en veille|mise en veille|"
+    r"^(?:(?:c est bon|ok|d accord|merci|bon|voila|nova)[, ]+)*"
+    r"(?:"
+    r"c est bon|c est tout|ca ira|ca suffit|ca marche|"
+    r"(?:tu peux )?t eteindre|(?:tu peux )?te mettre en veille|"
+    r"mets? toi en veille|va en veille|mise en veille|eteins? toi|"
     r"laisse tomber|laisse moi|arrete de m ecouter|stop l ecoute|"
-    r"a plus tard|a toute|bonne nuit|au revoir|salut|merci nova|"
-    r"nova en veille|tais toi c est bon"
-    r")$"
+    r"a plus tard|a toute|bonne nuit|au revoir|salut|"
+    r"nova en veille|tais toi c est bon|"
+    r"j ai fini|c est fini|termine|on arrete|merci"
+    r")"
+    r"(?:[, ]+(?:merci|nova|maintenant|s il te plait|stp))*$"
 )
 
 
@@ -116,11 +128,12 @@ def prolonger() -> None:
 
 def fermer(raison: str = "conge") -> None:
     """Retour a l'ecoute du seul mot de reveil."""
-    global _ouverte_jusqu_a, _proposition
+    global _ouverte_jusqu_a, _proposition, _libelle
     with _verrou:
         etait_ouverte = _ouverte_jusqu_a > time.monotonic()
         _ouverte_jusqu_a = 0.0
         _proposition = None
+        _libelle = ""
     if etait_ouverte:
         log.info("Conversation fermee (%s) — « Nova » redevient necessaire.", raison)
 
@@ -160,7 +173,7 @@ _REFUS = re.compile(
 )
 
 
-def proposer(outil: str, arguments: dict) -> None:
+def proposer(outil: str, arguments: dict, *, comme: str = "") -> None:
     """Note l'action que Nova vient de proposer, pour qu'« oui » la declenche.
 
     ⚠️ UNE SEULE A LA FOIS, ET ELLE MEURT AVEC LA CONVERSATION.
@@ -169,10 +182,18 @@ def proposer(outil: str, arguments: dict) -> None:
     et l'on ne saurait pas laquelle. Une proposition non suivie d'un accord
     disparait simplement.
     """
-    global _proposition
+    global _proposition, _libelle
     with _verrou:
         _proposition = (outil, dict(arguments))
+        _libelle = comme
     log.info("Proposition en attente : %s %s", outil, arguments)
+
+
+def libelle() -> str:
+    """Comment DIRE la chose proposee — les mots de la demande, pas le nom de
+    fichier. « ta carte d'identite » plutot que « CNI BERANGERE RECTO-1.png »."""
+    with _verrou:
+        return _libelle
 
 
 def accord(texte: str) -> tuple[str, dict] | None:
