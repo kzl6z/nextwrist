@@ -818,3 +818,146 @@ def test_une_entree_disparue_ne_fait_pas_tomber_l_expansion():
     assert list(_avec_les_dossiers([Path("/nulle/part/du/tout")])) == [
         Path("/nulle/part/du/tout")
     ]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  LE MOTEUR REEL — CELUI QUI TOURNE SUR LE MAC
+#
+#  ⚠️ IL N'AVAIT AUCUN BANC, ET C'EST CE QUI A LAISSE PASSER LE DEFAUT.
+#
+#  Tous les bancs de recherche passaient par `Parcours`, parce que sous Linux
+#  `mdfind` n'existe pas. `Spotlight.chercher` — les deux passes, l'expansion
+#  des dossiers, le filtre de securite — n'etait donc verifie NULLE PART, et
+#  c'est pourtant le seul moteur qui serve en vrai.
+#
+#  On remplace `_lancer`, sa seule sortie vers le systeme. Le reste est du
+#  Python, et se teste sur n'importe quelle machine.
+# ══════════════════════════════════════════════════════════════════════════
+def _spotlight(reponses: dict[str, list[Path]]):
+    """Un Spotlight dont l'index est ecrit ici. Retient les questions posees."""
+    from nova.fichiers.moteurs import Spotlight
+
+    moteur = Spotlight((Path("/h"),))
+    moteur.questions = []
+
+    def _lancer(question: str) -> list[Path]:
+        moteur.questions.append(question)
+        for motif, chemins in reponses.items():
+            if motif in question:
+                return chemins
+        return []
+
+    moteur._lancer = _lancer  # noqa: SLF001
+    return moteur
+
+
+def test_la_passe_precise_suffit_et_la_large_ne_part_pas(tmp_path):
+    """⚠️ LA PASSE LARGE RAMENAIT 2907 FICHIERS, TRONQUES A 400 AU HASARD.
+
+    Elle n'est pas la methode, elle est le filet. Tant que la passe precise
+    rend quelque chose, la seconde ne doit pas etre posee du tout.
+    """
+    bon = tmp_path / "avis-imposition-2024.pdf"
+    bon.write_text("x")
+
+    # ⚠️ L'ANNEE N'EST PAS DANS LA REQUETE — ELLE EST DANS LE CLASSEMENT.
+    #
+    # `recherche.mots` vaut ('impots',) : 2024 vit dans `recherche.annee` et
+    # sert a noter, pas a interroger. Ce qui separe les deux passes est
+    # l'elargissement — « avis », « imposition », « fiscal » ne figurent que
+    # dans la precise.
+    moteur = _spotlight({"avis": [bon]})
+    trouves = moteur.chercher(lire("mes impots de 2024", aujourdhui=MAINTENANT))
+
+    assert [t.nom for t in trouves] == ["avis-imposition-2024.pdf"]
+    assert len(moteur.questions) == 1, "la passe large a ete posee pour rien"
+    assert trouves[0].precis, "un resultat de la passe precise est PRECIS"
+
+
+def test_la_passe_large_prend_le_relais_quand_la_precise_echoue(tmp_path):
+    """Le filet : les seuls mots prononces, sans exiger qu'ils soient tous la."""
+    approchant = tmp_path / "impots.pdf"
+    approchant.write_text("x")
+
+    # L'index ne connait que le mot prononce, aucun de ses synonymes : la
+    # passe precise — la seule a porter « avis » — ne rend rien.
+    moteur = _spotlight({})
+    moteur._lancer = lambda q: [] if "avis" in q else [approchant]  # noqa: SLF001
+    trouves = moteur.chercher(lire("mes impots de 2024", aujourdhui=MAINTENANT))
+
+    assert [t.nom for t in trouves] == ["impots.pdf"]
+    assert not trouves[0].precis, "un resultat du filet n'est PAS precis"
+
+
+def test_un_dossier_rendu_par_l_index_est_remplace_par_ses_fichiers(tmp_path):
+    """⚠️ CE QUI REMPLACE `kMDItemPath`, DE BOUT EN BOUT CETTE FOIS.
+
+    Un dossier est une entree indexee comme une autre. On n'en ouvre pas un :
+    `impos 2024 1.pdf` n'a aucun mot cherchable dans son NOM, c'est son
+    dossier qui le nomme.
+    """
+    dossier = tmp_path / "avis d impositions 2024"
+    dossier.mkdir()
+    for nom in ("impos 2024 1.pdf", "impos 2024 2.pdf"):
+        (dossier / nom).write_text("x")
+
+    moteur = _spotlight({"imposition": [dossier]})
+    trouves = moteur.chercher(lire("mes impots de 2024", aujourdhui=MAINTENANT))
+
+    assert sorted(t.nom for t in trouves) == ["impos 2024 1.pdf", "impos 2024 2.pdf"]
+
+
+def test_le_moteur_reel_applique_les_zones_interdites(tmp_path):
+    """⚠️ LE FILTRE DE SECURITE EST DANS LE MOTEUR, PAS APRES LUI.
+
+    Un trousseau que l'index rendrait ne doit jamais arriver jusqu'au
+    classement — c'est la que se decide ce que Nova a le droit de nommer.
+    """
+    secret = tmp_path / "id_rsa"
+    secret.write_text("x")
+    trousseau = tmp_path / "login.keychain"
+    trousseau.write_text("x")
+    normal = tmp_path / "impots-2024.pdf"
+    normal.write_text("x")
+
+    moteur = _spotlight({"": [secret, trousseau, normal]})
+    trouves = moteur.chercher(lire("mes impots de 2024", aujourdhui=MAINTENANT))
+
+    assert [t.nom for t in trouves] == ["impots-2024.pdf"]
+
+
+def test_l_index_muet_ne_fait_pas_lever_le_moteur(tmp_path):
+    """Rien trouve est une reponse, pas une panne."""
+    moteur = _spotlight({})
+
+    assert moteur.chercher(lire("mes impots de 2024", aujourdhui=MAINTENANT)) == []
+
+
+def test_spotlight_ne_passe_jamais_par_un_shell():
+    """⚠️ UNE PHRASE TRANSCRITE FINIT DANS UNE INTERROGATION SPOTLIGHT.
+
+    Passee a un shell, « ; rm -rf ~ » s'executerait. En liste d'arguments,
+    c'est un mot qu'on ne trouve pas. Ce banc lit l'appel reel.
+    """
+    import subprocess
+
+    from nova.fichiers.moteurs import Spotlight
+
+    vus = {}
+
+    def faux_run(arguments, **kw):
+        vus["arguments"] = arguments
+        vus["kw"] = kw
+        return subprocess.CompletedProcess(arguments, 0, stdout="", stderr="")
+
+    vrai = subprocess.run
+    subprocess.run = faux_run
+    try:
+        Spotlight((Path("/h"),))._lancer('kMDItemFSName == "*impots*"cd')  # noqa: SLF001
+    finally:
+        subprocess.run = vrai
+
+    assert isinstance(vus["arguments"], list), "jamais une chaine, jamais un shell"
+    assert vus["kw"].get("shell") is not True
+    assert vus["arguments"][0] == "/usr/bin/mdfind"
+    assert vus["kw"]["timeout"] == 6.0, "un index en reconstruction ne bloque pas"
