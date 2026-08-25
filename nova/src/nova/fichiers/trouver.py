@@ -885,7 +885,7 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
         f"dis que tu as trouve {len(classes)} documents qui correspondent a "
         f"« {quoi} »."
         if len(classes) > 1
-        else f"dis que tu as trouve ce qu'il cherchait : « {quoi} »."
+        else f"dis que tu as trouve « {quoi} »."
     )
     suite = (
         "dis que tu viens de l'ouvrir."
