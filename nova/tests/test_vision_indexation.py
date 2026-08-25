@@ -50,15 +50,29 @@ def etat_propre():
 
 
 def test_il_ne_demarre_pas_quand_la_vision_est_eteinte(monkeypatch):
-    """⚠️ LE DEFAUT EST « ETEINTE ». PERSONNE NE PAIE POUR CE QU'IL N'UTILISE PAS.
+    """⚠️ PERSONNE NE PAIE POUR CE QU'IL N'UTILISE PAS.
 
     Un fil qui tourne pour rien, sur une capacite desactivee, est du cout pur
     — et invisible, donc jamais remis en cause.
 
-    Le delai de demarrage est rendu negligeable ici : sans la sortie
-    anticipee, le banc appellerait `_un_passage` et echouerait franchement,
-    au lieu d'attendre deux minutes pour rien.
+    ⚠️ ET CE BANC N'ETEIGNAIT PAS LA VISION : IL COMPTAIT SUR LA MACHINE.
+
+    Son nom annonce une condition qu'il ne posait pas. Il ne passait que parce
+    que le defaut des reglages est « eteinte » — vrai sur la machine de
+    developpement, faux sur celle de Hugo, dont le `.env` porte
+    `NOVA_VISION_ACTIVE=true`.
+
+    Vision allumee, `entretenir` ne sort pas : il entre dans sa boucle
+    d'entretien, et l'`Event` qu'on lui passe ici n'est jamais leve. Le banc
+    ne tombait donc pas — IL NE RENDAIT JAMAIS LA MAIN. `make test`
+    s'arretait la, a 87 %, pour toujours.
+
+    Un banc doit poser ses conditions lui-meme. Celui-la eteint la vision,
+    et il ne peut plus bloquer meme si le defaut change un jour.
     """
+    from nova.vision import moteur
+
+    monkeypatch.setattr(moteur, "disponible", lambda: (False, "eteinte pour ce banc"))
     monkeypatch.setattr(indexation, "DEMARRAGE_S", 0.01)
     monkeypatch.setattr(indexation, "_un_passage", _compter)
 

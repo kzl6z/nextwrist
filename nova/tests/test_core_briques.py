@@ -121,11 +121,45 @@ def test_tous_les_espaces_sont_decrits():
 # ── Vision ────────────────────────────────────────────────────────────────
 
 
-def test_la_vision_dit_qu_elle_n_est_pas_disponible():
-    # Un module qui pretend faire quelque chose et ne le fait pas est pire
-    # que son absence : on l'appelle, il rend une valeur vide, et on cherche
-    # le bug ailleurs.
-    assert disponible() is False
+def test_la_vision_dit_LA_VERITE_sur_sa_disponibilite(monkeypatch):
+    """⚠️ CE BANC EXIGEAIT `False` EN DUR, ET C'EST DEVENU FAUX.
+
+    Il datait du temps ou rien ne voyait, et son intention etait juste : un
+    module qui pretend faire quelque chose et ne le fait pas est pire que son
+    absence. Depuis `vision/moteur.py`, la vision marche, et la reponse depend
+    des reglages.
+
+    Le banc ne passait donc plus que par accident — parce que le defaut est
+    « eteinte ». Sur la machine de Hugo, dont le `.env` porte
+    `NOVA_VISION_ACTIVE=true`, il tombait :
+
+        assert disponible() is False
+        E   assert True is False
+
+    Il disait vrai. C'etait le banc qui avait tort, et il l'a annonce sur la
+    machine ou le code est bon.
+
+    Ce qui doit etre protege n'a pas change de nature : cette fonction ne doit
+    jamais mentir, dans AUCUN des deux sens. On verifie donc les deux.
+    """
+    from nova.settings import get_settings
+
+    reglages = get_settings()
+
+    monkeypatch.setattr(reglages, "vision_active", False)
+    assert disponible() is False, "eteinte, elle doit dire non"
+
+    monkeypatch.setattr(reglages, "vision_active", True)
+    monkeypatch.setattr(reglages, "vision_modele", "moondream")
+    assert disponible() is True, "allumee avec un modele, elle doit dire oui"
+
+    # ⚠️ ET « ALLUMEE SANS MODELE » EST UN NON, PAS UN OUI.
+    #
+    # C'est le cas qui produirait exactement le mensonge que ce banc existe
+    # pour interdire : Nova se croirait capable de voir, appellerait, et
+    # rendrait du vide.
+    monkeypatch.setattr(reglages, "vision_modele", "")
+    assert disponible() is False, "sans modele, allumee ne veut rien dire"
 
 
 def test_chaque_fonction_de_vision_explique_ce_qui_manque():
