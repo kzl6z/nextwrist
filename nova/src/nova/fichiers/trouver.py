@@ -307,10 +307,13 @@ _SIGNAL_FICHIER = _signal_fichier()
 #:
 #: ⚠️ CE MOT NE DESIGNE RIEN TOUT SEUL. IL COMPTE DANS UNE LISTE ANNONCEE.
 #:
-#: C'est pour cela que le bloc de reponse NUMEROTE les fichiers : un rang ne
-#: veut dire quelque chose que si l'on a entendu l'ordre. Annoncer une liste
-#: sans numeros puis accepter « le deuxieme » reviendrait a parier sur le fait
-#: que la personne les a comptes elle-meme.
+#: Un rang ne veut dire quelque chose que si l'on sait combien il y en a.
+#: C'est pour cela que le bloc de reponse DIT LE COMPTE — « j'en ai trouve
+#: trois » suffit a rendre « le deuxieme » prononcable, et l'ordre est celui
+#: du classement, retenu par `focus` au moment ou Nova repond.
+#:
+#: Il n'a jamais fallu que les NOMS soient prononces pour cela ; les faire
+#: reciter au modele etait un detour, et un detour de onze secondes.
 _ORDINAUX: dict[str, int] = {
     "premier": 1, "premiere": 1, "1er": 1, "1ere": 1,
     "deuxieme": 2, "second": 2, "seconde": 2, "2eme": 2, "2e": 2,
@@ -323,39 +326,27 @@ _ORDINAUX: dict[str, int] = {
 }
 
 
-#: « ouvre les 3 », « ouvre tout », « ouvre-les tous ».
+#: « ouvre les 3 », « ouvre tout », « peux-tu tous les ouvrir ».
 #:
 #: ⚠️ SANS CECI, « OUVRE LES TROIS » CHERCHAIT UNE APPLICATION « TROIS ».
 #:
 #: Releve en conditions reelles, juste apres que Nova ait annonce trois avis
-#: d'imposition numerotes : « Je ne trouve pas d'application "trois" sur cette
-#: machine. » Nommer les fichiers 1, 2, 3 invite a dire « les trois » — c'est
-#: la suite naturelle de la phrase qu'elle vient de prononcer.
-_TOUT_OUVRIR = re.compile(
-    r"^(?:les? |la |l )?"
-    r"(?:tous?|toutes?|tout|"
-    r"(?:les )?(?:2|3|4|5|deux|trois|quatre|cinq)"
-    r")"
-    r"(?: les? (?:deux|trois|quatre|cinq|2|3|4|5))?$",
-    re.IGNORECASE,
-)
-
-
-#: ⚠️ ET « PEUX-TU TOUS LES OUVRIR » NE DECLENCHAIT RIEN DU TOUT.
+#: d'imposition : « Je ne trouve pas d'application "trois" sur cette
+#: machine. » Annoncer trois documents invite a dire « les trois » — c'est la
+#: suite naturelle de la phrase qu'elle vient de prononcer.
 #:
-#: Releve en conditions reelles, juste apres que Nova ait annonce trois avis.
-#: `_TOUT_OUVRIR` est ancre aux deux bouts et s'applique a la CIBLE — ce qui
-#: SUIT le verbe. Ici le verbe est en dernier :
+#: ⚠️ ET LA PREMIERE VERSION LISAIT LA CIBLE, DONC CE QUI SUIT LE VERBE.
+#:
+#: Elle marchait sur « ouvre les 3 » et « ouvre-les tous ». Elle ne pouvait
+#: rien faire quand le verbe venait en dernier, car il ne suivait rien :
 #:
 #:     « peux-tu tous les ouvrir »  →  cible « », intention non reconnue
 #:
-#: La phrase partait donc au modele de langue, qui a repondu poliment sans
-#: rien ouvrir. « ouvre les 3 » marchait, « peux-tu les ouvrir tous » aussi —
-#: seule la forme ou le quantificateur PRECEDE le verbe echouait, et c'est la
-#: plus naturelle des trois.
+#: La phrase partait au modele de langue, qui repondait poliment sans rien
+#: ouvrir — et c'est la forme la plus naturelle des trois.
 #:
-#: On regarde donc la phrase entiere : un verbe d'ouverture ET un mot de
-#: totalite, dans n'importe quel ordre.
+#: On lit donc la phrase entiere : un verbe d'ouverture ET un mot de totalite,
+#: dans n'importe quel ordre.
 _VERBE_D_OUVERTURE = re.compile(r"\b(?:ouvr\w*|affich\w*)\b")
 
 #: ⚠️ « MONTRE » EN EST VOLONTAIREMENT ABSENT.
@@ -377,13 +368,9 @@ _TOTALITE = re.compile(
 def demande_tout_ouvrir(texte: str) -> bool:
     """« ouvre les 3 », « ouvre tout », « peux-tu tous les ouvrir ».
 
-    Accepte aussi bien la CIBLE seule — « tous », « les 3 », ce que la
-    reconnaissance d'intention extrait apres le verbe — que la phrase
-    entiere, ou le verbe peut venir en dernier.
+    Se lit sur la PHRASE, pas sur la cible : le verbe peut venir en dernier.
     """
     plat = _plat(texte)
-    if _TOUT_OUVRIR.match(plat):
-        return True
     return bool(_VERBE_D_OUVERTURE.search(plat) and _TOTALITE.search(plat))
 
 
