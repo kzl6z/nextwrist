@@ -216,3 +216,60 @@ def test_la_confiance_accompagne_la_commande(faux):
     assert isinstance(resultat["confiance"], float)
     assert "sure" in resultat and "a_confirmer" in resultat
     assert "question" in resultat
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ DIRE « NOVA » UNE FOIS, PUIS PARLER
+# ══════════════════════════════════════════════════════════════════════════
+def test_pendant_une_conversation_ouverte_nova_devient_facultatif(faux):
+    """L'application n'a PAS ete modifiee.
+
+    Elle envoie ici tout extrait qui depasse le seuil sonore, et n'agit que
+    si l'on repond `wake: true`. Repondre `true` pendant la fenetre d'ecoute
+    suffit donc a produire le comportement voulu — sans qu'une ligne du
+    depot de l'application change.
+    """
+    from nova.voice import session
+
+    faux(reveil="retrouve mes impots de 2024", dictee="retrouve mes impots de 2024")
+
+    avant = appeler()
+    assert avant["wake"] is False, "sans « Nova » et hors conversation, rien"
+
+    session.ouvrir()
+    pendant = appeler()
+
+    assert pendant["wake"] is True
+    assert pendant["commande"] == "retrouve mes impots de 2024", (
+        "la phrase ENTIERE est la commande : il n'y a pas de « Nova » a retirer"
+    )
+
+
+def test_une_phrase_de_conge_referme_et_ne_repond_pas(faux):
+    """⚠️ ELLE DOIT FERMER AVANT DE DECIDER QUOI QUE CE SOIT D'AUTRE.
+
+    Traitee comme une demande, « c'est bon » ferait repondre Nova — et
+    repondre prolonge la conversation. Le conge rouvrirait donc ce qu'il
+    voulait fermer.
+    """
+    from nova.voice import session
+
+    faux(reveil="c'est bon merci", dictee="c'est bon merci")
+    session.ouvrir()
+
+    resultat = appeler()
+
+    assert resultat["wake"] is False
+    assert resultat["commande"] == ""
+    assert not session.est_ouverte()
+
+
+def test_le_mot_de_reveil_ouvre_la_conversation_pour_la_suite(faux):
+    from nova.voice import session
+
+    faux(reveil="nova quelle heure est-il", dictee="nova quelle heure est-il")
+    assert not session.est_ouverte()
+
+    appeler()
+
+    assert session.est_ouverte(), "« Nova » ouvre la fenetre pour les tours suivants"

@@ -32,3 +32,23 @@ def sans_image_retenue():
     focus.oublier()
     yield
     focus.oublier()
+
+
+@pytest.fixture(autouse=True)
+def sans_conversation_ouverte():
+    """⚠️ UNE CONVERSATION OUVERTE DURE 45 SECONDES — DONC TOUTE UNE SUITE.
+
+    Le meme piege que la retenue d'image, en plus visible : tant qu'elle est
+    ouverte, `/v1/audio/wake` repond `true` a n'importe quel son. Un banc qui
+    reveille Nova faisait donc passer pour un reveil tout ce que les bancs
+    suivants lui envoyaient — releve tel quel, sur un banc dont le nom disait
+    « sans mot de reveil ».
+
+    La proposition en attente est remise a zero avec, pour la meme raison :
+    un « oui » d'un banc ne doit pas declencher l'action d'un autre.
+    """
+    from nova.voice import session
+
+    session.oublier()
+    yield
+    session.oublier()

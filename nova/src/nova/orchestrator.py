@@ -775,6 +775,22 @@ def answer_stream(
 
     conversations.log_message(conversation_id, "user", last_user)
 
+    # ⚠️ CHAQUE ECHANGE REPOUSSE LA FERMETURE DE LA CONVERSATION.
+    #
+    # La fenetre d'ecoute se compte depuis le dernier echange, pas depuis le
+    # reveil : Nova met plusieurs secondes a DIRE sa reponse, et l'on
+    # enchaine juste apres. Comptee depuis « Nova », elle se refermerait
+    # pendant qu'elle parle.
+    #
+    # `prolonger` ne rouvre jamais une conversation fermee — sinon une
+    # reponse tardive ranimerait une fenetre que le silence venait de clore.
+    try:
+        from nova.voice import session
+
+        session.prolonger()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Session de conversation indisponible : %s", exc)
+
     # Repousse l'indexation des images : charger le modele de vision pendant
     # qu'on parle a Nova ferait attendre la reponse suivante sans raison
     # visible. Une horloge et un verrou — quelques microsecondes.
@@ -1266,6 +1282,30 @@ def _confronter_au_reel(
             )
 
     return action, {action.argument: retenu}, None
+
+
+def executer_outil_propose(outil: str, arguments: dict) -> Resultat:
+    """Execute une action que NOVA a proposee et que l'utilisateur a acceptee.
+
+    ⚠️ ELLE PASSE PAR LE MEME PORTILLON QUE TOUTES LES AUTRES.
+
+    Le bareme de risque s'applique : une proposition acceptee n'est pas un
+    laissez-passer. `executer_outil` refusera toujours ce qui demande une
+    confirmation explicite — et c'est voulu, parce que « oui » repond ici a
+    « je te l'ouvre ? », pas a une question qu'on n'a pas posee.
+
+    Ne leve jamais : un refus ou une panne doivent se DIRE, pas remonter.
+    """
+    from nova.outils import ConfirmationRequise, executer_outil
+
+    try:
+        message = executer_outil(outil, **arguments)
+    except ConfirmationRequise as demande:
+        return Resultat("a_confirmer", str(demande), outil=outil, arguments=arguments)
+    except Exception as erreur:  # noqa: BLE001
+        log.warning("Proposition acceptee mais impossible : %s", erreur)
+        return Resultat("echouee", str(erreur), outil=outil, arguments=arguments)
+    return Resultat("executee", str(message), outil=outil, arguments=arguments)
 
 
 def executer_intention(comprise, *, confirme: bool = False) -> Resultat:

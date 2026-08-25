@@ -280,8 +280,20 @@ def test_la_phrase_fondatrice_trouve_le_fichier(maison, monkeypatch):
 
     assert "releve-compte-2024-03.pdf" in sortie
     assert "vacances.pdf" not in sortie
-    assert ouvertes == [str(maison / "Documents/Banque/releve-compte-2024-03.pdf")]
-    assert "viens de l'ouvrir" in sortie
+    # ⚠️ ON PROPOSE, ON N'OUVRE PAS : LA PHRASE NE DEMANDAIT QUE DE CHERCHER.
+    #
+    # Ouvrir sans demander etait defendable quand chaque tour coutait un
+    # « Nova ». Dans une conversation ouverte, un tour ne coute rien, et une
+    # fenetre qui s'ouvre seule sur le mauvais fichier coute plus qu'une
+    # question.
+    from nova.voice import session
+
+    assert ouvertes == []
+    assert "je te l'ouvre ?" in sortie
+    assert session.en_attente() == (
+        "ouvrir_fichier",
+        {"chemin": str(maison / "Documents/Banque/releve-compte-2024-03.pdf")},
+    )
 
 
 def test_rien_trouve_dit_pourquoi(maison):
@@ -452,10 +464,14 @@ def test_une_carte_d_identite_se_retrouve_de_bout_en_bout(maison, monkeypatch):
         outils, "executer_outil", lambda nom, **kw: ouvertes.append(kw["chemin"])
     )
 
-    sortie = bloc("Nova, retrouve-moi ma carte d'identité s'il te plaît")
+    sortie = bloc("Nova, retrouve-moi ma carte d'identité et ouvre-la")
 
     assert "carte-identite-recto.pdf" in sortie
     assert "vacances.pdf" not in sortie
+    # ⚠️ « ET OUVRE-LA » A DEJA REPONDU A LA QUESTION.
+    #
+    # Sans ce verbe, Nova proposerait. Avec, la reposer serait ne pas
+    # ecouter.
     assert ouvertes == [str(maison / "Documents/Papiers/carte-identite-recto.pdf")]
 
 

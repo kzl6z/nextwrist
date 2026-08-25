@@ -66,6 +66,26 @@ class ReponseAction(BaseModel):
 @router.post("/action", response_model=ReponseAction)
 def executer(demande: DemandeAction) -> ReponseAction:
     """Reconnait l'intention de la phrase et l'execute, si tout concorde."""
+    # ⚠️ UN « OUI » NU REPOND A LA PROPOSITION, PAS AU MODELE.
+    #
+    # Nova vient de dire « je te l'ouvre ? ». La reponse tient en un mot, et
+    # ce mot ne porte aucune intention reconnaissable : envoye au modele, il
+    # produirait une phrase polie et rien d'autre.
+    #
+    # Il ne vaut que parce qu'une proposition attend. Hors de ce cas, « oui »
+    # repart vers le modele comme n'importe quelle phrase — c'est ce qui rend
+    # cette liste de mots aussi courte sans danger.
+    from nova.voice import session
+
+    if (acceptee := session.accord(demande.texte)) is not None:
+        outil, arguments = acceptee
+        fait = orchestrator.executer_outil_propose(outil, arguments)
+        log.info("Proposition acceptee « %s » → %s", demande.texte, fait.etat)
+        return ReponseAction(
+            etat=fait.etat, message=fait.message, outil=fait.outil,
+            niveau=fait.niveau, intention="proposition_acceptee", cible=None,
+        )
+
     intention = voice_intentions.reconnaitre(demande.texte)
 
     # On reconstruit une `Comprehension` minimale : ce point d'entree accepte

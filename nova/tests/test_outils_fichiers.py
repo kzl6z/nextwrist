@@ -360,7 +360,7 @@ def test_la_liste_annoncee_est_numerotee(tmp_path, monkeypatch):
 
     assert "1. " in sortie and "2. " in sortie and "3. " in sortie
     # Et la consigne dit COMMENT choisir, pas seulement qu'on n'a pas choisi.
-    assert "ouvre le deuxieme" in sortie
+    assert "rang" in sortie
 
 
 def test_ouvre_le_deuxieme_ouvre_le_deuxieme(tmp_path, monkeypatch):
@@ -648,8 +648,8 @@ def test_plusieurs_fichiers_sont_tous_annonces(tmp_path, monkeypatch):
 
     sortie = trouver.bloc("retrouve mes impôts de 2024")
 
-    assert "Nomme LES 3 fichiers" in sortie
-    assert "ouvre le deuxieme" in sortie, "et comment en choisir un"
+    assert "3 fichiers" in sortie
+    assert "rang" in sortie, "et comment en choisir un"
 
 
 def test_un_seul_fichier_ne_demande_pas_d_en_nommer_trois(tmp_path, monkeypatch):
@@ -666,8 +666,8 @@ def test_un_seul_fichier_ne_demande_pas_d_en_nommer_trois(tmp_path, monkeypatch)
 
     sortie = trouver.bloc("retrouve mes impôts de 2024")
 
-    assert "Nomme le fichier : impots-2024.pdf" in sortie
-    assert "LES " not in sortie
+    assert "nomme-le : impots-2024.pdf" in sortie
+    assert "je te l'ouvre ?" in sortie, "une seule trouvaille se PROPOSE"
 
 
 @pytest.mark.parametrize(
@@ -699,3 +699,79 @@ def test_celui_ci_designe_le_fichier_dont_on_vient_de_parler(phrase, tmp_path):
         assert fichier_en_tete_pour(cible) == papier, phrase
     finally:
         focus.oublier()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  ⚠️ « JE TE L'OUVRE ? » — « OUI »
+# ══════════════════════════════════════════════════════════════════════════
+def test_un_oui_ouvre_le_fichier_propose(tmp_path, monkeypatch):
+    """LE BANC CENTRAL de la conversation : depuis la recherche jusqu'a
+    l'ouverture, en deux tours et sans repeter « Nova ».
+
+    Il passe par le point d'entree `/v1/action`, celui que l'application
+    appelle vraiment — verifier `session.accord` seul ne protegerait que la
+    piece, pas son montage.
+    """
+    from fastapi.testclient import TestClient
+
+    from nova.api.app import app
+    from nova.fichiers import trouver
+
+    dossier = tmp_path / "Documents"
+    dossier.mkdir()
+    papier = dossier / "impots 2024.pdf"
+    papier.write_text("x")
+    monkeypatch.setattr(trouver, "dossiers_cherches", lambda: (tmp_path,))
+
+    ouvertes: list[str] = []
+    import nova.outils as outils
+
+    monkeypatch.setattr(
+        outils, "executer_outil", lambda nom, **kw: ouvertes.append(kw["chemin"]) or "ok"
+    )
+
+    sortie = trouver.bloc("retrouve mes impôts de 2024")
+    assert "je te l'ouvre ?" in sortie
+    assert ouvertes == [], "rien n'est ouvert tant qu'on n'a pas dit oui"
+
+    reponse = TestClient(app).post("/v1/action", json={"texte": "oui"})
+
+    assert reponse.status_code == 200
+    assert reponse.json()["intention"] == "proposition_acceptee"
+    assert ouvertes == [str(papier)]
+
+
+def test_un_oui_sans_proposition_ne_declenche_rien(monkeypatch):
+    """⚠️ HORS D'UNE PROPOSITION, « OUI » REPART VERS LE MODELE.
+
+    C'est la seule raison pour laquelle on peut se permettre une liste de
+    mots aussi courte et aussi generique.
+    """
+    from fastapi.testclient import TestClient
+
+    from nova.api.app import app
+
+    reponse = TestClient(app).post("/v1/action", json={"texte": "oui"})
+
+    assert reponse.json()["intention"] != "proposition_acceptee"
+
+
+def test_une_proposition_acceptee_passe_par_le_portillon(monkeypatch):
+    """⚠️ UN « OUI » N'EST PAS UN LAISSEZ-PASSER.
+
+    Le bareme de risque s'applique : « oui » repond a « je te l'ouvre ? »,
+    pas a une question qu'on n'a pas posee. Une action qui exige une
+    confirmation explicite doit continuer de la demander.
+    """
+    import nova.outils as outils
+    from nova import orchestrator
+    from nova.outils import ConfirmationRequise
+
+    def exige_confirmation(nom, **kw):
+        raise ConfirmationRequise(nom, 3, kw)
+
+    monkeypatch.setattr(outils, "executer_outil", exige_confirmation)
+
+    resultat = orchestrator.executer_outil_propose("eteindre_ordinateur", {})
+
+    assert resultat.etat == "a_confirmer"

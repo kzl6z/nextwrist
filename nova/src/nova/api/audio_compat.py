@@ -147,11 +147,38 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
 
     detecte = wake.contient_reveil(texte)
 
+    # ══════════════════════════════════════════════════════════════════════
+    #  ⚠️ PENDANT UNE CONVERSATION OUVERTE, « NOVA » DEVIENT FACULTATIF.
+    #
+    #  L'application envoie ici tout extrait qui depasse le seuil sonore, et
+    #  n'agit que si l'on repond `wake: true`. Il suffit donc de repondre
+    #  `true` pendant la fenetre d'ecoute : le comportement voulu apparait
+    #  sans qu'une ligne de l'application change.
+    #
+    #  ⚠️ ET C'EST LA QUE LA FENETRE SE REFERME.
+    #
+    #  Une phrase de conge — « c'est bon », « mets-toi en veille » — doit
+    #  fermer AVANT de decider quoi que ce soit d'autre, sinon elle serait
+    #  traitee comme une demande et rouvrirait la fenetre en repondant.
+    # ══════════════════════════════════════════════════════════════════════
+    from nova.voice import session
+
+    if session.est_ouverte() and session.demande_de_veille(texte):
+        session.fermer("conge")
+        return {"wake": False, "text": texte, "commande": "", "confiance": None}
+
+    enchaine = session.est_ouverte() and not detecte
+    if enchaine:
+        log.info("Conversation ouverte (%.0f s restantes) : « %s »",
+                 session.restant(), texte)
+    if detecte:
+        session.ouvrir()
+
     # La question n'est enchainee que si le mot de reveil a ete reconnu
     # franchement. S'il a fallu le deviner, la transcription est mauvaise et
     # la question qui suit ne vaut pas mieux : on laisse l'application
     # reenregistrer proprement plutot que d'envoyer du charabia au modele.
-    franc = detecte and wake.reveil_franc(texte)
+    franc = (detecte and wake.reveil_franc(texte)) or enchaine
     if detecte:
         log.info(
             "Mot de reveil detecte (%s) : « %s »",
@@ -187,7 +214,9 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
     #  Le surcout n'est paye que lorsqu'une question suit reellement le mot
     #  de reveil, jamais pendant l'ecoute continue.
     # ══════════════════════════════════════════════════════════════════════
-    commande = wake.commande_apres_reveil(texte)
+    # Pendant une conversation ouverte, la phrase ENTIERE est la commande :
+    # il n'y a pas de mot de reveil a retirer devant.
+    commande = texte if enchaine else wake.commande_apres_reveil(texte)
     if not commande:
         return {"wake": True, "text": texte, "commande": "", "confiance": None}
 
@@ -206,7 +235,11 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
             )
         )
         comprise = orchestrator.comprendre_la_parole(soignee)
-        relue = wake.commande_apres_reveil(comprise.texte) or comprise.texte
+        relue = (
+            comprise.texte
+            if enchaine
+            else (wake.commande_apres_reveil(comprise.texte) or comprise.texte)
+        )
     except Exception as exc:  # noqa: BLE001
         # La relecture est une AMELIORATION, pas une dependance : si elle
         # echoue, la commande du modele de reveil reste utilisable.

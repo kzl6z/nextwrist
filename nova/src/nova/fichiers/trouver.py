@@ -517,6 +517,22 @@ def _ouvrir_si_evident(classes) -> Trouvaille | None:
     return meilleur
 
 
+#: Ce qui demande d'OUVRIR en meme temps que de chercher.
+#:
+#: « retrouve ma carte d'identite et OUVRE le fichier » a deja repondu a la
+#: question « je te l'ouvre ? ». La reposer serait ne pas ecouter.
+_VEUT_OUVRIR = re.compile(
+    r"\b(?:ouvre|ouvrir|ouvres|ouvrez|affiche|afficher|montre[- ]le|"
+    r"montre[- ]la|fais[- ]moi voir)\b",
+    re.IGNORECASE,
+)
+
+
+def _veut_ouvrir(texte: str) -> bool:
+    """La phrase demande-t-elle d'ouvrir, et pas seulement de chercher ?"""
+    return bool(_VEUT_OUVRIR.search(sans_accents(texte or "")))
+
+
 def _comment_choisir(classes) -> str:
     """La consigne de fin quand Nova n'a rien ouvert.
 
@@ -528,10 +544,9 @@ def _comment_choisir(classes) -> str:
     qui marche — et elle marche parce que la liste est numerotee.
     """
     if len(classes) < 2:
-        return "Propose de l'ouvrir si c'est le bon."
+        return "demande simplement : « je te l'ouvre ? »"
     return (
-        "tu n'en as ouvert aucun car plusieurs se valent : invite a choisir "
-        "par son rang, « ouvre le deuxieme »."
+        "demande lequel ouvrir, par son rang — « le premier ou le deuxieme ? »"
     )
 
 
@@ -613,6 +628,15 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
     # Retenir permet a « ouvre-le » de designer CE fichier. Ouvrir est une
     # action : elle attend qu'un candidat se detache, sans quoi Nova ouvrirait
     # l'un des quatre au hasard.
+    # ⚠️ NOVA PROPOSE, ET « OUI » SUFFIT ENSUITE.
+    #
+    # Demande : « qu'elle dise juste c'est bon j'ai trouve […] qu'elle me
+    # propose de l'ouvrir et que je n'aie plus qu'a dire oui ». La
+    # proposition est notee ici ; c'est `session.accord` qui la declenche, et
+    # elle passe par le meme portillon que toute autre action.
+    #
+    # On ne la note QUE si Nova n'a rien ouvert : proposer d'ouvrir ce qui
+    # est deja ouvert ferait repondre « oui » a une question sans objet.
     from nova.vision import focus
 
     focus.retenir(
@@ -627,7 +651,26 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
         # que personne n'a designe, en ayant l'air d'obeir.
         liste=tuple(t.chemin for t, _ in classes),
     )
-    ouvert = _ouvrir_si_evident(classes)
+    # ⚠️ ON N'OUVRE PLUS D'OFFICE. ON PROPOSE.
+    #
+    # Demande textuelle : « qu'elle dise juste c'est bon j'ai trouve […]
+    # qu'elle me propose de l'ouvrir et que je n'aie plus qu'a dire oui,
+    # histoire d'avoir une sorte de conversation avec elle ».
+    #
+    # Ouvrir sans demander etait defendable quand chaque phrase coutait un
+    # « Nova » : il fallait economiser les tours. Dans une conversation
+    # ouverte, un tour ne coute plus rien, et une fenetre qui s'ouvre toute
+    # seule sur le mauvais fichier coute plus cher qu'une question.
+    #
+    # ⚠️ SAUF SI L'OUVERTURE A ETE DEMANDEE DANS LA MEME PHRASE.
+    #
+    # « retrouve ma carte d'identite ET OUVRE LE FICHIER » a deja repondu a
+    # la question. La reposer serait ne pas ecouter.
+    ouvert = _ouvrir_si_evident(classes) if _veut_ouvrir(texte) else None
+    if ouvert is None and len(classes) == 1:
+        from nova.voice import session
+
+        session.proposer("ouvrir_fichier", {"chemin": str(meilleur.chemin)})
 
     # ⚠️ NUMEROTES, ET CE N'EST PAS DE LA MISE EN FORME.
     #
@@ -673,23 +716,32 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
     # C'est la meme lecon que `_empechement` cote vision — « la consigne vient
     # avant la raison » — et je ne l'avais appliquee qu'a moitie.
     combien = (
-        f"Nomme LES {len(classes)} fichiers avec leur numero."
+        f"dis que tu as trouve {len(classes)} fichiers et nomme-les avec "
+        "leur numero."
         if len(classes) > 1
-        else f"Nomme le fichier : {meilleur.nom}."
+        else f"dis que tu l'as trouve, et nomme-le : {meilleur.nom}."
     )
     suite = (
-        "Dis que tu viens de l'ouvrir."
+        "dis que tu viens de l'ouvrir."
         if ouvert is not None
         else _comment_choisir(classes)
     )
     bloc_trouve = (
         "## Recherche de fichier\n\n"
         + entendu
-        + "Ta reponse, en francais, DEUX PHRASES AU PLUS :\n"
+        # ⚠️ COURT, PARCE QUE NOVA LIT SA REPONSE A VOIX HAUTE.
+        #
+        # La synthese dit environ quarante caracteres par seconde. Une
+        # reponse de trois cents caracteres se parle pendant huit secondes,
+        # pendant lesquelles on ne peut rien faire d'autre qu'attendre —
+        # c'est la premiere cause de lenteur RESSENTIE, bien avant le calcul.
+        #
+        # Demande textuelle : « qu'elle dise juste c'est bon j'ai trouve ».
+        + "Ta reponse, en francais, UNE PHRASE COURTE :\n"
         f"- {combien}\n"
-        "- dis le dossier et la date.\n"
         f"- {suite}\n"
-        "- tu n'as pas lu ces fichiers : ne dis rien de leur contenu.\n\n"
+        "- pas le chemin, pas la date, pas le contenu : tu ne les as pas lus."
+        "\n\n"
         f"Recherche demandee : « {quoi} ». Fichiers trouves, le meilleur en "
         "premier — c'est la SEULE chose que Nova sait d'eux :\n"
         f"<<<\n{lignes}\n>>>"
