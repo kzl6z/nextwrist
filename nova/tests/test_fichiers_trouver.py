@@ -132,6 +132,58 @@ def test_un_fichier_ordinaire_passe():
     assert acceptable(Path("/Users/h/Documents/Banque/releve-2024.pdf"))
 
 
+# ══════════════════════════════════════════════════════════════════════════
+#  LES ZONES INTERDITES SE JUGENT SOUS LA RACINE CHERCHEE
+#
+#  ⚠️ ET CE SONT CES BANCS QUI RENDENT CE CHANGEMENT ACCEPTABLE.
+#
+#  Les bancs de securite ci-dessus ne passent AUCUNE racine : ils jugent donc
+#  le chemin entier, et ne protegent plus le cas reel, ou la racine existe.
+#  Sans ce qui suit, on pourrait casser la branche relative sans qu'un seul
+#  banc s'en apercoive — et Nova se remettrait a nommer des trousseaux.
+# ══════════════════════════════════════════════════════════════════════════
+def test_une_zone_interdite_SOUS_la_racine_reste_interdite():
+    """Le cas reel : la racine est « ~ », et `~/Library` porte les trousseaux."""
+    maison = Path("/Users/h")
+
+    assert not acceptable(
+        maison / "Library/Keychains/login.keychain", racines=(maison,)
+    )
+    assert not acceptable(maison / "code/node_modules/truc/lisez-moi.pdf", racines=(maison,))
+    assert not acceptable(maison / ".ssh/notes.txt", racines=(maison,))
+
+
+def test_une_clef_reste_refusee_meme_dans_un_dossier_declare():
+    """⚠️ SEUL « DANS QUEL DOSSIER ? » DEVIENT RELATIF. PAS LE RESTE.
+
+    Le nom et l'extension se jugent partout : une clef posee en plein milieu
+    d'un dossier declare reste une clef.
+    """
+    papiers = Path("/Volumes/Disque/Papiers")
+
+    assert not acceptable(papiers / "serveur.pem", racines=(papiers,))
+    assert not acceptable(papiers / "mes_secrets.txt", racines=(papiers,))
+    assert not acceptable(papiers / ".env", racines=(papiers,))
+
+
+def test_un_dossier_declare_dans_une_zone_interdite_est_cherchable():
+    """⚠️ CE DEFAUT EXISTE EN VRAI, PAS SEULEMENT DANS LES BANCS.
+
+    `NOVA_FICHIERS_DOSSIERS=/Volumes/Disque/Papiers` ne rendait jamais rien :
+    « Volumes » est dans la liste des interdits, et le chemin entier etait
+    juge. Nova refusait en silence un dossier qu'on lui avait explicitement
+    designe — et rien ne le disait.
+
+    C'est le meme defaut qui faisait tomber trente-quatre bancs sur le Mac :
+    leur dossier temporaire est sous `/private`.
+    """
+    papiers = Path("/Volumes/Disque/Papiers")
+
+    assert acceptable(papiers / "2024/releve.pdf", racines=(papiers,))
+    # Sans racine declaree, le chemin entier est juge, comme avant.
+    assert not acceptable(papiers / "2024/releve.pdf")
+
+
 def test_le_parcours_ne_descend_pas_dans_les_zones_interdites(tmp_path):
     """L'elagage se fait AVANT de descendre, pas apres."""
     _poser(
@@ -833,11 +885,19 @@ def test_une_entree_disparue_ne_fait_pas_tomber_l_expansion():
 #  On remplace `_lancer`, sa seule sortie vers le systeme. Le reste est du
 #  Python, et se teste sur n'importe quelle machine.
 # ══════════════════════════════════════════════════════════════════════════
-def _spotlight(reponses: dict[str, list[Path]]):
-    """Un Spotlight dont l'index est ecrit ici. Retient les questions posees."""
+def _spotlight(reponses: dict[str, list[Path]], racine: Path | None = None):
+    """Un Spotlight dont l'index est ecrit ici. Retient les questions posees.
+
+    ⚠️ LA RACINE EST CELLE DES FICHIERS DU BANC, PAS UNE RACINE FACTICE.
+
+    Les zones interdites se jugent SOUS la racine cherchee. Une racine qui ne
+    contient pas les fichiers du banc fait juger leur chemin absolu — et sur
+    macOS, ce chemin passe par `/private`, qui est interdit. Le banc mesurait
+    alors le refus au lieu de la recherche.
+    """
     from nova.fichiers.moteurs import Spotlight
 
-    moteur = Spotlight((Path("/h"),))
+    moteur = Spotlight((racine or Path("/h"),))
     moteur.questions = []
 
     def _lancer(question: str) -> list[Path]:
@@ -866,7 +926,7 @@ def test_la_passe_precise_suffit_et_la_large_ne_part_pas(tmp_path):
     # sert a noter, pas a interroger. Ce qui separe les deux passes est
     # l'elargissement — « avis », « imposition », « fiscal » ne figurent que
     # dans la precise.
-    moteur = _spotlight({"avis": [bon]})
+    moteur = _spotlight({"avis": [bon]}, tmp_path)
     trouves = moteur.chercher(lire("mes impots de 2024", aujourdhui=MAINTENANT))
 
     assert [t.nom for t in trouves] == ["avis-imposition-2024.pdf"]
@@ -881,7 +941,7 @@ def test_la_passe_large_prend_le_relais_quand_la_precise_echoue(tmp_path):
 
     # L'index ne connait que le mot prononce, aucun de ses synonymes : la
     # passe precise — la seule a porter « avis » — ne rend rien.
-    moteur = _spotlight({})
+    moteur = _spotlight({}, tmp_path)
     moteur._lancer = lambda q: [] if "avis" in q else [approchant]  # noqa: SLF001
     trouves = moteur.chercher(lire("mes impots de 2024", aujourdhui=MAINTENANT))
 
@@ -901,7 +961,7 @@ def test_un_dossier_rendu_par_l_index_est_remplace_par_ses_fichiers(tmp_path):
     for nom in ("impos 2024 1.pdf", "impos 2024 2.pdf"):
         (dossier / nom).write_text("x")
 
-    moteur = _spotlight({"imposition": [dossier]})
+    moteur = _spotlight({"imposition": [dossier]}, tmp_path)
     trouves = moteur.chercher(lire("mes impots de 2024", aujourdhui=MAINTENANT))
 
     assert sorted(t.nom for t in trouves) == ["impos 2024 1.pdf", "impos 2024 2.pdf"]
@@ -920,7 +980,7 @@ def test_le_moteur_reel_applique_les_zones_interdites(tmp_path):
     normal = tmp_path / "impots-2024.pdf"
     normal.write_text("x")
 
-    moteur = _spotlight({"": [secret, trousseau, normal]})
+    moteur = _spotlight({"": [secret, trousseau, normal]}, tmp_path)
     trouves = moteur.chercher(lire("mes impots de 2024", aujourdhui=MAINTENANT))
 
     assert [t.nom for t in trouves] == ["impots-2024.pdf"]

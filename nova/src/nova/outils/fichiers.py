@@ -61,7 +61,9 @@ def borner(chemin: str, racines: tuple[Path, ...]) -> Path:
         raise FichierRefuse(
             f"« {cible.name} » sort des dossiers que Nova peut atteindre."
         )
-    if not acceptable(cible):
+    # Les racines sont deja connues ici : ce qui MENE a un dossier declare
+    # n'a pas a etre juge une seconde fois.
+    if not acceptable(cible, racines=racines):
         raise FichierRefuse(
             f"Nova ne touche pas a « {cible.name} » : ce genre de fichier est "
             "hors de sa portee."

@@ -95,7 +95,50 @@ _NOMS_INTERDITS = re.compile(
 )
 
 
-def acceptable(chemin: Path, recherche: Recherche | None = None) -> bool:
+def _dossiers_a_juger(chemin: Path, racines: tuple[Path, ...]) -> tuple[str, ...]:
+    """Les dossiers a examiner : ceux SOUS la racine qui contient le fichier.
+
+    ⚠️ CE QUI SE TROUVE AU-DESSUS D'UNE RACINE N'EST PAS L'AFFAIRE DE NOVA.
+
+    Les zones interdites disent « ne va pas dans Library, ni dans Applications,
+    ni dans private » — a l'interieur de ce qu'on cherche. Les appliquer AUSSI
+    aux dossiers qui MENENT a la zone de recherche revient a juger un choix
+    qu'on a deja fait : si l'on declare un dossier, on l'a declare.
+
+    ⚠️ ET CE DEFAUT EXISTE EN VRAI, PAS SEULEMENT DANS LES BANCS.
+
+    `NOVA_FICHIERS_DOSSIERS=/Volumes/Disque/Papiers` ne rend jamais rien :
+    « Volumes » est dans la liste des interdits. Nova refuse en silence un
+    dossier qu'on lui a explicitement designe, et rien ne le dit.
+
+    C'est le meme defaut qui faisait tomber TRENTE-QUATRE bancs sur le Mac :
+
+        assert [] == ['releve-2024.pdf']
+
+    Leur dossier temporaire est `/private/var/folders/qt/.../test_x0/`, et
+    « private » est interdit — a juste titre, c'est la ou macOS range ses
+    donnees systeme. Chaque fichier cree par un banc etait donc rejete AVANT
+    d'atteindre le classement : les bancs mesuraient le refus au lieu de la
+    recherche. Sous Linux, `/tmp/pytest-of-root/...` ne porte aucun mot
+    interdit, et les memes bancs passaient.
+
+    Sans racine — les bancs de securite, qui passent des chemins absolus — on
+    juge le chemin entier, comme avant.
+    """
+    for racine in racines:
+        try:
+            return chemin.relative_to(racine).parts[:-1]
+        except ValueError:
+            continue
+    return chemin.parts[:-1]
+
+
+def acceptable(
+    chemin: Path,
+    recherche: Recherche | None = None,
+    *,
+    racines: tuple[Path, ...] = (),
+) -> bool:
     """Ce fichier a-t-il le droit d'etre nomme dans une reponse ?"""
     # ⚠️ « .env » N'A PAS D'EXTENSION — SON NOM ENTIER EST L'EXTENSION.
     #
@@ -117,9 +160,13 @@ def acceptable(chemin: Path, recherche: Recherche | None = None) -> bool:
             return False
     if _NOMS_INTERDITS.search(chemin.name):
         return False
+    # ⚠️ LE NOM ET L'EXTENSION SONT JUGES PARTOUT, RACINE OU PAS.
+    #
+    # Une clef reste une clef dans un dossier declare. Seule la question
+    # « dans quel dossier est-il ? » se lit relativement a la racine.
     return not any(
         part in DOSSIERS_INTERDITS or part.startswith(".")
-        for part in chemin.parts[:-1]
+        for part in _dossiers_a_juger(chemin, racines)
     )
 
 
@@ -390,7 +437,7 @@ class Spotlight:
         precise = interrogation_par_groupes(groupes(recherche.mots), recherche.mots)
         if precise:
             for chemin in _avec_les_dossiers(self._lancer(precise)):
-                if not acceptable(chemin, recherche):
+                if not acceptable(chemin, recherche, racines=self.racines):
                     continue
                 if (trouve := _trouvaille(chemin, precis=True)) is not None:
                     vus[chemin] = trouve
@@ -402,7 +449,9 @@ class Spotlight:
         large = interrogation(recherche.mots, tous=False)
         if large:
             for chemin in _avec_les_dossiers(self._lancer(large)):
-                if chemin in vus or not acceptable(chemin, recherche):
+                if chemin in vus or not acceptable(
+                    chemin, recherche, racines=self.racines
+                ):
                     continue
                 if (trouve := _trouvaille(chemin, precis=False)) is not None:
                     vus[chemin] = trouve
@@ -493,7 +542,7 @@ class Parcours:
             # « releve-2024-03.pdf » se reconnait a ca.
             if not porte and not (annee and annee in chemin.stem):
                 continue
-            if not acceptable(chemin, recherche):
+            if not acceptable(chemin, recherche, racines=self.racines):
                 continue
             if (trouve := _trouvaille(chemin, precis=precis)) is not None:
                 trouves.append(trouve)
