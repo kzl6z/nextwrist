@@ -26,6 +26,23 @@ def test_reconnait_les_autres_formules_courantes():
     assert est_hallucination("Abonnez-vous à la chaîne")
 
 
+def test_reconnait_une_signature_de_studio_jamais_vue():
+    """⚠️ LA LISTE EXACTE NE POUVAIT PAS SUFFIRE, ET NE SUFFIRA JAMAIS.
+
+    Releve en conditions reelles, sur un bruit de clavier :
+
+        enchaine sur : « Sous-titrage ST' 501 »
+        Nova : « C'est un film de science-fiction… »
+
+    Cette formule n'etait dans aucune des huit connues, et il y en a des
+    centaines : chaque studio signe la sienne. Ce qu'elles ont toutes en
+    commun, c'est de COMMENCER par le mot.
+    """
+    assert est_hallucination("Sous-titrage ST' 501")
+    assert est_hallucination("Sous-titrage FR : Studio Machin")
+    assert est_hallucination("Sous-titres : Nathalie D.")
+
+
 def test_laisse_passer_une_vraie_demande():
     assert not est_hallucination("Nova, quelle heure est-il ?")
     assert not est_hallucination("Ouvre le dossier du projet")
@@ -92,6 +109,78 @@ def test_une_vraie_phrase_traverse(monkeypatch):
     _whisper_qui_rend(monkeypatch, "Nova, ouvre le dossier du projet.")
 
     assert "dossier" in transcribe.transcrire(b"\0" * 5000).texte
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  LE BRUIT DE CLAVIER
+#
+#  ⚠️ NOVA A PARLE ALORS QUE PERSONNE NE LUI AVAIT RIEN DIT.
+#
+#  Releve en conditions reelles, pendant que l'utilisateur TAPAIT :
+#
+#      [NOVA/reveil] 1920 ms → « Nova. Nova. Nova. Nova. … »  (cinquante fois)
+#      declenche — enchaine sur : « Sous-titrage ST' 501 »
+#      Nova : « C'est un film de science-fiction… »
+#
+#  Le clavier a reveille Nova, ouvert une conversation, et le fragment suivant
+#  est parti au modele de langue comme une question.
+# ══════════════════════════════════════════════════════════════════════════
+def test_le_mot_de_reveil_repete_cinquante_fois_est_du_bruit():
+    """Personne ne dit cinquante fois le meme mot en deux secondes."""
+    assert transcribe.est_radotage("Nova. " * 50)
+
+
+def test_le_radotage_est_reconnu_quel_que_soit_le_mot():
+    """⚠️ IL NE SE COMPARE A AUCUNE LISTE.
+
+    C'est ce qui le separe du filtre de sous-titrage : la repetition se
+    reconnait toute seule. Whisper s'accroche au mot qu'il veut.
+    """
+    assert transcribe.est_radotage("oui oui oui oui oui oui oui oui")
+    assert transcribe.est_radotage("Merci. Merci. Merci. Merci. Merci. Merci.")
+
+
+@pytest.mark.parametrize(
+    "parole",
+    [
+        # Une insistance normale : trop courte pour etre du bruit.
+        "non non non",
+        "oui oui",
+        # De vraies demandes, ou aucun mot ne domine.
+        "Nova, retrouve mes impots de 2024",
+        "ouvre le deuxieme fichier s'il te plait",
+        # ⚠️ UN MOT FREQUENT NE FAIT PAS UN RADOTAGE.
+        #
+        # « de » revient quatre fois ici, et la phrase est parfaitement
+        # normale. C'est la PROPORTION qui tranche, pas le compte seul.
+        "retrouve le releve de compte de la banque de mars de 2024",
+        "",
+    ],
+)
+def test_la_parole_normale_traverse(parole):
+    assert not transcribe.est_radotage(parole), parole
+
+
+def test_le_radotage_est_filtre_de_bout_en_bout(monkeypatch):
+    """⚠️ LE FILTRE D'AMORCE NE POUVAIT PAS L'ATTRAPER.
+
+    Il n'examine que les extraits de moins de 90 caracteres, et cinquante
+    « Nova » en font 250. La repetition passait entre les mailles PARCE
+    QU'ELLE ETAIT LONGUE. Ce banc va jusqu'a `transcrire`, sans quoi il
+    protegerait une fonction que personne n'appelle.
+    """
+    _whisper_qui_rend(monkeypatch, "Nova. " * 50)
+
+    resultat = transcribe.transcrire(b"\0" * 5000, amorce=AMORCE)
+
+    assert resultat.texte == "", "le bruit de clavier est parti au modele de langue"
+
+
+def test_la_signature_de_studio_est_filtree_de_bout_en_bout(monkeypatch):
+    """Le second fragment du meme releve, celui qui a fait parler Nova."""
+    _whisper_qui_rend(monkeypatch, "Sous-titrage ST' 501")
+
+    assert transcribe.transcrire(b"\0" * 5000).texte == ""
 
 
 # ══════════════════════════════════════════════════════════════════════════

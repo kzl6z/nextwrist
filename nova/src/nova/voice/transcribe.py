@@ -88,6 +88,40 @@ _HALLUCINATIONS = (
     "amara org",
 )
 
+#: ⚠️ LA LISTE EXACTE NE POUVAIT PAS SUFFIRE, ET NE SUFFIRA JAMAIS.
+#:
+#: Releve en conditions reelles, sur un bruit de clavier — personne n'avait
+#: parle, personne n'avait rien demande :
+#:
+#:     enchaine sur : « Sous-titrage ST' 501 »
+#:     Nova : « C'est un film de science-fiction. Il a ete tourne avec un
+#:             sous-titrage en francais. La production est dirigee par le
+#:             realisateur francais Jean-Pierre Jeunet. »
+#:
+#: « Sous-titrage ST' 501 » n'etait dans aucune des huit formules connues, et
+#: il y en a des centaines d'autres : chaque studio de sous-titrage signe la
+#: sienne, et Whisper les a toutes apprises. Les ajouter une par une, c'est la
+#: meme liste sans fin que les mots vides cote fichiers.
+#:
+#: Ce qu'elles ont TOUTES en commun, c'est de commencer par le mot. Un extrait
+#: court qui DEBUTE par « sous-titrage » ou « sous-titres » est une signature
+#: de fichier, jamais une demande — on ne commence pas une phrase par la.
+_DEBUTS_DE_SOUS_TITRAGE = ("sous titrage", "sous titres", "sous titre")
+
+#: Au-dela de tant de repetitions du meme mot, ce n'est plus de la parole.
+#:
+#: ⚠️ RELEVE SUR 1,9 SECONDE D'AUDIO : « Nova. » CINQUANTE FOIS.
+#:
+#: C'etait un clavier. Whisper, sur un bruit rythme et sans parole, s'accroche
+#: au vocabulaire de son amorce et le repete jusqu'a la fin de l'extrait. Le
+#: filtre d'amorce ne l'a pas vu : il ne regarde que les extraits de moins de
+#: 90 caracteres, et cinquante « Nova » en font 250.
+#:
+#: Aucun etre humain ne dit cinquante fois le meme mot en deux secondes. La
+#: repetition n'a donc pas besoin d'etre comparee a une liste — elle se
+#: reconnait toute seule, quel que soit le mot repete.
+REPETITIONS_MAX = 4
+
 
 def _reduire(texte: str) -> str:
     """Minuscules, sans accents ni ponctuation : forme de comparaison."""
@@ -108,7 +142,37 @@ def est_hallucination(texte: str) -> bool:
         return False
     if len(reduit) > 90:
         return False
+    if any(reduit.startswith(debut) for debut in _DEBUTS_DE_SOUS_TITRAGE):
+        return True
     return any(motif in reduit for motif in _HALLUCINATIONS)
+
+
+def est_radotage(texte: str) -> bool:
+    """Le meme mot, encore et encore : un bruit, pas une phrase.
+
+    ⚠️ CE DEFAUT FAIT PARLER NOVA ALORS QUE PERSONNE NE LUI A RIEN DIT.
+
+    Releve en conditions reelles, pendant que l'utilisateur TAPAIT AU CLAVIER :
+
+        [NOVA/reveil] 1920 ms → « Nova. Nova. Nova. Nova. … »  (cinquante fois)
+        declenche — enchaine sur : « Sous-titrage ST' 501 »
+
+    Le bruit du clavier a reveille Nova, ouvert une conversation, et le
+    fragment suivant est parti au modele de langue comme une question.
+
+    ⚠️ ON EXIGE LES DEUX : BEAUCOUP DE REPETITIONS, ET QU'ELLES DOMINENT.
+
+    Le seul compte ne suffit pas — « oui oui oui » est une insistance normale,
+    et une phrase longue peut contenir cinq fois « de ». Le second critere est
+    la PROPORTION : quand un seul mot occupe la moitie de l'extrait, il ne
+    reste pas de phrase autour de lui.
+    """
+    mots = _reduire(texte).split()
+    # En dessous, une repetition reste une facon de parler : « non non non ».
+    if len(mots) < 6:
+        return False
+    frequent = max(mots.count(mot) for mot in set(mots))
+    return frequent > REPETITIONS_MAX and frequent * 2 >= len(mots)
 
 
 #: En dessous de cette confiance, le modele a devine. 0 = certain, -1 = il a
@@ -337,6 +401,16 @@ def transcrire(
 
         if est_hallucination(texte):
             log.info("Formule de sous-titrage ignoree (aucune parole) : « %s »", texte)
+            return Transcription(texte="", logprob=logprob, duree=info.duration)
+
+        # ⚠️ AVANT LE FILTRE D'AMORCE, ET C'EST VOLONTAIRE.
+        #
+        # `est_echo_de_l_amorce` exige une confiance basse ET un extrait de
+        # moins de 90 caracteres. Cinquante « Nova » en font 250 : l'echo
+        # passait entre les mailles, precisement parce qu'il etait long. La
+        # repetition, elle, se reconnait sans rien savoir de l'amorce.
+        if est_radotage(texte):
+            log.info("Repetition sans parole (bruit) : « %s » — ignore", texte[:80])
             return Transcription(texte="", logprob=logprob, duree=info.duration)
 
         if est_echo_de_l_amorce(texte, amorce, logprob):
