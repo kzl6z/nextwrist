@@ -42,6 +42,22 @@ def _poser(racine: Path, chemins: list[str], *, annee: int | None = None) -> Non
             os.utime(cible, (quand, quand))
 
 
+def _retenus() -> list[str]:
+    """Les noms des fichiers que Nova vient de retenir, dans l'ordre annonce.
+
+    ⚠️ C'EST ICI QUE SE PROUVE UNE RECHERCHE, PLUS DANS LE BLOC.
+
+    Nova ne cite plus les fichiers qu'elle trouve — elle dit combien. Les
+    bancs qui lisaient les noms dans le bloc lisaient donc, sans le savoir,
+    une consigne de mise en forme. La liste retenue, elle, est ce que le
+    moteur a REELLEMENT choisi : c'est elle que « ouvre le deuxieme » et
+    « c'est quoi le nom du troisieme » consultent.
+    """
+    from nova.fichiers.trouver import liste_en_tete
+
+    return [chemin.name for chemin in liste_en_tete()]
+
+
 @pytest.fixture
 def maison(tmp_path, monkeypatch):
     """Un faux dossier personnel, et Nova bornee a lui."""
@@ -278,8 +294,12 @@ def test_la_phrase_fondatrice_trouve_le_fichier(maison, monkeypatch):
         "ou de revenus qui date de deux mille vingt-quatre ?"
     )
 
-    assert "releve-compte-2024-03.pdf" in sortie
-    assert "vacances.pdf" not in sortie
+    # ⚠️ LE NOM N'EST PLUS DANS LE BLOC — C'EST LA RETENUE QUI FAIT FOI.
+    #
+    # Demande textuelle : « j'aimerais qu'elle arrete de citer les
+    # documents ». Le bon fichier a bien ete choisi ; il se prouve par ce que
+    # Nova propose d'ouvrir, plus par ce qu'elle prononce.
+    assert "releve-compte-2024-03.pdf" not in sortie
     # ⚠️ ON PROPOSE, ON N'OUVRE PAS : LA PHRASE NE DEMANDAIT QUE DE CHERCHER.
     #
     # Ouvrir sans demander etait defendable quand chaque tour coutait un
@@ -337,7 +357,12 @@ def test_deux_candidats_a_egalite_n_ouvrent_rien(maison, monkeypatch):
     sortie = bloc("retrouve-moi mon releve de compte de 2024")
 
     assert ouvertes == [], "deux fichiers a egalite n'en designent aucun"
-    assert "releve-compte-2024" in sortie
+    # Les deux ont ete retenus, dans l'ordre — c'est ce qui donne un sens a
+    # « ouvre le deuxieme ». Aucun n'est PRONONCE.
+    from nova.fichiers.trouver import liste_en_tete
+
+    assert len(liste_en_tete()) == 2
+    assert "releve-compte-2024" not in sortie
 
 
 def test_le_fichier_trouve_est_retenu_pour_la_suite(maison, monkeypatch):
@@ -466,8 +491,8 @@ def test_une_carte_d_identite_se_retrouve_de_bout_en_bout(maison, monkeypatch):
 
     sortie = bloc("Nova, retrouve-moi ma carte d'identité et ouvre-la")
 
-    assert "carte-identite-recto.pdf" in sortie
-    assert "vacances.pdf" not in sortie
+    assert _retenus() == ["carte-identite-recto.pdf"]
+    assert "carte-identite-recto.pdf" not in sortie, "elle ne cite plus les noms"
     # ⚠️ « ET OUVRE-LA » A DEJA REPONDU A LA QUESTION.
     #
     # Sans ce verbe, Nova proposerait. Avec, la reposer serait ne pas
@@ -486,9 +511,9 @@ def test_un_passeport_se_retrouve_par_synonyme(maison, monkeypatch):
 
     monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
 
-    sortie = bloc("retrouve-moi ma carte d'identité")
+    bloc("retrouve-moi ma carte d'identité")
 
-    assert "passeport-2023.pdf" in sortie
+    assert _retenus() == ["passeport-2023.pdf"]
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -610,8 +635,8 @@ def test_un_avis_d_imposition_se_retrouve_de_bout_en_bout(maison, monkeypatch):
 
     sortie = bloc("j'ai besoin que tu me retrouves mes impôts de 2024")
 
-    assert "avis-imposition-2024.pdf" in sortie
-    assert "vacances.pdf" not in sortie
+    assert "avis-imposition-2024.pdf" in _retenus()
+    assert "vacances.pdf" not in _retenus()
     # ⚠️ ET LE NOM CHERCHE EST LISIBLE A VOIX HAUTE.
     #
     # « aucun fichier correspondant a BESOIN IMPOTS de 2024 » etait la phrase
@@ -650,11 +675,11 @@ def test_le_dossier_retrouve_les_fichiers_que_leur_nom_ne_nomme_pas(
 
     monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
 
-    sortie = bloc("retrouve-moi mes avis d'imposition de 2024")
+    bloc("retrouve-moi mes avis d'imposition de 2024")
 
     for nom in ("impos 2024 1.pdf", "impos 2024 2.pdf", "impots 2024 3.pdf"):
-        assert nom in sortie, f"{nom} manquait — c'est le dossier qui le nomme"
-    assert "vacances.pdf" not in sortie
+        assert nom in _retenus(), f"{nom} manquait — c'est le dossier qui le nomme"
+    assert "vacances.pdf" not in _retenus()
 
 
 def test_trois_fichiers_egaux_n_en_ouvrent_aucun(maison, monkeypatch):

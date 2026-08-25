@@ -355,6 +355,91 @@ def liste_en_tete() -> tuple:
     return retenue.liste if retenue is not None else ()
 
 
+#: Ce qui reclame un NOM — et c'est la SEULE facon d'en obtenir un.
+#:
+#: ⚠️ NOVA NE CITE PLUS LES FICHIERS QU'ELLE TROUVE.
+#:
+#: Demande textuelle : « j'aimerais qu'elle arrete de citer les documents, je
+#: veux juste qu'elle me dise qu'elle a trouve, et que si je lui demande de me
+#: citer le nom du troisieme par exemple elle me le cite ».
+#:
+#: Releve en conditions reelles, ce qu'elle disait avant :
+#:
+#:     « J'ai trouve 4 fichiers : impots 2024 3.pdf, impos 2024 2.pdf, impos
+#:       2024 1.pdf et Avis d'imposition.pdf. Le meilleur est le premier, il
+#:       faut le deuxieme. Qu'en penses-tu ? »
+#:
+#: Onze secondes de synthese vocale pour quatre noms de fichiers qui se
+#: ressemblent, dont on ne retient rien a l'oreille.
+#:
+#: ⚠️ DEUX SIGNAUX, POUR LA MEME RAISON QUE `demande_de_fichier`.
+#:
+#: Le mot « nom » seul apparait au milieu de tout autre chose — « retrouve le
+#: contrat au nom de Dupont » en est une recherche, pas une question sur un
+#: nom. Il faut EN PLUS une tournure interrogative ou un imperatif de citation.
+_DEMANDE_DE_NOM = re.compile(r"\b(?:noms?|s appelle(?:nt)?|appelle(?:nt)?)\b")
+_QUESTION_DE_NOM = re.compile(
+    r"\b(?:c est quoi|quel est|quels sont|quelle est|comment|"
+    r"cite|cites|donne|donnes|dis|redis|repete|rappelle|epelle)\b"
+)
+
+
+def _plat(texte: str) -> str:
+    """Minuscules, sans accents ni ponctuation — l'apostrophe devient espace."""
+    return re.sub(r"[^a-z0-9]+", " ", sans_accents(texte or "").lower()).strip()
+
+
+def demande_le_nom(texte: str) -> bool:
+    """« c'est quoi le nom du troisieme ? », « cite-moi les noms »."""
+    plat = _plat(texte)
+    return bool(_DEMANDE_DE_NOM.search(plat) and _QUESTION_DE_NOM.search(plat))
+
+
+def bloc_du_nom(texte: str) -> str:
+    """Le nom d'un fichier de la liste retenue, ou `""` si on n'en demande pas.
+
+    ⚠️ LE NOM VIENT DE LA LISTE, PAS DU MODELE.
+
+    Un nom de fichier ne se paraphrase pas : « impos 2024 2.pdf » avec la
+    faute de frappe, ou rien. Un modele de trois milliards de parametres a qui
+    l'on donne quatre noms voisins en rend un cinquieme, moyenne des autres —
+    c'est exactement ce qu'il faisait quand il les recitait tous.
+
+    On lui en donne donc UN SEUL, celui du rang demande.
+    """
+    liste = liste_en_tete()
+    if not liste or not demande_le_nom(texte):
+        return ""
+
+    rang = rang_demande(texte)
+    if rang is None:
+        # « cite-moi les noms » sans rang : la liste entiere, numerotee — c'est
+        # ce qu'on a explicitement demande, et rien d'autre ne le declenche.
+        lignes = "\n".join(f"{i}. {c.name}" for i, c in enumerate(liste, start=1))
+        log.info("Noms reclames : %d fichier(s) cite(s).", len(liste))
+        return (
+            "## Noms des fichiers\n\n"
+            "Ta reponse, en francais : donne ces noms avec leur numero, tels "
+            "quels. Pas le chemin, pas la date, rien d'autre.\n\n"
+            f"<<<\n{lignes}\n>>>"
+        )
+
+    if (choisi := _au_rang(liste, rang)) is None:
+        log.info("Nom du rang %d reclame, la liste en compte %d.", rang, len(liste))
+        return (
+            "## Nom du fichier\n\n"
+            f"Reponds EXACTEMENT ceci : « Je n'en ai trouve que {len(liste)}. »"
+        )
+
+    log.info("Nom du rang %d reclame : %s", rang, choisi.name)
+    return (
+        "## Nom du fichier\n\n"
+        "Ta reponse, en francais, UNE PHRASE COURTE : donne ce nom tel quel. "
+        "Pas le chemin, pas la date, pas le contenu.\n\n"
+        f"<<<\n{choisi.name}\n>>>"
+    )
+
+
 def rang_demande(cible: str) -> int | None:
     """« le deuxieme » → 2. « le dernier » → -1. Sinon `None`.
 
@@ -735,16 +820,6 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
             comme=" ".join(recherche.mots) or meilleur.nom,
         )
 
-    # ⚠️ NUMEROTES, ET CE N'EST PAS DE LA MISE EN FORME.
-    #
-    # « ouvre le deuxieme » n'a de sens que si l'ordre a ete ENTENDU. Une liste
-    # a puces obligerait a compter soi-meme — et Nova lit ce bloc a voix
-    # haute, ou l'on ne revient pas en arriere.
-    lignes = "\n".join(
-        f"{rang}. {t.nom} ({int(n * 100)} % de correspondance) — "
-        f"dans {t.dossier}, modifie le {t.date_lisible()}"
-        for rang, (t, n) in enumerate(classes, start=1)
-    )
     quoi = " ".join(recherche.mots) or "ce que tu decris"
     # ⚠️ UNE HYPOTHESE SE DIT. Nova a peut-etre mal entendu, et la reponse
     # n'a de sens que si l'on sait sur quel mot elle a travaille.
@@ -779,16 +854,43 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
     # C'est la meme lecon que `_empechement` cote vision — « la consigne vient
     # avant la raison » — et je ne l'avais appliquee qu'a moitie.
     combien = (
-        f"dis que tu as trouve {len(classes)} fichiers et nomme-les avec "
-        "leur numero."
+        f"dis que tu as trouve {len(classes)} documents qui correspondent a "
+        f"« {quoi} »."
         if len(classes) > 1
-        else f"dis que tu l'as trouve, et nomme-le : {meilleur.nom}."
+        else f"dis que tu as trouve ce qu'il cherchait : « {quoi} »."
     )
     suite = (
         "dis que tu viens de l'ouvrir."
         if ouvert is not None
         else _comment_choisir(classes)
     )
+    # ══════════════════════════════════════════════════════════════════════
+    #  ⚠️ LES NOMS NE SONT PLUS DANS LE BLOC. C'EST TOUT LE CORRECTIF.
+    #
+    #  La version precedente donnait la liste au modele en lui demandant de
+    #  la reciter. Elle disait donc, en onze secondes de synthese vocale :
+    #
+    #      « J'ai trouve 4 fichiers : impots 2024 3.pdf, impos 2024 2.pdf,
+    #        impos 2024 1.pdf et Avis d'imposition.pdf. Le meilleur est le
+    #        premier, il faut le deuxieme. Qu'en penses-tu ? »
+    #
+    #  Demande textuelle : « j'aimerais qu'elle arrete de citer les documents,
+    #  je veux juste qu'elle me dise qu'elle a trouve ».
+    #
+    #  ⚠️ ET ON NE LUI DEMANDE PAS DE SE TAIRE : ON NE LUI DIT RIEN.
+    #
+    #  Ajouter « ne donne aucun nom » sous la liste des noms aurait ete la
+    #  correction facile, et elle n'aurait pas tenu : un modele de trois
+    #  milliards de parametres CONTINUE ce qu'il vient de lire, et ce qu'il
+    #  vient de lire aurait ete quatre noms de fichiers. La seule consigne
+    #  qu'un petit modele ne peut pas enfreindre est celle qui porte sur une
+    #  donnee qu'il n'a pas.
+    #
+    #  Les noms restent accessibles — `focus` les retient dans l'ordre
+    #  annonce — mais il faut les DEMANDER : « c'est quoi le nom du
+    #  troisieme ? » passe par `bloc_du_nom`, qui les lit dans la liste et
+    #  n'en donne qu'un.
+    # ══════════════════════════════════════════════════════════════════════
     bloc_trouve = (
         "## Recherche de fichier\n\n"
         + entendu
@@ -800,13 +902,10 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
         # c'est la premiere cause de lenteur RESSENTIE, bien avant le calcul.
         #
         # Demande textuelle : « qu'elle dise juste c'est bon j'ai trouve ».
-        + "Ta reponse, en francais, UNE PHRASE COURTE :\n"
+        + "Ta reponse, en francais, UNE SEULE PHRASE COURTE :\n"
         f"- {combien}\n"
         f"- {suite}\n"
-        "- pas le chemin, pas la date, pas le contenu : tu ne les as pas lus."
-        "\n\n"
-        f"Recherche demandee : « {quoi} ». Fichiers trouves, le meilleur en "
-        "premier — c'est la SEULE chose que Nova sait d'eux :\n"
-        f"<<<\n{lignes}\n>>>"
+        "- tu n'as ni les noms, ni les chemins, ni les dates, ni le contenu : "
+        "n'en invente aucun."
     )
     return bloc_trouve, certain

@@ -616,7 +616,20 @@ def build_system_prompt(
     try:
         from nova.fichiers import trouver
 
-        bloc_fichier, fichier_trouve = trouver.bloc_et_resultat(user_message)
+        # ⚠️ LE NOM NE SE DONNE QUE SUR DEMANDE — ET C'EST CETTE DEMANDE.
+        #
+        # Nova ne cite plus les fichiers qu'elle trouve : elle dit combien.
+        # « c'est quoi le nom du troisieme ? » est desormais la seule facon
+        # d'en obtenir un, et la reponse est lue dans la liste retenue, pas
+        # produite par le modele — un nom de fichier ne se paraphrase pas.
+        #
+        # AVANT la recherche : « donne-moi le nom du troisieme document »
+        # declenche les deux, et relancer Spotlight pour repondre a une
+        # question sur ce qu'on vient de trouver serait absurde.
+        bloc_fichier = trouver.bloc_du_nom(user_message)
+        fichier_trouve = bool(bloc_fichier)
+        if not fichier_trouve:
+            bloc_fichier, fichier_trouve = trouver.bloc_et_resultat(user_message)
     except Exception as exc:  # noqa: BLE001
         log.warning("Recherche de fichiers indisponible : %s", exc)
 

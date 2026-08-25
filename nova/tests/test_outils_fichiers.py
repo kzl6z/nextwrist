@@ -159,7 +159,11 @@ def test_le_prompt_ne_porte_jamais_les_deux_recherches(tmp_path, monkeypatch):
         "retrouve dans mes photos mon releve de compte de 2024"
     )
 
-    assert "releve-compte-2024.pdf" in prompt
+    # ⚠️ LE BLOC NE PORTE PLUS LE NOM DU FICHIER — IL PORTE SON TITRE.
+    #
+    # Nova ne cite plus les documents qu'elle trouve. Ce qui se prouve ici
+    # n'est pas ce qu'elle dit, mais LEQUEL DES DEUX BLOCS est parti.
+    assert "## Recherche de fichier" in prompt
     assert "casquette" not in prompt
     assert appels == [], "le regard ne doit meme pas etre consulte"
 
@@ -231,7 +235,7 @@ def test_un_fichier_trouve_l_emporte_toujours_sur_le_regard(tmp_path, monkeypatc
         "retrouve dans mes photos mon relevé de compte de 2024"
     )
 
-    assert "releve-compte-2024.pdf" in prompt
+    assert "## Recherche de fichier" in prompt
     assert "casquette" not in prompt
 
 
@@ -348,37 +352,45 @@ def _trois_avis(tmp_path, monkeypatch):
     return dossier
 
 
-def test_la_liste_annoncee_est_numerotee(tmp_path, monkeypatch):
-    """⚠️ SANS NUMEROS, « LE DEUXIEME » NE DESIGNE RIEN.
+def test_le_compte_est_annonce_et_le_rang_explique(tmp_path, monkeypatch):
+    """⚠️ NOVA NE RECITE PLUS LES NOMS, ELLE DIT COMBIEN.
 
-    Nova lit ce bloc a voix haute : on ne revient pas en arriere pour compter.
-    Le rang doit avoir ete ENTENDU.
+    Demande textuelle : « j'aimerais qu'elle arrete de citer les documents,
+    je veux juste qu'elle me dise qu'elle a trouve ».
+
+    Le rang garde son sens PARCE QUE le compte est dit : « j'en ai trouve
+    trois » suffit a rendre « le deuxieme » prononcable. Et si l'on veut les
+    noms, on les demande — c'est `bloc_du_nom` qui repond.
     """
-    from nova.fichiers.trouver import bloc
+    from nova.fichiers.trouver import bloc, liste_en_tete
 
     _trois_avis(tmp_path, monkeypatch)
 
     sortie = bloc("retrouve-moi mes avis d'imposition de 2024")
 
-    assert "1. " in sortie and "2. " in sortie and "3. " in sortie
+    assert "3 documents" in sortie
     # Et la consigne dit COMMENT choisir, pas seulement qu'on n'a pas choisi.
     assert "rang" in sortie
+    for nom in ("impos 2024 1.pdf", "impos 2024 2.pdf", "impots 2024 3.pdf"):
+        assert nom not in sortie, f"{nom} est prononce alors qu'on ne l'a pas demande"
+    # L'ordre, lui, est retenu : c'est ce qui donne un sens au rang.
+    assert len(liste_en_tete()) == 3
 
 
 def test_ouvre_le_deuxieme_ouvre_le_deuxieme(tmp_path, monkeypatch):
     """LE BANC CENTRAL, depuis la phrase prononcee jusqu'a l'outil."""
     from nova import orchestrator
     from nova.core import actions
-    from nova.fichiers.trouver import bloc
+    from nova.fichiers.trouver import bloc, liste_en_tete
     from nova.voice import intentions
 
     dossier = _trois_avis(tmp_path, monkeypatch)
-    sortie = bloc("retrouve-moi mes avis d'imposition de 2024")
-    annonces = [
-        ligne.split(". ", 1)[1].split(" (")[0]
-        for ligne in sortie.splitlines()
-        if ligne[:2] in ("1.", "2.", "3.")
-    ]
+    bloc("retrouve-moi mes avis d'imposition de 2024")
+    # ⚠️ L'ORDRE VIENT DE LA LISTE RETENUE, PLUS DU TEXTE PRONONCE.
+    #
+    # Nova ne nomme plus les fichiers ; le rang continue pourtant de designer
+    # le meme, parce que la retenue garde l'ordre du classement.
+    annonces = [chemin.name for chemin in liste_en_tete()]
     assert len(annonces) == 3, annonces
 
     for phrase, rang in [
@@ -550,7 +562,9 @@ def test_un_mot_massacre_est_rattrape_mais_toujours_annonce(tmp_path, monkeypatc
 
     sortie = trouver.bloc("dans mon PC, j'ai mes empeaux, peux-tu me les retrouver")
 
-    assert "impots 2024 3.pdf" in sortie, "la seconde lecture doit trouver le fichier"
+    assert [c.name for c in trouver.liste_en_tete()] == ["impots 2024 3.pdf"], (
+        "la seconde lecture doit trouver le fichier"
+    )
     assert "empeaux" in sortie, "Nova doit dire ce qu'elle a entendu"
     assert "COMMENCE ta reponse" in sortie, "et le dire EN PREMIER"
 
@@ -621,20 +635,40 @@ def test_la_consigne_vient_avant_les_donnees(tmp_path, monkeypatch):
 
     sortie = trouver.bloc("retrouve mes impôts de 2024")
 
-    assert sortie.rstrip().endswith(">>>"), (
-        "le bloc doit finir sur les fichiers, pas sur une instruction"
+    # ⚠️ LA LECON A ETE POUSSEE PLUS LOIN : IL N'Y A PLUS DE DONNEES DU TOUT.
+    #
+    # La version precedente mettait la consigne avant la liste des fichiers,
+    # pour que le modele finisse sur les noms plutot que sur mes phrases. Il
+    # les recitait donc — ce qui etait le but, et n'est plus voulu.
+    #
+    # La seule consigne qu'un petit modele ne peut pas enfreindre est celle
+    # qui porte sur une donnee qu'il n'a pas. Le bloc de recherche ne porte
+    # plus aucun nom de fichier.
+    assert "<<<" not in sortie, "le bloc de recherche ne porte plus de donnees"
+    assert "impots-2024.pdf" not in sortie
+
+    # ⚠️ MAIS `bloc_du_nom`, LUI, EN PORTE — ET L'ORDRE Y RESTE LA REGLE.
+    #
+    # C'est le seul bloc qui donne encore un nom, et donc le seul ou la lecon
+    # d'origine s'applique encore.
+    nom = trouver.bloc_du_nom("c'est quoi le nom du premier ?")
+    assert nom.rstrip().endswith(">>>"), (
+        "le bloc doit finir sur la donnee, pas sur une instruction"
     )
-    consigne = sortie.index("Ta reponse")
-    donnees = sortie.index("<<<")
-    assert consigne < donnees, "la consigne vient AVANT les donnees"
+    assert nom.index("Ta reponse") < nom.index("<<<"), (
+        "la consigne vient AVANT les donnees"
+    )
 
 
-def test_plusieurs_fichiers_sont_tous_annonces(tmp_path, monkeypatch):
-    """⚠️ NOVA N'EN NOMMAIT QU'UN SUR TROIS.
+def test_plusieurs_fichiers_se_comptent_sans_se_nommer(tmp_path, monkeypatch):
+    """⚠️ ELLE N'EN NOMMAIT QU'UN SUR TROIS. MAINTENANT ELLE N'EN NOMME AUCUN.
 
-    La consigne disait « nomme le fichier : {le meilleur} ». Le modele
-    obeissait — et les deux autres restaient invisibles, alors qu'ils
-    figuraient dans la liste juste en dessous.
+    Etape par etape : la consigne disait d'abord « nomme le fichier : {le
+    meilleur} », et les deux autres restaient invisibles. Elle a ensuite dit
+    de les nommer tous les trois, et Nova a recite onze secondes de noms de
+    fichiers voisins dont on ne retient rien a l'oreille.
+
+    Le compte est la seule chose utile a entendre. Les noms se demandent.
     """
     from nova.fichiers import trouver
 
@@ -650,11 +684,13 @@ def test_plusieurs_fichiers_sont_tous_annonces(tmp_path, monkeypatch):
 
     sortie = trouver.bloc("retrouve mes impôts de 2024")
 
-    assert "3 fichiers" in sortie
+    assert "3 documents" in sortie
     assert "rang" in sortie, "et comment en choisir un"
+    for nom in ("impos 2024 1.pdf", "impos 2024 2.pdf", "impots 2024 3.pdf"):
+        assert nom not in sortie, nom
 
 
-def test_un_seul_fichier_ne_demande_pas_d_en_nommer_trois(tmp_path, monkeypatch):
+def test_un_seul_fichier_se_propose_sans_se_nommer(tmp_path, monkeypatch):
     from nova.fichiers import trouver
 
     dossier = tmp_path / "Documents"
@@ -668,7 +704,7 @@ def test_un_seul_fichier_ne_demande_pas_d_en_nommer_trois(tmp_path, monkeypatch)
 
     sortie = trouver.bloc("retrouve mes impôts de 2024")
 
-    assert "nomme-le : impots-2024.pdf" in sortie
+    assert "impots-2024.pdf" not in sortie, "elle ne cite plus les documents"
     assert "je te l'ouvre ?" in sortie, "une seule trouvaille se PROPOSE"
 
 
@@ -872,3 +908,123 @@ def test_nova_dit_les_mots_de_la_demande_pas_le_nom_du_fichier(tmp_path, monkeyp
     assert "carte identite" in reponse["message"]
     assert "CNI BERANGERE" not in reponse["message"]
     assert ".png" not in reponse["message"]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  « C'EST QUOI LE NOM DU TROISIEME ? »
+#
+#  ⚠️ NOVA NE CITE PLUS LES DOCUMENTS. C'EST LA CONTREPARTIE.
+#
+#  Demande textuelle : « j'aimerais qu'elle arrete de citer les documents, je
+#  veux juste qu'elle me dise qu'elle a trouve, et que si je lui demande de me
+#  citer le nom du troisieme par exemple elle me le cite ».
+#
+#  Ce qu'elle disait avant, en onze secondes de synthese vocale :
+#
+#      « J'ai trouve 4 fichiers : impots 2024 3.pdf, impos 2024 2.pdf, impos
+#        2024 1.pdf et Avis d'imposition.pdf. Le meilleur est le premier, il
+#        faut le deuxieme. Qu'en penses-tu ? »
+# ══════════════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "c'est quoi le nom du troisième",
+        "donne-moi le nom du deuxième",
+        "cite-moi le nom du premier",
+        "comment s'appelle le troisième",
+        "quel est le nom du dernier",
+        "redis-moi les noms",
+        "rappelle-moi le nom du 2",
+    ],
+)
+def test_une_demande_de_nom_se_reconnait(phrase):
+    from nova.fichiers.trouver import demande_le_nom
+
+    assert demande_le_nom(phrase), phrase
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # ⚠️ LE MOT « NOM » SEUL APPARAIT AU MILIEU D'UNE RECHERCHE.
+        #
+        # « retrouve le contrat au nom de Dupont » EST une recherche. La
+        # prendre pour une question sur un nom repondrait a cote, et sans
+        # jamais toucher au disque.
+        "retrouve le contrat au nom de Dupont",
+        "cherche la facture au nom de ma mère",
+        # Ni verbe de citation, ni tournure interrogative.
+        "ouvre le deuxième",
+        "retrouve mes impôts de 2024",
+        "quelle heure est-il",
+        "",
+    ],
+)
+def test_ce_qui_ne_demande_pas_un_nom(phrase):
+    from nova.fichiers.trouver import demande_le_nom
+
+    assert not demande_le_nom(phrase), phrase
+
+
+def test_le_nom_du_troisieme_se_donne_sur_demande(tmp_path, monkeypatch):
+    """LE BANC CENTRAL, par l'orchestrateur — pas par la fonction d'aide.
+
+    ⚠️ ET IL N'EN DONNE QU'UN.
+
+    Donner les trois au modele en lui demandant de n'en citer qu'un, c'est la
+    correction facile qui n'aurait pas tenu : un modele de trois milliards de
+    parametres CONTINUE ce qu'il vient de lire. On ne lui confie que le nom
+    demande — les deux autres ne quittent jamais la memoire de Nova.
+    """
+    from nova import orchestrator
+    from nova.fichiers import trouver
+
+    _trois_avis(tmp_path, monkeypatch)
+    _sans_base(monkeypatch)
+    trouver.bloc("retrouve-moi mes avis d'imposition de 2024")
+    troisieme = trouver.liste_en_tete()[2].name
+    autres = [c.name for c in trouver.liste_en_tete()[:2]]
+
+    prompt, _ = orchestrator.build_system_prompt("c'est quoi le nom du troisième ?")
+
+    assert troisieme in prompt
+    for nom in autres:
+        assert nom not in prompt, f"{nom} n'a pas ete demande"
+
+
+def test_un_nom_reclame_sans_rang_les_numerote_tous(tmp_path, monkeypatch):
+    """« cite-moi les noms » : la liste entiere, et rien d'autre ne la declenche."""
+    from nova.fichiers import trouver
+
+    _trois_avis(tmp_path, monkeypatch)
+    trouver.bloc("retrouve-moi mes avis d'imposition de 2024")
+
+    sortie = trouver.bloc_du_nom("cite-moi les noms")
+
+    for rang, chemin in enumerate(trouver.liste_en_tete(), start=1):
+        assert f"{rang}. {chemin.name}" in sortie
+
+
+def test_un_rang_hors_liste_ne_donne_aucun_nom(tmp_path, monkeypatch):
+    """⚠️ MEME REGLE QUE POUR L'OUVERTURE : ON NE RABAT PAS SUR LE PLUS PROCHE.
+
+    Rendre le troisieme quand on demande le cinquieme serait une reponse
+    fausse ayant l'air d'une reponse juste.
+    """
+    from nova.fichiers import trouver
+
+    _trois_avis(tmp_path, monkeypatch)
+    trouver.bloc("retrouve-moi mes avis d'imposition de 2024")
+
+    sortie = trouver.bloc_du_nom("c'est quoi le nom du cinquième ?")
+
+    assert "que 3" in sortie
+    for chemin in trouver.liste_en_tete():
+        assert chemin.name not in sortie
+
+
+def test_sans_recherche_prealable_aucun_nom_n_est_donne():
+    """Le bloc ne coute rien et ne dit rien quand il n'y a rien a nommer."""
+    from nova.fichiers.trouver import bloc_du_nom
+
+    assert bloc_du_nom("c'est quoi le nom du troisième ?") == ""
