@@ -157,7 +157,7 @@ def tenir_dans_le_budget(contenus: list[str], budget: int) -> list[str]:
     return gardes
 
 
-def render_for_prompt(faits: list | None = None) -> str:
+def render_for_prompt(faits: list | None = None, *, budget: int | None = -1) -> str:
     """Rend les faits confirmes sous forme de bloc injectable dans le prompt.
 
     Groupes par categorie : un modele suit nettement mieux une liste structuree
@@ -182,7 +182,20 @@ def render_for_prompt(faits: list | None = None) -> str:
     if not facts:
         return ""
 
-    retenus = tenir_dans_le_budget([f.content for f in facts], reglages.faits_budget)
+    # ⚠️ `budget=None` : LA LISTE A DEJA ETE CHOISIE, ON NE LA RETAILLE PAS.
+    #
+    # Le Memory Engine selectionne par pertinence DANS le budget, et place le
+    # noyau critique en tete. Retrancher une seconde fois ici — par date,
+    # comme le fait `tenir_dans_le_budget` — jetterait precisement ce qu'il
+    # venait de retenir, et le ferait en silence.
+    #
+    # `-1` par defaut signifie « comportement d'origine » : le budget des
+    # reglages. Un appelant qui ne sait rien du moteur n'a rien a changer.
+    if budget is None:
+        retenus = [f.content for f in facts]
+    else:
+        plafond = reglages.faits_budget if budget < 0 else budget
+        retenus = tenir_dans_le_budget([f.content for f in facts], plafond)
     if len(retenus) < len(facts):
         log.info(
             "Memoire : %d faits sur %d injectes (budget de %d caracteres). "

@@ -120,6 +120,37 @@ def executer(demande: DemandeAction) -> ReponseAction:
             niveau=fait.niveau, intention="ouvrir_tout", cible=None,
         )
 
+    # ⚠️ « SOUVIENS-TOI QUE… » N'ECRIVAIT RIEN. C'ETAIT UN TROU, PAS UN MANQUE.
+    #
+    # L'intention « memoire » etait reconnue depuis longtemps — « souviens-toi »,
+    # « retiens », « note que » — et aucune action ne se trouvait derriere.
+    # Verifie sur une base reelle : la phrase etait comprise, zero ligne
+    # ecrite, et Nova repondait poliment sans avoir rien retenu.
+    #
+    # ⚠️ AVANT LA RECONNAISSANCE D'INTENTION, POUR LA MEME RAISON QUE
+    #    « PEUX-TU TOUS LES OUVRIR ».
+    #
+    # La demande se lit sur la PHRASE ENTIERE : ce qu'il faut retenir est ce
+    # qui SUIT le verbe, et le mecanisme de cible ne transporte qu'un mot. La
+    # reconnaissance d'intention n'a rien a apporter ici.
+    from nova.memory import moteur as memoire
+
+    if memoire.demande_d_oubli(demande.texte):
+        fait = orchestrator.oublier_de_la_memoire(demande.texte)
+        log.info("« %s » → %s", demande.texte, fait.etat)
+        return ReponseAction(
+            etat=fait.etat, message=fait.message, outil=fait.outil,
+            niveau=fait.niveau, intention="oublier_memoire", cible=None,
+        )
+
+    if memoire.demande_de_retenir(demande.texte):
+        fait = orchestrator.memoriser(demande.texte)
+        log.info("« %s » → %s", demande.texte, fait.etat)
+        return ReponseAction(
+            etat=fait.etat, message=fait.message, outil=fait.outil,
+            niveau=fait.niveau, intention="retenir_memoire", cible=None,
+        )
+
     intention = voice_intentions.reconnaitre(demande.texte)
 
     # On reconstruit une `Comprehension` minimale : ce point d'entree accepte

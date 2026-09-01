@@ -167,7 +167,19 @@ DUREE_CACHE_VOCABULAIRE = 60.0
 #: de la parole. Le meme defaut avait deja ete corrige pour le vocabulaire,
 #: avec la mesure qui va avec : « base injoignable, 30 secondes avant la
 #: premiere transcription ». Le bloc memoire y etait reste exposé.
-_vocabulaire_cache: tuple[float, tuple[str, ...], str] | None = None
+#: (instant, vocabulaire, bloc rendu, FAITS BRUTS)
+#:
+#: ⚠️ LES FAITS BRUTS SONT LE QUATRIEME ELEMENT, ET C'EST CE QUI PERMET DE
+#:    CHOISIR PAR QUESTION SANS RELIRE LA BASE.
+#:
+#: Le cache ne portait que le bloc DEJA RENDU : le meme texte pour toutes
+#: les questions, tronque par date. Selectionner par pertinence obligeait
+#: alors a relire la base a chaque question — exactement ce que ce cache
+#: existe pour eviter, et sur le chemin critique de la parole.
+#:
+#: En gardant la liste, la selection se fait EN MEMOIRE : quelques dizaines
+#: de comparaisons de mots, aucun aller-retour.
+_vocabulaire_cache: tuple[float, tuple[str, ...], str, tuple] | None = None
 _verrou_vocabulaire = threading.Lock()
 
 #: Empeche dix requetes simultanees de lancer dix relectures de la base.
@@ -192,7 +204,7 @@ def rafraichir_le_vocabulaire() -> tuple[str, ...]:
             # Memoire indisponible : vocabulaire vide, donc une transcription
             # moins fine sur les noms propres. Jamais une panne.
             log.warning("Memoire indisponible : %s", exc)
-            _vocabulaire_cache = (time.monotonic(), termes, bloc)
+            _vocabulaire_cache = (time.monotonic(), termes, bloc, ())
             return termes
 
         # ⚠️ LES DEUX PRODUITS SONT CALCULES SEPAREMENT, ET C'EST VOULU.
@@ -212,7 +224,7 @@ def rafraichir_le_vocabulaire() -> tuple[str, ...]:
         except Exception as exc:  # noqa: BLE001
             log.warning("Bloc memoire non rendu : %s", exc)
 
-        _vocabulaire_cache = (time.monotonic(), termes, bloc)
+        _vocabulaire_cache = (time.monotonic(), termes, bloc, tuple(confirmes))
         return termes
 
 
@@ -245,7 +257,7 @@ def _termes_de_la_memoire() -> tuple[str, ...]:
     return cache[1]
 
 
-def _bloc_memoire() -> str:
+def _bloc_memoire(question: str = "") -> str:
     """Les faits confirmes, prets pour le prompt, SANS attendre la base.
 
     ⚠️ LE CACHE FROID SE LIT EN BLOQUANT, ET C'EST DELIBERE.
@@ -270,7 +282,36 @@ def _bloc_memoire() -> str:
 
     if time.monotonic() - cache[0] >= DUREE_CACHE_VOCABULAIRE:
         _demander_un_rafraichissement()
-    return cache[2]
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  ⚠️ SANS QUESTION, ON REND TOUT — ET C'EST LE COMPORTEMENT D'AVANT.
+    #
+    #  La selection par pertinence n'a de sens que face a une question. Un
+    #  appelant qui n'en a pas (un banc, un diagnostic) doit continuer de
+    #  recevoir ce qu'il recevait.
+    # ══════════════════════════════════════════════════════════════════════
+    faits = cache[3] if len(cache) > 3 else ()
+    if not question or not faits:
+        return cache[2]
+
+    try:
+        from nova.memory import facts as memoire_faits
+        from nova.memory import moteur
+
+        retenus = moteur.pertinents(
+            question, list(faits), budget=get_tuning().faits_budget
+        )
+        if not retenus:
+            log.info("[Memory] Aucun fait pertinent pour cette question")
+            return ""
+        return memoire_faits.render_for_prompt(retenus, budget=None)
+    except Exception as exc:  # noqa: BLE001
+        # ⚠️ UNE SELECTION EN PANNE REND LA MEMOIRE ENTIERE, PAS RIEN.
+        #
+        # Le pire mode de panne serait une Nova qui ne se souvient plus de
+        # qui tu es parce qu'un tri a leve. On retombe sur le bloc complet.
+        log.warning("[Memory] Selection impossible, memoire complete : %s", exc)
+        return cache[2]
 
 
 def _demander_un_rafraichissement() -> None:
@@ -609,7 +650,7 @@ def build_system_prompt(
     #
     # Servi depuis le cache partage avec le vocabulaire : la lecture en base
     # se fait dans le fil d'entretien, pas dans la question de l'utilisateur.
-    ajouter("memoire", _bloc_memoire())
+    ajouter("memoire", _bloc_memoire(user_message))
 
     # 3. Volatil — change a chaque minute, puis a chaque question.
     #
@@ -1427,6 +1468,58 @@ def ouvrir_toute_la_liste(chemins) -> Resultat:
     if rates:
         combien = f"J'ai ouvert {len(ouverts)} fichiers sur {len(ouverts) + len(rates)}."
     return Resultat("executee", combien, outil="ouvrir_fichier")
+
+
+def memoriser(phrase: str) -> Resultat:
+    """Retient ce que la phrase demande de retenir. Ne leve jamais.
+
+    ⚠️ LE MESSAGE DIT CE QUI EST REELLEMENT EN BASE.
+
+    Regle explicite du cahier des charges : ne jamais pretendre qu'une memoire
+    est enregistree si elle ne l'est pas. C'est aussi la seule facon d'etre
+    utile — une memoire qui dit « c'est note » sans noter est pire qu'une
+    absence de memoire, parce qu'on cesse de verifier.
+
+    ⚠️ ET L'ECRITURE PASSE PAR LE PORTILLON, COMME TOUTE ACTION.
+
+    `executer_outil` reste le seul endroit qui decide si un appel a lieu. Un
+    court-circuit « ce n'est qu'une note » rendrait le bareme decoratif —
+    c'est ce que la vision et la recherche de fichiers ont deja refuse de
+    faire.
+    """
+    from nova.outils import executer_outil
+
+    try:
+        resultat = executer_outil("retenir_en_memoire", phrase=phrase)
+    except Exception as erreur:  # noqa: BLE001
+        log.warning("[Memory] Memorisation impossible : %s", erreur)
+        return Resultat("echouee", "Je n'ai pas réussi à le noter.")
+
+    if not resultat.get("retenu"):
+        return Resultat("ignoree", "Je n'ai pas compris ce qu'il fallait retenir.")
+    return Resultat(
+        "executee",
+        "C'est noté.",
+        outil="retenir_en_memoire",
+        arguments={"id": resultat["id"]},
+    )
+
+
+def oublier_de_la_memoire(phrase: str) -> Resultat:
+    """Archive ce que la phrase demande d'oublier. Ne leve jamais."""
+    from nova.outils import executer_outil
+
+    try:
+        resultat = executer_outil("oublier_de_la_memoire", phrase=phrase)
+    except Exception as erreur:  # noqa: BLE001
+        log.warning("[Memory] Oubli impossible : %s", erreur)
+        return Resultat("echouee", "Je n'ai pas réussi à l'oublier.")
+
+    combien = resultat.get("oublies", 0)
+    if not combien:
+        return Resultat("ignoree", "Je n'ai rien trouvé à oublier.")
+    message = "C'est oublié." if combien == 1 else f"J'ai oublié {combien} choses."
+    return Resultat("executee", message, outil="oublier_de_la_memoire")
 
 
 def executer_outil_propose(outil: str, arguments: dict, *, comme: str = "") -> Resultat:

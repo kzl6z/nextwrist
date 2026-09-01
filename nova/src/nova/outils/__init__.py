@@ -184,6 +184,72 @@ class ChercherDansLaMemoire:
         ]
 
 
+class RetenirEnMemoire:
+    """Ecrit un fait en memoire, sur demande explicite.
+
+    ⚠️ CET OUTIL MANQUAIT, ET SON ABSENCE RENDAIT LA MEMOIRE MUETTE.
+
+    L'intention « memoire » etait reconnue depuis longtemps — « souviens-toi »,
+    « retiens », « note que » — et aucune action ne se trouvait derriere.
+    Verifie sur une base reelle : la phrase etait comprise, et zero ligne
+    ecrite. Nova repondait poliment, et n'avait rien retenu.
+
+    ⚠️ REVERSIBLE, ET C'EST LE BON NIVEAU.
+
+    Ecrire un fait change ce que Nova croit savoir de toi — ce n'est pas une
+    LECTURE. Mais rien n'est perdu : `oublier` archive, et l'archivage se
+    defait. Le niveau dit exactement cela.
+    """
+
+    nom = "retenir_en_memoire"
+    description = "Retient une information que tu demandes explicitement de garder"
+    capacite = "memoire"
+    niveau = contrats.REVERSIBLE
+
+    def executer(self, phrase: str) -> dict:
+        from nova.memory import moteur
+
+        fait = moteur.retenir(phrase)
+        if fait is None:
+            # ⚠️ ON NE PRETEND JAMAIS AVOIR RETENU.
+            #
+            # Regle explicite du cahier des charges, et la seule facon d'etre
+            # utile : une memoire qui dit « c'est note » sans noter est pire
+            # qu'une absence de memoire, parce qu'on cesse de verifier.
+            return {"retenu": False, "raison": "aucune demande de memorisation"}
+        return {
+            "retenu": True,
+            "id": fait.id,
+            "contenu": fait.content,
+            "categorie": fait.category,
+        }
+
+
+class OublierDeLaMemoire:
+    """Archive un fait que tu demandes d'oublier.
+
+    ⚠️ ARCHIVE, NE SUPPRIME PAS.
+
+    Meme regle que `facts.archive` : un effacement definitif ne se rattrape
+    pas. Du point de vue de Nova, un fait archive n'existe plus — il ne sort
+    d'aucune lecture et d'aucun prompt.
+    """
+
+    nom = "oublier_de_la_memoire"
+    description = "Retire de la memoire une information que tu ne veux plus"
+    capacite = "memoire"
+    niveau = contrats.REVERSIBLE
+
+    def executer(self, phrase: str) -> dict:
+        from nova.memory import moteur
+
+        oublies = moteur.oublier(phrase)
+        return {
+            "oublies": len(oublies),
+            "contenus": [f.content for f in oublies],
+        }
+
+
 def enregistrer_outils_standard(racine_travail: Path) -> Registre:
     """Enregistre les outils qui ont besoin d'une configuration.
 
@@ -192,7 +258,13 @@ def enregistrer_outils_standard(racine_travail: Path) -> Registre:
     l'etre : ils sont construits puis enregistres. Le registre accepte les
     deux formes pour cette raison exacte.
     """
-    for outil in (LireFichier(racine_travail), ChercherDansLesDocuments(), ChercherDansLaMemoire()):
+    for outil in (
+        LireFichier(racine_travail),
+        ChercherDansLesDocuments(),
+        ChercherDansLaMemoire(),
+        RetenirEnMemoire(),
+        OublierDeLaMemoire(),
+    ):
         if outil.nom not in registre_outils:
             registre_outils.enregistrer(outil)
     return registre_outils

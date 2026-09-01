@@ -58,6 +58,14 @@ CAPACITES_CONNUES: frozenset[str] = frozenset(
         "vision",           # comprendre une image ou une video
         "recherche",        # aller chercher une information
         "action",           # modifier le monde : fichiers, impression, envoi
+        # ⚠️ SEPAREE DE « recherche », ET CE N'EST PAS UN DETAIL.
+        #
+        # `chercher_memoire` LIT la memoire et relevait de « recherche ».
+        # Retenir et oublier l'ECRIVENT : ce sont deux droits differents, et
+        # les confondre reviendrait a laisser une capacite de lecture ouvrir
+        # une porte d'ecriture. Le bareme de risque le dit deja au niveau de
+        # l'outil ; la capacite doit le dire au niveau de l'architecture.
+        "memoire",          # retenir ou oublier ce que Nova sait de toi
     }
 )
 

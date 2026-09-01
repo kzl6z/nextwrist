@@ -188,10 +188,30 @@ def peremption_probable(contenu: str, *, maintenant: datetime | None = None):
 # ══════════════════════════════════════════════════════════════════════════
 #: Sous ce recouvrement, deux faits parlent d'autre chose.
 #:
-#: Mesure faite sur des paires reelles : « mon projet s'appelle nova » contre
-#: « mon projet s'appelle sentinel » partagent 3 mots sur 5 (0,60) ; contre
-#: « je prefere les reponses courtes », 0 sur 8.
-SEUIL_CONTRADICTION = 0.55
+#: ⚠️ CETTE VALEUR EST MESUREE, PAS CHOISIE AU JUGE.
+#:
+#: La premiere valait 0,55, et un banc l'a prise en defaut : « j'habite a
+#: Lyon » contre « j'habite a Paris » vaut 0,50 — deux faits qui se
+#: contredisent evidemment, et qui coexistaient donc en base.
+#:
+#: Quatorze paires reelles ont ete mesurees, sept qui parlent du meme sujet et
+#: sept qui n'ont rien a voir :
+#:
+#:     meme sujet, le plus BAS      0,50   « j'habite a Lyon » / « a Paris »
+#:     sujets differents, le + HAUT 0,33   « ma soeur s'appelle X » /
+#:                                         « mon projet s'appelle Y »
+#:
+#: Les deux classes se separent — ce qui n'allait pas de soi, et n'a pas ete
+#: le cas pour le rapprochement phonetique, ou aucun seuil ne passait entre
+#: « empeaux »→impots (0,67) et « porsche »→impots (0,67). Ici il y a un
+#: intervalle, et 0,45 se place dedans avec de la marge des deux cotes.
+#:
+#: ⚠️ ET L'ERREUR N'EST PAS SYMETRIQUE.
+#:
+#: Un faux positif archive un fait a tort : recuperable, il n'est pas
+#: supprime. Un faux negatif laisse deux faits contradictoires dans le prompt,
+#: et le modele en choisit un au hasard — c'est le defaut qu'on corrige.
+SEUIL_CONTRADICTION = 0.45
 
 
 def _mots_utiles(texte: str) -> frozenset[str]:
@@ -368,10 +388,25 @@ def pertinents(
 #  4. OUBLIER
 # ══════════════════════════════════════════════════════════════════════════
 #: « Nova, oublie ca », « supprime cette information ».
+#:
+#: ⚠️ « N'OUBLIE PAS QUE… » EST UNE DEMANDE DE RETENIR. LE PIRE CONTRESENS.
+#:
+#: Les deux formules contiennent le mot « oublie ». Sans la garde ci-dessous,
+#: « n'oublie pas que je suis allergique aux arachides » effacait un fait au
+#: moment precis ou l'on demandait de le garder — et l'oubli etant teste en
+#: premier, il gagnait.
+#:
+#: Trouve par un banc, pas par la relecture : les deux motifs avaient l'air
+#: distincts en les lisant l'un apres l'autre.
+#:
+#: La negation se lit dans les deux sens, parce que la parole transcrite
+#: produit les deux : « n'oublie pas » devient « n oublie pas » une fois
+#: aplati, et « ne pas oublier » existe aussi.
 _DEMANDE_D_OUBLI = re.compile(
-    r"\b(?:"
-    r"oublie (?:ca|cela|cette|ce|tout|moi ca)?|oubliez|"
-    r"supprime (?:ca|cela|cette|ce|de ta memoire)?|efface|"
+    r"(?<!n )(?<!ne )\b(?:"
+    r"oublie(?! pas)(?: ca| cela| cette| ce| tout| moi ca)?|oubliez(?! pas)|"
+    r"supprime (?:ca|cela|cette|ce|de ta memoire)|"
+    r"efface(?: ca| cela| cette| ce)?|"
     r"retire (?:ca|cela) de ta memoire|"
     r"ne (?:te )?souviens? plus"
     r")\b"
