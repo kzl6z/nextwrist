@@ -242,7 +242,7 @@ class Modele:
     raisonne_a_voix_haute: bool = False
     #: Sort-il de la machine ? Le local est prefere a competence egale.
     distant: bool = False
-    #: Quel fournisseur le sert — « ollama », « anthropic », un futur autre.
+    #: Quel fournisseur le sert — « ollama » aujourd'hui, un autre demain.
     #:
     #: ⚠️ CE CHAMP EST CE QUI RELIE LE CHOIX A L'EXECUTION.
     #:

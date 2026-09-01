@@ -24,9 +24,19 @@ une seconde fois.
 CE QUE CETTE COUCHE AJOUTE, ET RIEN DE PLUS
 
     un CONTRAT commun          `Fournisseur`
-    deux mises en oeuvre       Ollama (local), Anthropic (distant)
+    une mise en oeuvre         Ollama, en local
     un RECOURS                 si le premier echoue, le suivant essaie
     le CABLAGE                 le choix du routeur atteint enfin un moteur
+
+⚠️ UN SEUL FOURNISSEUR AUJOURD'HUI, ET C'EST UN CHOIX EXPLICITE.
+
+Claude a existe ici, par l'API Anthropic. Il a ete retire sur demande — « je
+ne veux pas de Claude ». Le contrat, lui, reste : c'est ce qui permettra
+d'ajouter un second modele Ollama, un modele specialise ou le modele Nova
+sans toucher a un seul appelant.
+
+Le garder « au cas ou » aurait ete pire que le retirer. Du code mort qu'on
+conserve finit par etre execute par accident — la lecon de `_TOUT_OUVRIR`.
 
 `llm/client.py` n'est pas remplace : le fournisseur local l'appelle. Rien de
 ce qui a ete regle a l'usage n'est reecrit.

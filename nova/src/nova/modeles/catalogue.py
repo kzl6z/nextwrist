@@ -30,36 +30,29 @@ log = get_logger(__name__)
 
 
 def fournisseurs() -> tuple[Fournisseur, ...]:
-    """Les fournisseurs utilisables, le local en premier.
+    """Les fournisseurs utilisables sur cette machine.
 
-    L'ordre n'a aucune valeur de priorite — c'est le routeur qui classe, sur
-    des mesures. Il rend seulement les journaux lisibles.
+    ⚠️ UN SEUL AUJOURD'HUI, ET AUCUN NE SORT DE LA MACHINE.
+
+    Un fournisseur distant a existe ici — Claude, par l'API Anthropic. Il a
+    ete retire sur demande explicite : « je ne veux pas de Claude ».
+
+    Ce qui reste est ce qui valait la peine d'etre construit : le contrat
+    `Fournisseur`, le classement par usage, le recours. Un second fournisseur
+    — un autre modele Ollama, un modele specialise, le modele Nova le jour
+    venu — s'ajoute ici et nulle part ailleurs.
+
+    ⚠️ ET GARDER UN FOURNISSEUR DISTANT « AU CAS OU » AURAIT ETE PIRE.
+
+    Du code mort qu'on garde finit par etre execute par accident. C'est la
+    lecon de `_TOUT_OUVRIR`, retire pour la meme raison : un motif que plus
+    personne n'atteint se lit comme une garde, et la prochaine correction se
+    fait dedans.
     """
-    from nova.modeles.distant import Anthropic
     from nova.modeles.local import Ollama
     from nova.settings import get_settings
 
-    reglages = get_settings()
-    trouves: list[Fournisseur] = [Ollama(reglages.ollama_url)]
-
-    if reglages.mode_local_seul:
-        log.debug("[Model Router] Mode local seul : aucun fournisseur distant.")
-        return tuple(trouves)
-
-    distant = Anthropic(
-        cle=reglages.anthropic_api_key,
-        url=reglages.anthropic_url,
-        modele=reglages.modele_cloud,
-        capacites=frozenset(
-            mot.strip() for mot in reglages.capacites_cloud.split(",") if mot.strip()
-        ),
-        poids=reglages.poids_cloud,
-        vitesse=reglages.vitesse_cloud,
-        delai=reglages.delai_cloud,
-    )
-    if distant.disponible():
-        trouves.append(distant)
-    return tuple(trouves)
+    return (Ollama(get_settings().ollama_url),)
 
 
 def routeur(sources: tuple[Fournisseur, ...] | None = None) -> Routeur:
