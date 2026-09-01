@@ -41,15 +41,34 @@ pytestmark = pytest.mark.skipif(
 
 
 class FauxLLM:
-    """Capture les messages recus au lieu d'appeler un modele."""
+    """Capture les messages recus au lieu d'appeler un modele.
+
+    ⚠️ ON INTERCEPTE LE ROUTAGE, PLUS LE CLIENT.
+
+    Ces bancs protegent le CABLAGE — quel prompt part, ce qui est journalise —
+    et leur sujet n'a pas change. Ce qui a change, c'est la couture :
+    l'orchestrateur ne construit plus un `LLMClient` lui-meme, il demande un
+    USAGE au Model Router, qui choisit le fournisseur.
+
+    ⚠️ ET CES QUATRE BANCS SONT LE SEUL ENDROIT DU DEPOT QUI N'ETAIT PAS
+       EXERCE ICI.
+
+    Ils exigent Postgres. Sans base, ils sont IGNORES — et « 1363 bancs
+    verts » a ete annonce sans les compter. Sur la machine de Hugo la base
+    tourne, ils s'executent, et les quatre sont tombes sur un attribut
+    disparu.
+
+    C'est le meme angle mort que les bancs de fichiers, qui passaient ici et
+    tombaient la-bas. Ce qui n'est pas exerce se casse sans que personne ne le
+    voie. Postgres est desormais installe sur la machine de developpement.
+    """
 
     recu: list[dict] = []
 
-    def __init__(self, *args, **kwargs) -> None:
-        pass
-
-    def stream(self, messages, **kwargs):
+    @staticmethod
+    def flux(usage, messages, **kwargs):
         FauxLLM.recu = messages
+        FauxLLM.usage = usage
         yield "premier "
         yield "morceau "
         yield "final"
@@ -57,7 +76,7 @@ class FauxLLM:
 
 @pytest.fixture
 def faux_llm(monkeypatch):
-    monkeypatch.setattr(orchestrator, "LLMClient", FauxLLM)
+    monkeypatch.setattr(orchestrator.routage, "flux", FauxLLM.flux)
     return FauxLLM
 
 
