@@ -263,9 +263,47 @@ def capacites() -> dict:
         "espaces": [
             {"nom": e.nom, "description": e.description} for e in registre_espaces.tout()
         ],
+        # ⚠️ QUI SERT CE MODELE, ET S'IL SORT DE LA MACHINE.
+        #
+        # La liste ne portait que le nom, la vitesse et les capacites. Avec un
+        # seul fournisseur, cela suffisait ; des qu'il y en a deux, « quel
+        # modele est-ce » n'est plus la question — « qui repond, et est-ce que
+        # mes donnees quittent l'ordinateur » l'est.
         "modeles": [
-            {"nom": m.nom, "vitesse": m.vitesse, "capacites": sorted(m.capacites)}
+            {
+                "nom": m.nom,
+                "vitesse": m.vitesse,
+                "capacites": sorted(m.capacites),
+                "fournisseur": m.fournisseur,
+                "distant": m.distant,
+            }
             for m in orchestrator.routeur().modeles
         ],
+        # Ce que le routeur ferait, usage par usage, sans rien appeler. C'est
+        # la reponse a « pourquoi Nova a-t-elle repondu comme ca » — et elle
+        # doit etre lisible AVANT la panne, pas reconstituee apres.
+        "routage": _routage_par_usage(),
         "vision": vision_disponible(),
     }
+
+
+def _routage_par_usage() -> dict[str, list[str]]:
+    """Le classement des modeles pour chaque usage connu.
+
+    Ne coute aucun appel : c'est le tri d'une liste sur des reglages deja en
+    cache. Un usage sans candidat rend une liste vide plutot que de
+    disparaitre — « code : rien » est une information, l'absence n'en est pas
+    une.
+    """
+    from nova.core.routeur import USAGES, AucunModele
+
+    catalogue = orchestrator.routeur()
+    resultat: dict[str, list[str]] = {}
+    for usage in sorted(USAGES):
+        try:
+            classes = catalogue.classer(usage)
+        except AucunModele:
+            resultat[usage] = []
+            continue
+        resultat[usage] = [f"{m.nom}@{m.fournisseur}" for m in classes]
+    return resultat

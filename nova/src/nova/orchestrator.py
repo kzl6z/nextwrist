@@ -28,8 +28,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from nova import prompts
-from nova.core import chrono, plateforme
-from nova.core.contrats import Demande, Modele, Plan
+from nova.core import chrono
+from nova.core.contrats import Demande, Plan
 from nova.core.planificateur import planifier
 from nova.core.routeur import Routeur
 from nova.documents import search as document_search
@@ -90,27 +90,25 @@ MOIS = (
 
 
 def routeur() -> Routeur:
-    """Le catalogue des modeles, tel que la configuration le decrit.
+    """Le catalogue des modeles, tel que les fournisseurs le declarent.
 
-    Les capacites et la vitesse viennent de `.env`, donc de la MESURE faite
-    par `scripts/bench_models.py`, jamais d'une reputation. Un seul modele est
-    declare aujourd'hui : c'est celui qui tourne. Le jour ou il y en aura
-    trois, le routeur choisira sans qu'aucun appelant ne change.
+    ⚠️ CETTE FONCTION DECLARAIT SA PROPRE LISTE, ET C'ETAIT UN DOUBLON.
+
+    Elle construisait un `Modele` a la main — nom, capacites, vitesse, poids —
+    exactement comme le fait maintenant `modeles/local.py`. Deux descriptions
+    du meme modele dans deux fichiers auraient diverge a la premiere
+    correction : l'une saurait que le modele fait du code, l'autre non, et
+    personne ne verrait laquelle est lue.
+
+    C'est le meme raisonnement que `trouver._signal_fichier`, qui deduit son
+    vocabulaire de `requete.PAPIERS` au lieu de le recopier a cote.
+
+    Les capacites et la vitesse continuent de venir de `.env`, donc de la
+    MESURE faite par `scripts/bench_models.py`, jamais d'une reputation.
     """
-    reglages = get_settings()
-    machine = plateforme.detecter()
-    return Routeur(
-        (
-            Modele(
-                nom=reglages.chat_model,
-                capacites=frozenset({"conversation", "raisonnement", "extraction", "redaction"}),
-                vitesse=reglages.vitesse_mesuree,
-                # Une estimation prudente vaut mieux qu'une valeur absente :
-                # elle sert a departager, pas a decider seule.
-                poids=min(machine.budget_modele_go, 2.0),
-            ),
-        )
-    )
+    from nova.modeles.catalogue import routeur as catalogue
+
+    return catalogue()
 
 
 def analyser(texte: str) -> tuple[Plan, str | None]:
