@@ -152,12 +152,18 @@ def test_la_sequence_du_releve_ne_traine_plus_la_carte(monkeypatch):
 
     envoyes: dict = {}
 
-    class ClientDeBanc:
-        def stream(self, messages, **k):
-            envoyes["messages"] = messages
-            return iter(["ok"])
+    # ⚠️ ON INTERCEPTE LE ROUTAGE, PLUS LE CLIENT.
+    #
+    # Ce banc protege QUELS MESSAGES partent au modele — son sujet n'a pas
+    # change. Ce qui a change, c'est la couture : l'orchestrateur ne construit
+    # plus un `LLMClient` lui-meme, il demande un usage au Model Router, qui
+    # choisit le fournisseur. Intercepter l'ancien nom laisserait ce banc
+    # passer en n'observant plus rien.
+    def _flux_de_banc(usage, messages, **k):
+        envoyes["messages"] = messages
+        return iter(["ok"])
 
-    monkeypatch.setattr(orchestrator, "LLMClient", lambda *a, **k: ClientDeBanc())
+    monkeypatch.setattr(orchestrator.routage, "flux", _flux_de_banc)
     monkeypatch.setattr(
         orchestrator, "build_system_prompt", lambda *a, **k: ("SYS", [])
     )
@@ -201,12 +207,18 @@ def test_une_vraie_suite_recoit_toujours_le_passe(monkeypatch):
 
     envoyes: dict = {}
 
-    class ClientDeBanc:
-        def stream(self, messages, **k):
-            envoyes["messages"] = messages
-            return iter(["ok"])
+    # ⚠️ ON INTERCEPTE LE ROUTAGE, PLUS LE CLIENT.
+    #
+    # Ce banc protege QUELS MESSAGES partent au modele — son sujet n'a pas
+    # change. Ce qui a change, c'est la couture : l'orchestrateur ne construit
+    # plus un `LLMClient` lui-meme, il demande un usage au Model Router, qui
+    # choisit le fournisseur. Intercepter l'ancien nom laisserait ce banc
+    # passer en n'observant plus rien.
+    def _flux_de_banc(usage, messages, **k):
+        envoyes["messages"] = messages
+        return iter(["ok"])
 
-    monkeypatch.setattr(orchestrator, "LLMClient", lambda *a, **k: ClientDeBanc())
+    monkeypatch.setattr(orchestrator.routage, "flux", _flux_de_banc)
     monkeypatch.setattr(
         orchestrator, "build_system_prompt", lambda *a, **k: ("SYS", [])
     )

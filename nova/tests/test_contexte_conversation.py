@@ -142,13 +142,25 @@ def test_une_conversation_neuve_ne_rend_rien(base):
 
 
 def _sans_modele(monkeypatch, capture: dict):
-    """Intercepte l'appel au modele pour observer ce qu'on lui envoie."""
+    """Intercepte l'appel au modele pour observer ce qu'on lui envoie.
 
-    def faux_stream(self, messages, **kwargs):
+    ⚠️ ON INTERCEPTE LE ROUTAGE, PLUS LE CLIENT.
+
+    Ces bancs protegent QUELS MESSAGES partent au modele — leur sujet n'a pas
+    change. Ce qui a change, c'est la couture : l'orchestrateur ne construit
+    plus un `LLMClient` lui-meme, il demande un USAGE au Model Router, qui
+    choisit le fournisseur et se rabat si besoin.
+
+    Intercepter l'ancien nom laisserait ces quatre bancs passer en
+    n'observant plus rien — le pire des deux mondes.
+    """
+
+    def faux_flux(usage, messages, **kwargs):
+        capture["usage"] = usage
         capture["messages"] = messages
         yield "reponse"
 
-    monkeypatch.setattr(orchestrator.LLMClient, "stream", faux_stream)
+    monkeypatch.setattr(orchestrator.routage, "flux", faux_flux)
     monkeypatch.setattr(orchestrator, "build_system_prompt", lambda *a, **k: ("SYS", []))
     monkeypatch.setattr(orchestrator.conversations, "get_or_create", lambda *a, **k: 1)
     monkeypatch.setattr(orchestrator.conversations, "log_message", lambda *a, **k: None)

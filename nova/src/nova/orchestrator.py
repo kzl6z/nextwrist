@@ -33,10 +33,11 @@ from nova.core.contrats import Demande, Modele, Plan
 from nova.core.planificateur import planifier
 from nova.core.routeur import Routeur
 from nova.documents import search as document_search
-from nova.llm.client import LLMClient, Message
+from nova.llm.client import Message
 from nova.logging_setup import get_logger
 from nova.memory import conversations, facts, reprise
 from nova.memory.models import SearchHit
+from nova.modeles import routage
 from nova.settings import get_settings, get_tuning
 from nova.voice import vocabulaire
 
@@ -814,7 +815,34 @@ def answer_stream(
     except Exception:  # noqa: BLE001, S110
         pass
 
-    client = LLMClient()
+    # ══════════════════════════════════════════════════════════════════════
+    #  ⚠️ C'EST ICI QUE LE CHOIX DU ROUTEUR ARRIVE ENFIN QUELQUE PART.
+    #
+    #  Cette ligne etait `client = LLMClient()`. Le routeur, lui, choisissait
+    #  un modele depuis des mesures faites sur cette machine — et personne ne
+    #  lisait sa reponse : `LLMClient()` relisait `settings.chat_model`. Son
+    #  seul appelant etait `/v1/capacites`, pour AFFICHER la liste.
+    #
+    #  Un module qui existe, qui est teste, et dont le resultat est jete est
+    #  plus trompeur qu'un module absent.
+    #
+    #  ⚠️ ET LE CHEMIN NE CHANGE PAS QUAND IL N'Y A QU'UN MODELE.
+    #
+    #  Avec le seul Ollama declare — le defaut, et la configuration de la
+    #  machine de reference — le routage rend un candidat, et ce candidat
+    #  appelle exactement le meme `LLMClient.stream` qu'avant, avec les memes
+    #  arguments. Rien de ce qui a ete regle a l'usage n'est contourne : le
+    #  filtre <think>, la coupure du JSON, keep_alive, les delais separes.
+    #
+    #  Le cout ajoute est un tri de liste sur des reglages deja en cache.
+    # ══════════════════════════════════════════════════════════════════════
+    #
+    # `parlee` n'est pas devinable ici : ce point d'entree sert l'ecrit comme
+    # le vocal. On prend l'usage le plus contraint des deux — local exige,
+    # pas de monologue — parce que se tromper dans ce sens degrade une
+    # reponse ecrite, alors que l'inverse ferait sortir de la machine des
+    # donnees qu'une reponse prononcee ne doit pas laisser partir.
+    usage = "extraction" if json_mode else "vocal"
     collected: list[str] = []
     completed = False
 
@@ -832,7 +860,9 @@ def answer_stream(
     premier_morceau: float | None = None
 
     try:
-        for piece in client.stream(full, json_mode=json_mode, max_tokens=max_tokens):
+        for piece in routage.flux(
+            usage, full, json_mode=json_mode, max_tokens=max_tokens
+        ):
             if premier_morceau is None:
                 premier_morceau = time.perf_counter() - depart
             collected.append(piece)

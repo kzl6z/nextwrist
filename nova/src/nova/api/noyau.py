@@ -127,11 +127,23 @@ def _proposer_des_arguments(consigne: str) -> str:
     `temperature=0` : on ne veut pas de creativite pour remplir un chemin de
     fichier. Le mode JSON n'est pas demande — `lire_arguments` est deja
     tolerant sur la forme, et l'exiger reduirait le choix des modeles.
-    """
-    from nova.llm.client import LLMClient
 
-    return LLMClient().chat(
-        [{"role": "user", "content": consigne}], temperature=0.0
+    ⚠️ ET C'EST ICI QUE LE GESTIONNAIRE D'AGENTS ATTEINT LE MODEL ROUTER.
+
+    C'est le seul endroit de la chaine planificateur → executeur →
+    gestionnaire qui ait besoin d'un modele. Il demandait `LLMClient()`
+    directement, donc Ollama, donc un seul cerveau possible. Il demande
+    maintenant un USAGE, et le routeur choisit.
+
+    « extraction » exige le local : deduire un chemin de fichier travaille sur
+    des noms de fichiers personnels, qui n'ont aucune raison de sortir de la
+    machine. Ce n'est pas une preference de vitesse — c'est le champ
+    `local_exige` de l'usage, et aucune panne ne le contourne.
+    """
+    from nova.modeles import routage
+
+    return routage.generer(
+        "extraction", [{"role": "user", "content": consigne}], temperature=0.0
     )
 
 
