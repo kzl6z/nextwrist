@@ -20,6 +20,7 @@ C'est deterministe, debogable et previsible. L'appel d'outils par le modele
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from collections.abc import Iterator
@@ -411,6 +412,62 @@ def amorce_dictee() -> str:
     return vocabulaire.construire_amorce(base, termes)
 
 
+#: Ce qui fait entrer l'horloge dans le prompt.
+#:
+#: ⚠️ CETTE LISTE PENCHE VOLONTAIREMENT DU COTE DE L'INCLUSION.
+#:
+#: Les deux erreurs ne coutent pas la meme chose. Garder le bloc pour rien
+#: produit une reponse a cote, agacante et visible. Le retirer a tort fait
+#: INVENTER une heure, avec aplomb — et « quelle heure est-il » est la
+#: premiere question que tout le monde pose a un assistant vocal, donc le
+#: premier endroit ou il perd la confiance de son utilisateur.
+#:
+#: Dans le doute, le bloc reste. On n'ecarte que ce qui ne parle visiblement
+#: pas de temps.
+_QUESTION_DE_TEMPS = re.compile(
+    r"\b(?:"
+    r"heures?|heure|minutes?|secondes?|"
+    r"date|dates|jour|jours|journee|semaine|semaines|mois|annee|annees|an|ans|"
+    r"aujourd hui|demain|hier|avant hier|apres demain|"
+    r"matin|matinee|midi|apres midi|soir|soiree|minuit|nuit|"
+    r"maintenant|actuellement|en ce moment|tout a l heure|"
+    r"quand|quelle? heure|combien de temps|depuis|jusqu a|d ici|"
+    # « on est le combien » : une demande de date qui ne porte aucun des mots
+    # attendus. Le motif entier, parce que « combien » seul attraperait
+    # « combien ca coute ».
+    r"on est le combien|le combien sommes nous|quantieme|"
+    r"tot|tard|retard|avance|calendrier|agenda|rendez vous|anniversaire|"
+    r"lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|"
+    r"janvier|fevrier|mars|avril|mai|juin|juillet|"
+    r"aout|septembre|octobre|novembre|decembre|"
+    # ⚠️ « TEMPS » Y FIGURE, ET C'EST LUI QUI A CAUSE LE DEFAUT.
+    #
+    # « reparer le temps » parlait de physique, pas d'horloge. Mais « il fait
+    # quel temps » et « combien de temps » sont des demandes legitimes, et le
+    # mot est trop courant pour etre ecarte sans casser le cas normal. Il
+    # reste : la phrase qui a echoue — « pourrais-tu faire ces calculs ? » —
+    # ne le contient pas, et c'est elle qu'il fallait laisser passer.
+    r"temps"
+    r")\b"
+)
+
+
+def _question_de_temps(texte: str) -> bool:
+    """Cette phrase a-t-elle besoin de savoir l'heure qu'il est ?"""
+    if not texte:
+        return False
+    from nova.fichiers.requete import sans_accents
+
+    # ⚠️ APOSTROPHES ET TIRETS DEVIENNENT DES ESPACES.
+    #
+    # Sans cela, « aujourd'hui » et « sommes-nous » ne correspondent a aucun
+    # motif : le tiret et l'apostrophe collent les mots. C'est exactement le
+    # meme aplatissement que `requete._normaliser` et `session._plat` — trois
+    # endroits qui recoivent de la parole transcrite, et la meme regle.
+    plat = re.sub(r"[^a-z0-9]+", " ", sans_accents(texte).lower())
+    return bool(_QUESTION_DE_TEMPS.search(plat))
+
+
 def instant_present(maintenant: datetime | None = None) -> str:
     """Date et heure, en francais, pour le prompt systeme."""
     maintenant = maintenant or datetime.now().astimezone()
@@ -560,12 +617,30 @@ def build_system_prompt(
     # est-il » recoit une heure inventee, avec aplomb. C'est la premiere
     # question que tout le monde pose a un assistant vocal, et le premier
     # endroit ou il perd la confiance de son utilisateur.
-    ajouter(
-        "instant present",
-        f"## Instant present\nNous sommes {instant_present()}.\n"
-        "Utilise cette information telle quelle pour toute question de date ou "
-        "d'heure. Ne la recalcule pas, ne l'estime pas.",
-    )
+    # ⚠️ ET SEULEMENT QUAND ON PARLE DE TEMPS. RELEVE EN CONDITIONS REELLES :
+    #
+    #     « Suivant cette loi-la, nous pourrions retourner dans le passe. »
+    #     → « C'est possible si l'energie est suffisante pour reparer le
+    #        temps, mais cela demande des calculs precis. »
+    #     « Pourrais-tu faire ces calculs ? »
+    #     → « Il reste 23 heures de la journee. Le temps est calme. »
+    #
+    # La question ne portait ni sur l'heure ni sur la date. Le modele a
+    # cherche des nombres, n'a trouve que ceux de l'horloge — il etait 23 h —
+    # et a repondu dessus. Le mot « temps » de l'echange precedent a fait le
+    # reste : en francais il designe la duree ET la meteo, et le bloc parlait
+    # justement de duree.
+    #
+    # Un bloc inutile ne coute pas que du temps de lecture : il donne au
+    # modele de quoi repondre a cote. C'est la meme raison qui rend le bloc de
+    # recherche de fichiers conditionnel.
+    if _question_de_temps(user_message):
+        ajouter(
+            "instant present",
+            f"## Instant present\nNous sommes {instant_present()}.\n"
+            "Utilise cette information telle quelle pour toute question de date ou "
+            "d'heure. Ne la recalcule pas, ne l'estime pas.",
+        )
 
     # 4. Ce que Nova voit.
     #
