@@ -65,19 +65,39 @@ class Exigence:
     parlee: bool = False
     #: Interdit-on la sortie des donnees de la machine ?
     local_exige: bool = False
+    #: Le modele local suffit-il a cet usage ?
+    #:
+    #: ⚠️ SANS CE CHAMP, UN MODELE DISTANT DECLARE GAGNE TOUT.
+    #:
+    #: La regle du routeur est « le plus capable, pas le plus rapide », et le
+    #: poids en est l'approximation. Un modele distant pese cent : des qu'il
+    #: est configure, il rafle la conversation courante — « quelle heure
+    #: est-il » partirait sur Internet, avec sa latence, son cout et la
+    #: sortie de donnees qui va avec.
+    #:
+    #: C'est exactement ce que le mode local d'abord existe pour empecher :
+    #: privilegier le local QUAND IL SUFFIT. Il ne suffit pas pour tout — le
+    #: raisonnement lourd et le grand contexte laissent la capacite decider,
+    #: et c'est pour cela que ce champ est par usage et non global.
+    local_suffit: bool = True
 
 
 USAGES: dict[str, Exigence] = {
     # Le quotidien : on parle a Nova, elle repond a voix haute.
     "vocal": Exigence("conversation", vitesse_min=12.0, parlee=True, local_exige=True),
-    # Ecrit : on peut attendre un peu plus pour une meilleure reponse.
+    # Ecrit : on peut attendre un peu plus pour une meilleure reponse. Le
+    # local suffit — « quelle heure est-il » n'a rien a faire sur Internet.
     "conversation": Exigence("conversation", vitesse_min=6.0),
-    # Analyse lourde : la qualite prime, le temps est secondaire.
-    "raisonnement": Exigence("raisonnement", vitesse_min=0.0),
+    # Analyse lourde : la qualite prime, le temps est secondaire. C'est le
+    # seul usage courant ou l'on accepte de sortir de la machine.
+    "raisonnement": Exigence("raisonnement", vitesse_min=0.0, local_suffit=False),
     # Sortie structuree : ni vitesse ni finesse, mais de la rigueur.
     "extraction": Exigence("extraction", vitesse_min=6.0, local_exige=True),
-    "code": Exigence("code", vitesse_min=6.0),
+    # Le local ne declare pas « code » : en pratique, seul un distant repond.
+    "code": Exigence("code", vitesse_min=6.0, local_suffit=False),
     "vision": Exigence("vision", vitesse_min=0.0),
+    # Cent mille jetons de contexte : aucun modele de 3 Go n'y arrive.
+    "long_contexte": Exigence("long_contexte", vitesse_min=0.0, local_suffit=False),
 }
 
 
@@ -156,9 +176,29 @@ class Routeur:
                 "Mesure tes modeles :  uv run python scripts/bench_models.py"
             )
 
-        # Le plus capable, pas le plus rapide. A poids egal, le plus rapide
-        # departage ; a poids et vitesse egaux, le local l'emporte.
-        candidats.sort(key=lambda m: (m.poids, m.vitesse, not m.distant), reverse=True)
+        # ⚠️ LE LOCAL D'ABORD QUAND IL SUFFIT — C'EST LE PREMIER CRITERE.
+        #
+        # Le tri de fond reste « le plus capable, pas le plus rapide » : a
+        # poids egal, le plus rapide departage ; a poids et vitesse egaux, le
+        # local l'emporte. Mais quand l'usage declare que le local SUFFIT, il
+        # passe devant quoi qu'il arrive.
+        #
+        # Sans cela, un modele distant configure raflait la conversation
+        # courante — moins de vie privee, plus de latence, un cout par
+        # question, et tout cela pour une reponse que le local donnait deja.
+        #
+        # Les distants restent dans la liste, derriere : ils servent de
+        # recours quand le local tombe.
+        local_prefere = exigence.local_suffit
+        candidats.sort(
+            key=lambda m: (
+                local_prefere and not m.distant,
+                m.poids,
+                m.vitesse,
+                not m.distant,
+            ),
+            reverse=True,
+        )
         if len(candidats) > 1:
             log.debug(
                 "Usage « %s » : %s retenu parmi %s",

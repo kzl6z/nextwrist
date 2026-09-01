@@ -336,6 +336,49 @@ class Settings(BaseSettings):
     # corrige, alors qu'un champ vide oblige a deviner.
     vitesse_mesuree: float = 28.8
     # ══════════════════════════════════════════════════════════════════════
+    #  LE ROUTEUR DE MODELES
+    # ══════════════════════════════════════════════════════════════════════
+    # ⚠️ LOCAL D'ABORD, ET C'EST UN DEFAUT, PAS UNE PREFERENCE.
+    #
+    # Le modele local ne coute rien, repond en une seconde, et ne fait sortir
+    # aucune donnee de la machine. Le distant n'entre en jeu que si quelqu'un
+    # le configure — donc jamais par accident, et jamais sans le savoir.
+    #
+    # Mis a vrai, aucune donnee ne quitte l'ordinateur, quoi qu'il arrive :
+    # le fournisseur distant n'est meme pas construit. C'est un interrupteur,
+    # pas une preference que le routage pourrait contourner.
+    mode_local_seul: bool = False
+    # Le modele distant. VIDE PAR DEFAUT : sans nom, pas de fournisseur.
+    #
+    #     NOVA_MODELE_CLOUD=claude-sonnet-4-5
+    modele_cloud: str = ""
+    # ⚠️ LA CLEF NE VIT NI DANS LE CODE NI DANS LES JOURNAUX.
+    #
+    # Ce projet a deja perdu une clef parce qu'elle etait visible sur une
+    # capture d'ecran. Elle vient d'ici, `.env` est ignore par git, et le
+    # fournisseur distant n'ecrit jamais sa valeur — pas meme sa longueur.
+    #
+    #     NOVA_ANTHROPIC_API_KEY=...
+    anthropic_api_key: str = ""
+    anthropic_url: str = "https://api.anthropic.com/v1"
+    # Ce que le modele distant sait faire, separe par des virgules.
+    #
+    # Declare et non devine : le routeur n'ecarte un modele que sur ce qui est
+    # ecrit. « long_contexte » est ce qui distingue reellement le distant ici
+    # — un modele local de 3 Go ne tient pas cent mille jetons.
+    capacites_cloud: str = "conversation,raisonnement,redaction,code,long_contexte"
+    # Poids apparent du modele distant, en Go equivalents. Sert UNIQUEMENT a
+    # departager : le routeur prefere le plus capable, et le poids est son
+    # approximation de la capacite. 100 place le distant au-dessus de tout
+    # modele local — c'est vrai aujourd'hui, et c'est un chiffre, donc ca se
+    # corrige sans toucher au code.
+    poids_cloud: float = 100.0
+    vitesse_cloud: float = 60.0
+    # Delai de lecture du fournisseur distant, en secondes. Separe de
+    # `request_timeout` : un service distant et un service local n'ont pas les
+    # memes raisons d'etre lents.
+    delai_cloud: float = 120.0
+    # ══════════════════════════════════════════════════════════════════════
     #  VISION
     # ══════════════════════════════════════════════════════════════════════
     # ⚠️ DESACTIVEE PAR DEFAUT, ET CE DEFAUT EST UNE MESURE, PAS UNE PRUDENCE.
