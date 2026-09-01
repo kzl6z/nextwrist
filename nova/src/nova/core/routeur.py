@@ -103,6 +103,26 @@ class Routeur:
         pire qu'un echec : il se manifeste par des reponses mediocres qu'on
         attribue au projet entier.
         """
+        return self.classer(usage)[0]
+
+    def classer(self, usage: str) -> tuple[Modele, ...]:
+        """TOUS les modeles admissibles, du meilleur au moins bon.
+
+        ⚠️ SANS CETTE LISTE, IL N'Y A PAS DE RECOURS POSSIBLE.
+
+        `choisir` rendait un modele et jetait les autres. Quand ce modele
+        echoue — Ollama eteint, plus de reseau, delai depasse — l'appelant
+        n'a plus rien : il ne sait meme pas qu'un second candidat existait.
+        Le recours n'est pas une politique en plus, c'est cette liste.
+
+        ⚠️ ET LES ECARTES RESTENT ECARTES.
+
+        Un modele sans la capacite demandee, ou qui monologue alors que la
+        reponse sera prononcee, ne devient pas acceptable parce que le
+        premier est tombe. Ce serait echanger une panne visible contre une
+        reponse mediocre inexplicable — et pour le vocal, faire sortir de la
+        machine des donnees qu'un usage local interdisait.
+        """
         exigence = USAGES.get(usage)
         if exigence is None:
             connus = ", ".join(sorted(USAGES))
@@ -138,15 +158,15 @@ class Routeur:
 
         # Le plus capable, pas le plus rapide. A poids egal, le plus rapide
         # departage ; a poids et vitesse egaux, le local l'emporte.
-        meilleur = max(candidats, key=lambda m: (m.poids, m.vitesse, not m.distant))
+        candidats.sort(key=lambda m: (m.poids, m.vitesse, not m.distant), reverse=True)
         if len(candidats) > 1:
             log.debug(
                 "Usage « %s » : %s retenu parmi %s",
                 usage,
-                meilleur.nom,
+                candidats[0].nom,
                 ", ".join(c.nom for c in candidats),
             )
-        return meilleur
+        return tuple(candidats)
 
     def expliquer(self, usage: str) -> str:
         """Pourquoi ce modele — pour le journal et pour l'interface."""

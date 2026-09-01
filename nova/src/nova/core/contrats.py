@@ -234,6 +234,18 @@ class Modele:
     raisonne_a_voix_haute: bool = False
     #: Sort-il de la machine ? Le local est prefere a competence egale.
     distant: bool = False
+    #: Quel fournisseur le sert — « ollama », « anthropic », un futur autre.
+    #:
+    #: ⚠️ CE CHAMP EST CE QUI RELIE LE CHOIX A L'EXECUTION.
+    #:
+    #: Le routeur choisissait un modele et personne ne lisait sa reponse :
+    #: `LLMClient()` relisait `settings.chat_model` directement. Un nom de
+    #: modele seul ne dit pas A QUI le demander — d'ou un routeur dont le
+    #: resultat ne pouvait qu'etre jete.
+    #:
+    #: Vide par defaut : un `Modele` decrit dans un banc n'a pas a inventer un
+    #: fournisseur pour etre classe.
+    fournisseur: str = ""
 
 
 # ── Contrats structurels ──────────────────────────────────────────────────
