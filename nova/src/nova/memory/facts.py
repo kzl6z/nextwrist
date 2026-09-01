@@ -33,6 +33,17 @@ def _row_to_fact(row: dict) -> Fact:
         confidence=row["confidence"],
         source=row["source"],
         created_at=row["created_at"],
+        # ⚠️ `.get` ET NON `[]` — LA BASE PEUT ETRE EN RETARD D'UNE MIGRATION.
+        #
+        # Une colonne absente ferait tomber toute lecture de memoire avec un
+        # KeyError, c'est-a-dire faire disparaitre Nova entierement pour une
+        # migration non appliquee. Un defaut vaut mieux qu'une panne.
+        importance=row.get("importance") or "moyenne",
+        expires_at=row.get("expires_at"),
+        last_used_at=row.get("last_used_at"),
+        updated_at=row.get("updated_at"),
+        tags=tuple(row.get("tags") or ()),
+        supersedes=row.get("supersedes"),
     )
 
 
@@ -44,6 +55,10 @@ def add(
     status: str | None = None,
     confidence: float = 1.0,
     source: str | None = None,
+    importance: str = "moyenne",
+    expires_at=None,
+    tags: tuple[str, ...] = (),
+    supersedes: int | None = None,
 ) -> Fact:
     """Ajoute un fait.
 
@@ -58,11 +73,15 @@ def add(
     with connection() as conn:
         row = conn.execute(
             """
-            INSERT INTO facts (category, content, status, origin, confidence, source)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO facts (category, content, status, origin, confidence,
+                               source, importance, expires_at, tags, supersedes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
             """,
-            (category, content, status, origin, confidence, source),
+            (
+                category, content, status, origin, confidence, source,
+                importance, expires_at, list(tags), supersedes,
+            ),
         ).fetchone()
     return _row_to_fact(row)
 
