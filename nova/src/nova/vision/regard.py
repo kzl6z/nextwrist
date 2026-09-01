@@ -654,10 +654,6 @@ def _bloc_recherche(texte: str) -> str:
             f"« Je n'ai trouve aucune image correspondant a {quoi}. {etat} »"
         )
 
-    lignes = "\n".join(
-        f"- {entree.nom} ({int(score * 100)} % de correspondance) : {entree.description}"
-        for entree, score in trouvees
-    )
     meilleure, meilleur_score = trouvees[0]
     log.info(
         "Recherche « %s » : %d resultat(s), meilleur %s.",
@@ -672,22 +668,83 @@ def _bloc_recherche(texte: str) -> str:
     # fichier au hasard parmi trois candidats equivalents.
     from nova.vision import focus
 
-    focus.retenir(meilleure.chemin, description=meilleure.description, origine="recherche")
+    focus.retenir(
+        meilleure.chemin,
+        description=meilleure.description,
+        origine="recherche",
+        # ⚠️ DANS L'ORDRE EXACT OU ELLES ONT ETE CLASSEES.
+        #
+        # C'est ce qui donne un sens a « ouvre la deuxieme » et a « c'est quoi
+        # le nom de la troisieme ». Retenir un autre ordre que celui du
+        # classement ouvrirait une image que personne n'a designee, en ayant
+        # l'air d'obeir.
+        liste=tuple(entree.chemin for entree, _ in trouvees),
+    )
     ouverte = _ouvrir_si_evident(trouvees)
 
+    # ⚠️ NOVA PROPOSE, ET « OUI » SUFFIT ENSUITE.
+    #
+    # On ne note la proposition QUE si rien n'a ete ouvert : proposer
+    # d'ouvrir ce qui est deja a l'ecran ferait repondre « oui » a une
+    # question sans objet.
+    if ouverte is None:
+        from nova.voice import session
+
+        session.proposer(
+            "ouvrir_image",
+            {"chemin": str(meilleure.chemin)},
+            # Les mots de la demande, pas le nom du fichier : « ta casquette
+            # blanche » se dit, « IMG_8156.JPG » ne se prononce pas.
+            comme=quoi,
+        )
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  ⚠️ NI LE NOM NI LA DESCRIPTION NE SONT DANS CE BLOC.
+    #
+    #  La version precedente donnait les deux au modele et lui demandait
+    #  explicitement de « nommer » l'image et de « resumer la description ».
+    #  Il obeissait. Releve en conditions reelles :
+    #
+    #      « L'image IMG_8156.JPG montre une main tenant une casquette
+    #        blanche avec l'inscription "alo". »
+    #
+    #  Demande textuelle : « quand elle la trouve je veux juste que ca dise
+    #  photo trouvee, voulez-vous que je l'ouvre ».
+    #
+    #  Un nom de fichier ne se prononce pas, et redecrire une photo a
+    #  quelqu'un qui l'a prise ne lui apprend rien — il l'a decrite lui-meme
+    #  pour la retrouver.
+    #
+    #  ⚠️ ET ON NE LUI DEMANDE PAS DE SE TAIRE : ON NE LUI DIT RIEN.
+    #
+    #  Meme correction que pour les documents, pour la meme raison : un
+    #  modele de trois milliards de parametres CONTINUE ce qu'il vient de
+    #  lire. La seule consigne qu'il ne peut pas enfreindre est celle qui
+    #  porte sur une donnee qu'il n'a pas.
+    #
+    #  Le nom reste accessible — `focus` retient la liste — mais il faut le
+    #  DEMANDER : « c'est quoi le nom de la photo ? ».
+    # ══════════════════════════════════════════════════════════════════════
+    combien = (
+        f"dis que tu as trouve {len(trouvees)} photos qui correspondent a "
+        f"« {quoi} »."
+        if len(trouvees) > 1
+        else f"dis que tu as trouve la photo : « {quoi} »."
+    )
+    suite = (
+        "dis que tu viens de l'ouvrir a l'ecran."
+        if ouverte
+        else "demande simplement : « je te l'ouvre ? »"
+        if len(trouvees) == 1
+        else "demande laquelle ouvrir, par son rang — « la premiere ou la deuxieme ? »"
+    )
     return (
         "## Recherche d'image\n\n"
-        f"Recherche demandee : « {quoi} »\n"
-        "Images du catalogue qui correspondent, la meilleure en premier — "
-        "c'est la SEULE chose que Nova sait de ces images :\n"
-        f"<<<\n{lignes}\n>>>\n\n"
-        "Ta reponse : dis en francais, en une ou deux phrases, quelle image "
-        f"correspond — en la nommant : {meilleure.nom}. Resume ce que la "
-        "description entre <<< >>> en dit.\n"
-        + ("Dis aussi que tu viens de l'ouvrir a l'ecran.\n\n" if ouverte else "\n")
-        + "Tu n'as pas vu ces images toi-meme. Les dimensions, le poids, le "
-        "format, le dossier, la date : rien de tout cela ne figure entre "
-        "<<< >>>, donc rien de tout cela ne doit figurer dans ta reponse."
+        "Ta reponse, en francais, UNE SEULE PHRASE COURTE :\n"
+        f"- {combien}\n"
+        f"- {suite}\n"
+        "- tu n'as ni les noms, ni ce qu'on y voit, ni les dimensions, ni les "
+        "dates : n'en invente aucun."
     )
 
 

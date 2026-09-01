@@ -399,17 +399,42 @@ def test_une_phrase_sans_contenu_decrit_ne_declenche_pas_de_recherche(phrase):
 # ══════════════════════════════════════════════════════════════════════════
 #  LE BLOC DE REPONSE
 # ══════════════════════════════════════════════════════════════════════════
-def test_le_bloc_nomme_l_image_trouvee(monkeypatch, rempli, tmp_path):
+def test_le_bloc_annonce_la_trouvaille_SANS_nommer_ni_decrire(
+    monkeypatch, rempli, tmp_path
+):
+    """⚠️ CE BANC EXIGEAIT LE CONTRAIRE, ET IL AVAIT RAISON A L'EPOQUE.
+
+    Le bloc donnait le nom ET la description au modele, en lui demandant
+    explicitement de nommer l'image et de resumer ce qu'on y voit. Il
+    obeissait. Releve en conditions reelles :
+
+        « L'image IMG_8156.JPG montre une main tenant une casquette blanche
+          avec l'inscription "alo". »
+
+    Demande textuelle : « quand elle la trouve je veux juste que ca dise
+    photo trouvee, voulez-vous que je l'ouvre ».
+
+    Un nom de fichier ne se prononce pas, et redecrire une photo a quelqu'un
+    qui l'a prise ne lui apprend rien : c'est lui qui vient de la decrire
+    pour la retrouver.
+    """
     from nova.vision import catalogue as cat
+    from nova.vision import focus
     from nova.vision.regard import bloc
 
     monkeypatch.setattr(cat, "fichier_par_defaut", lambda: tmp_path / "cat.json")
 
     sortie = bloc("retrouve-moi l'image où il y a une casquette")
 
-    assert "IMG_7826-2.png" in sortie
-    assert "casquette" in sortie
-    assert "dimensions" in sortie, "les inventions restent nommees"
+    assert "IMG_7826-2.png" not in sortie, "elle ne nomme plus le fichier"
+    assert "je te l'ouvre ?" in sortie, "elle propose, et « oui » suffira"
+    # ⚠️ LA BONNE IMAGE A BIEN ETE TROUVEE — CA SE PROUVE DANS LA RETENUE.
+    #
+    # C'est elle que « ouvre-la » et « c'est quoi son nom » consultent, et
+    # c'est ce que le moteur a REELLEMENT choisi. Le bloc, lui, n'etait
+    # qu'une consigne de mise en forme.
+    retenue = focus.derniere("image")
+    assert retenue is not None and retenue.chemin.name == "IMG_7826-2.png"
 
 
 def test_un_catalogue_vide_le_dit_autrement_qu_une_absence(monkeypatch, tmp_path):
@@ -462,8 +487,11 @@ def test_la_recherche_ne_charge_aucun_modele(monkeypatch, rempli, tmp_path):
 
     monkeypatch.setattr(moteur, "MoteurOllama", interdit)
 
-    debut = time.perf_counter()
-    sortie = bloc("retrouve-moi l'image où il y a une casquette")
+    from nova.vision import focus
 
-    assert "IMG_7826-2.png" in sortie
+    debut = time.perf_counter()
+    bloc("retrouve-moi l'image où il y a une casquette")
+
+    retenue = focus.derniere("image")
+    assert retenue is not None and retenue.chemin.name == "IMG_7826-2.png"
     assert time.perf_counter() - debut < 1.0

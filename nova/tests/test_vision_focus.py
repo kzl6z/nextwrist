@@ -319,8 +319,11 @@ def test_trouver_puis_analyser_designe_la_meme_image(tmp_path, monkeypatch):
 
     monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
 
-    trouve = regard.bloc("trouve-moi l'image où je code l'interface de mon application")
-    assert "capture-code.png" in trouve
+    regard.bloc("trouve-moi l'image où je code l'interface de mon application")
+    # Nova ne nomme plus l'image trouvee : la preuve est dans la retenue,
+    # celle que « analyse-la » va justement consulter.
+    retenue = focus.derniere("image")
+    assert retenue is not None and retenue.chemin.name == "capture-code.png"
 
     analyse = regard.bloc("analyse-la")
 
@@ -360,9 +363,12 @@ def test_une_nouvelle_recherche_par_pronom_change_de_sujet(tmp_path, monkeypatch
     monkeypatch.setattr(outils, "executer_outil", lambda nom, **kw: "ouvert")
 
     focus.retenir(tmp_path / "capture-code.png", origine="recherche")
-    suite = regard.bloc("et celle avec la porsche")
+    regard.bloc("et celle avec la porsche")
 
-    assert "porsche.png" in suite
+    # Nova ne nomme plus l'image : c'est la retenue qui dit de quoi on parle
+    # maintenant — et c'est elle que la phrase suivante consultera.
+    retenue = focus.derniere("image")
+    assert retenue is not None and retenue.chemin.name == "porsche.png"
 
 
 @pytest.mark.parametrize(

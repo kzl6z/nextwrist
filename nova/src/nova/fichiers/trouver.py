@@ -383,6 +383,22 @@ def liste_en_tete() -> tuple:
     return retenue.liste if retenue is not None else ()
 
 
+def _liste_retenue() -> tuple:
+    """La derniere liste annoncee, document OU photo.
+
+    ⚠️ SANS GENRE, ET C'EST VOULU.
+
+    `liste_en_tete` filtre sur « fichier » parce que « ouvre les trois » ouvre
+    des fichiers, et ouvrir une image passe par un autre outil. Nommer, en
+    revanche, ne depend pas du genre : « c'est quoi le nom du troisieme »
+    designe ce dont on vient de parler.
+    """
+    from nova.vision import focus
+
+    retenue = focus.derniere()
+    return retenue.liste if retenue is not None else ()
+
+
 #: Ce qui reclame un NOM — et c'est la SEULE facon d'en obtenir un.
 #:
 #: ⚠️ NOVA NE CITE PLUS LES FICHIERS QU'ELLE TROUVE.
@@ -435,7 +451,16 @@ def bloc_du_nom(texte: str) -> str:
 
     On lui en donne donc UN SEUL, celui du rang demande.
     """
-    liste = liste_en_tete()
+    # ⚠️ TOUT GENRE CONFONDU — DOCUMENT OU PHOTO.
+    #
+    # `liste_en_tete` ne rend que les FICHIERS, parce que « ouvre les trois »
+    # ouvre des fichiers. Mais « c'est quoi le nom de la photo ? » se pose
+    # exactement de la meme facon apres une recherche d'image, et Nova ne
+    # nomme plus les photos non plus.
+    #
+    # La question porte sur la derniere chose retenue, quelle qu'elle soit :
+    # c'est de celle-la qu'on vient de parler.
+    liste = _liste_retenue()
     if not liste or not demande_le_nom(texte):
         return ""
 
