@@ -120,6 +120,40 @@ def executer(demande: DemandeAction) -> ReponseAction:
             niveau=fait.niveau, intention="ouvrir_tout", cible=None,
         )
 
+    # ⚠️ « FERME LES QUATRE FICHIERS » CHERCHAIT UNE APPLICATION.
+    #
+    # Releve en conditions reelles, juste apres que Nova ait ouvert quatre
+    # fichiers a la demande :
+    #
+    #     « Ferme les quatre fichiers. »
+    #     → « Je ne trouve pas d'application "quatre fichiers" sur cette
+    #        machine. »
+    #
+    # Exact du point de vue du catalogue, absurde du point de vue de la
+    # conversation : elle venait de les ouvrir.
+    #
+    # ⚠️ ET NOVA NE SAIT PAS FERMER UN FICHIER. ELLE LE DIT.
+    #
+    # `open` confie le fichier au systeme, qui choisit l'application. Nova ne
+    # sait donc pas laquelle l'affiche, et fermer « celle qui doit etre la »
+    # serait un pari — sur une action qui peut detruire du travail non
+    # enregistre.
+    #
+    # Deviner ici serait exactement le genre de reussite apparente que ce
+    # projet refuse partout ailleurs. On repond ce qui est vrai, et on donne
+    # la phrase qui marche.
+    if trouver.demande_tout_fermer(demande.texte) and trouver.liste_en_tete():
+        log.info("« %s » → fermeture de fichiers, non implementee", demande.texte)
+        return ReponseAction(
+            etat="ignoree",
+            message=(
+                "Je ne sais pas fermer un fichier déjà ouvert : c'est le système "
+                "qui a choisi l'application. Dis-moi laquelle fermer, par exemple "
+                "« ferme Aperçu »."
+            ),
+            outil=None, niveau=None, intention="fermer_fichiers", cible=None,
+        )
+
     # ⚠️ « SOUVIENS-TOI QUE… » N'ECRIVAIT RIEN. C'ETAIT UN TROU, PAS UN MANQUE.
     #
     # L'intention « memoire » etait reconnue depuis longtemps — « souviens-toi »,

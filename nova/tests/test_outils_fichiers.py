@@ -370,7 +370,7 @@ def test_le_compte_est_annonce_et_le_rang_explique(tmp_path, monkeypatch):
 
     assert "3 documents" in sortie
     # Et la consigne dit COMMENT choisir, pas seulement qu'on n'a pas choisi.
-    assert "rang" in sortie
+    assert "Lequel veux-tu" in sortie
     for nom in ("impos 2024 1.pdf", "impos 2024 2.pdf", "impots 2024 3.pdf"):
         assert nom not in sortie, f"{nom} est prononce alors qu'on ne l'a pas demande"
     # L'ordre, lui, est retenu : c'est ce qui donne un sens au rang.
@@ -685,7 +685,13 @@ def test_plusieurs_fichiers_se_comptent_sans_se_nommer(tmp_path, monkeypatch):
     sortie = trouver.bloc("retrouve mes impôts de 2024")
 
     assert "3 documents" in sortie
-    assert "rang" in sortie, "et comment en choisir un"
+    # ⚠️ LA QUESTION EXACTE, PAS UNE CONSIGNE A COMPOSER.
+    #
+    # « demande lequel ouvrir, par son rang » contenait le verbe
+    # « ouvrir », et un petit modele le CONJUGUE plutot que de poser la
+    # question : « Ouverture : la premiere. » — une ouverture annoncee
+    # qui n'a pas eu lieu.
+    assert "Lequel veux-tu" in sortie, "et comment en choisir un"
     for nom in ("impos 2024 1.pdf", "impos 2024 2.pdf", "impots 2024 3.pdf"):
         assert nom not in sortie, nom
 
@@ -705,7 +711,7 @@ def test_un_seul_fichier_se_propose_sans_se_nommer(tmp_path, monkeypatch):
     sortie = trouver.bloc("retrouve mes impôts de 2024")
 
     assert "impots-2024.pdf" not in sortie, "elle ne cite plus les documents"
-    assert "je te l'ouvre ?" in sortie, "une seule trouvaille se PROPOSE"
+    assert "Je te l'ouvre ?" in sortie, "une seule trouvaille se PROPOSE"
 
 
 @pytest.mark.parametrize(
@@ -769,7 +775,7 @@ def test_un_oui_ouvre_le_fichier_propose(tmp_path, monkeypatch):
     )
 
     sortie = trouver.bloc("retrouve mes impôts de 2024")
-    assert "je te l'ouvre ?" in sortie
+    assert "Je te l'ouvre ?" in sortie
     assert ouvertes == [], "rien n'est ouvert tant qu'on n'a pas dit oui"
 
     reponse = TestClient(app).post("/v1/action", json={"texte": "oui"})
@@ -1076,3 +1082,87 @@ def test_sans_recherche_prealable_aucun_nom_n_est_donne():
     from nova.fichiers.trouver import bloc_du_nom
 
     assert bloc_du_nom("c'est quoi le nom du troisième ?") == ""
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  « FERME LES QUATRE FICHIERS » CHERCHAIT UNE APPLICATION
+#
+#  Releve en conditions reelles, juste apres que Nova ait ouvert quatre
+#  fichiers a la demande :
+#
+#      « Ferme les quatre fichiers. »
+#      → « Je ne trouve pas d'application "quatre fichiers" sur cette
+#         machine. »
+#
+#  Exact du point de vue du catalogue, absurde du point de vue de la
+#  conversation : elle venait de les ouvrir.
+# ══════════════════════════════════════════════════════════════════════════
+@pytest.mark.parametrize(
+    "phrase",
+    ["ferme les quatre fichiers", "ferme les fichiers", "referme-les tous", "ferme les 3"],
+)
+def test_une_demande_de_fermeture_de_fichiers_se_reconnait(phrase):
+    from nova.fichiers.trouver import demande_tout_fermer
+
+    assert demande_tout_fermer(phrase), phrase
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # ⚠️ LA GARDE : UN VRAI NOM D'APPLICATION SUIT SON COURS.
+        "ferme Chrome",
+        "ferme Safari",
+        "quitte Aperçu",
+        "ferme la fenêtre",
+        "ouvre les 3",
+    ],
+)
+def test_ce_qui_n_est_pas_une_fermeture_de_fichiers(phrase):
+    from nova.fichiers.trouver import demande_tout_fermer
+
+    assert not demande_tout_fermer(phrase), phrase
+
+
+def test_nova_dit_qu_elle_ne_sait_pas_fermer_un_fichier(tmp_path, monkeypatch):
+    """⚠️ ELLE NE DEVINE PAS L'APPLICATION, ET C'EST LE POINT.
+
+    `open` confie le fichier au systeme, qui choisit l'application. Fermer
+    « celle qui doit etre la » serait un pari — sur une action qui peut
+    detruire du travail non enregistre.
+
+    Deviner ici serait exactement la reussite apparente que ce projet refuse
+    partout ailleurs. Elle repond ce qui est vrai, et donne la phrase qui
+    marche.
+    """
+    from fastapi.testclient import TestClient
+
+    from nova.api.app import app
+    from nova.fichiers import trouver
+
+    _trois_avis(tmp_path, monkeypatch)
+    trouver.bloc("retrouve mes impôts de 2024")
+
+    reponse = TestClient(app).post(
+        "/v1/action", json={"texte": "ferme les trois fichiers"}
+    ).json()
+
+    assert reponse["intention"] == "fermer_fichiers"
+    assert "application" not in reponse["message"] or "Je ne sais pas fermer" in (
+        reponse["message"]
+    )
+    assert "ferme Aperçu" in reponse["message"], "elle dit la phrase qui marche"
+
+
+def test_sans_fichier_annonce_ferme_suit_son_cours_normal(monkeypatch):
+    """Hors d'une liste annoncee, « ferme les fichiers » ne designe rien de
+    particulier et doit repartir vers le catalogue comme avant."""
+    from fastapi.testclient import TestClient
+
+    from nova.api.app import app
+
+    reponse = TestClient(app).post(
+        "/v1/action", json={"texte": "ferme les fichiers"}
+    ).json()
+
+    assert reponse["intention"] != "fermer_fichiers"

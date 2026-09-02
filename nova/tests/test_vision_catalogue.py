@@ -427,7 +427,7 @@ def test_le_bloc_annonce_la_trouvaille_SANS_nommer_ni_decrire(
     sortie = bloc("retrouve-moi l'image où il y a une casquette")
 
     assert "IMG_7826-2.png" not in sortie, "elle ne nomme plus le fichier"
-    assert "je te l'ouvre ?" in sortie, "elle propose, et « oui » suffira"
+    assert "Je te l'ouvre ?" in sortie, "elle propose, et « oui » suffira"
     # ⚠️ LA BONNE IMAGE A BIEN ETE TROUVEE — CA SE PROUVE DANS LA RETENUE.
     #
     # C'est elle que « ouvre-la » et « c'est quoi son nom » consultent, et

@@ -809,12 +809,28 @@ def _bloc_recherche(texte: str) -> str:
         if len(trouvees) > 1
         else f"dis que tu as trouve la photo : « {quoi} »."
     )
+    # ⚠️ ON DONNE LA PHRASE, ON NE LA DECRIT PLUS.
+    #
+    # La consigne disait « demande laquelle ouvrir, par son rang ». Releve en
+    # conditions reelles, le modele en a fait :
+    #
+    #     « J'ai trouve deux photos de casquette blanche. Ouverture : la
+    #       premiere. »
+    #
+    # Il a pris le verbe « ouvrir » et l'a CONJUGUE — annoncant une ouverture
+    # qui n'a pas eu lieu. C'est le mensonge le plus couteux qu'un assistant
+    # puisse faire : on croit la chose faite, on ne verifie pas.
+    #
+    # Un modele de trois milliards de parametres suit une phrase a recopier
+    # bien mieux qu'une phrase a composer. On lui donne donc la question
+    # exacte, entre guillemets.
     suite = (
         "dis que tu viens de l'ouvrir a l'ecran."
         if ouverte
-        else "demande simplement : « je te l'ouvre ? »"
+        else "termine par cette question, mot pour mot : « Je te l'ouvre ? »"
         if len(trouvees) == 1
-        else "demande laquelle ouvrir, par son rang — « la premiere ou la deuxieme ? »"
+        else "termine par cette question, mot pour mot : « Laquelle veux-tu, "
+        "la premiere ou la deuxieme ? »"
     )
     return (
         "## Recherche d'image\n\n"

@@ -374,6 +374,35 @@ def demande_tout_ouvrir(texte: str) -> bool:
     return bool(_VERBE_D_OUVERTURE.search(plat) and _TOTALITE.search(plat))
 
 
+#: Les verbes qui demandent de refermer.
+_VERBE_DE_FERMETURE = re.compile(r"\b(?:ferme\w*|referme\w*|quitte\w*)\b")
+
+
+def demande_tout_fermer(texte: str) -> bool:
+    """« ferme les quatre fichiers », « referme-les tous ».
+
+    ⚠️ SYMETRIQUE DE `demande_tout_ouvrir`, ET POUR LA MEME RAISON.
+
+    Nova vient d'ouvrir quatre fichiers ; « ferme les quatre » est la suite
+    naturelle de sa propre action. Sans cela, la cible « quatre fichiers »
+    partait au catalogue des applications — « Je ne trouve pas d'application
+    "quatre fichiers" sur cette machine ».
+
+    ⚠️ MAIS RECONNAITRE N'EST PAS SAVOIR FAIRE.
+
+    Nova ne sait pas fermer un fichier : `open` confie le fichier au systeme,
+    qui choisit l'application. Ce motif sert donc a REPONDRE JUSTE, pas a
+    agir — et surtout pas a fermer une application au jugé, ce qui detruirait
+    du travail non enregistre.
+    """
+    plat = _plat(texte)
+    if not _VERBE_DE_FERMETURE.search(plat):
+        return False
+    # Un mot de totalite, ou simplement le mot « fichier ». « ferme Chrome »
+    # ne porte ni l'un ni l'autre et suit son cours normal.
+    return bool(_TOTALITE.search(plat) or re.search(r"\bfichiers?\b", plat))
+
+
 def liste_en_tete() -> tuple:
     """Les fichiers que Nova vient d'annoncer, dans l'ordre. Vide s'il n'y en a
     plus — la liste meurt avec la retenue, comme « le deuxieme »."""
@@ -713,10 +742,17 @@ def _comment_choisir(classes) -> str:
     devant trois noms sans savoir quoi dire ensuite. On lui donne la phrase
     qui marche — et elle marche parce que la liste est numerotee.
     """
+    # ⚠️ ON DONNE LA PHRASE, ON NE LA DECRIT PLUS.
+    #
+    # « demande lequel ouvrir, par son rang » contient le verbe « ouvrir », et
+    # un petit modele le conjugue plutot que de poser la question. Releve cote
+    # images, sur la meme tournure : « Ouverture : la premiere. » — une
+    # ouverture annoncee qui n'a pas eu lieu.
     if len(classes) < 2:
-        return "demande simplement : « je te l'ouvre ? »"
+        return "termine par cette question, mot pour mot : « Je te l'ouvre ? »"
     return (
-        "demande lequel ouvrir, par son rang — « le premier ou le deuxieme ? »"
+        "termine par cette question, mot pour mot : « Lequel veux-tu, "
+        "le premier ou le deuxieme ? »"
     )
 
 

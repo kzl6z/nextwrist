@@ -361,7 +361,7 @@ def test_la_phrase_fondatrice_trouve_le_fichier(maison, monkeypatch):
     from nova.voice import session
 
     assert ouvertes == []
-    assert "je te l'ouvre ?" in sortie
+    assert "Je te l'ouvre ?" in sortie
     assert session.en_attente() == (
         "ouvrir_fichier",
         {"chemin": str(maison / "Documents/Banque/releve-compte-2024-03.pdf")},
