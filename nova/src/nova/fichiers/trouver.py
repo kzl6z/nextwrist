@@ -768,16 +768,38 @@ def _rien_trouve(recherche: Recherche) -> str:
     """
     quoi = " ".join(recherche.mots) or "ce que tu decris"
     quand = f" de {recherche.annee}" if recherche.annee else ""
+    # ⚠️ QUATRE PHRASES ETAIENT TROIS DE TROP.
+    #
+    # Le message expliquait pourquoi un document scanne est introuvable :
+    # « la recherche porte sur le nom et sur le texte qu'ils contiennent : un
+    # document scanne n'a pas de texte a l'interieur ». Juste, utile — et
+    # irrecitable par un modele de trois milliards de parametres.
+    #
+    # Releve en conditions reelles, sur « retrouve ma carte d'identite » :
+    #
+    #     « Je ne peux pas VOIR le fichier, mais tu peux le chercher dans ton
+    #       dossier personnel. »
+    #
+    # Il a resume « pas de texte a l'interieur » en « je ne peux pas voir » —
+    # un vocabulaire de VISION, pour une recherche de fichiers. La reponse
+    # etait incomprehensible, et elle envoyait chercher du cote de la camera.
+    #
+    # C'est la meme lecon que « Ouverture : la premiere » : ce qu'on veut
+    # entendre, on le donne mot pour mot et on le fait court. L'explication
+    # longue reste — dans le JOURNAL, ou personne ne la paraphrase.
+    log.info(
+        "Aucun fichier pour « %s%s ». Rappel : la recherche porte sur le nom "
+        "et sur le texte indexe. Un document SCANNE n'a pas de texte : seul "
+        "son nom peut le retrouver.",
+        quoi, quand,
+    )
     return (
         "## Recherche de fichier\n\n"
         f"Recherche demandee : « {quoi}{quand} »\n"
         "Resultat : AUCUN fichier ne correspond.\n\n"
-        "Reponds EXACTEMENT ceci, et rien d'autre :\n\n"
-        f"« Je n'ai trouve aucun fichier correspondant a {quoi}{quand}. "
-        "La recherche porte sur le nom des fichiers et sur le texte qu'ils "
-        "contiennent : un document scanne n'a pas de texte a l'interieur, "
-        "donc seul son nom peut le retrouver. Si tu te rappelles un mot de "
-        "son nom, dis-le-moi. »"
+        "Reponds EXACTEMENT ceci, mot pour mot, et rien d'autre :\n\n"
+        f"« Je n'ai rien trouve pour {quoi}{quand}. "
+        "Si tu te rappelles un mot de son nom, dis-le-moi. »"
     )
 
 

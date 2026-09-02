@@ -368,19 +368,36 @@ def test_la_phrase_fondatrice_trouve_le_fichier(maison, monkeypatch):
     )
 
 
-def test_rien_trouve_dit_pourquoi(maison):
-    """⚠️ « RIEN TROUVE » A DEUX CAUSES OPPOSEES.
+def test_rien_trouve_donne_le_remede_sans_la_theorie(maison):
+    """⚠️ CE BANC EXIGEAIT UNE EXPLICATION QUE LE MODELE NE SAIT PAS RECITER.
 
-    Le fichier n'existe pas — ou il existe et rien dedans ne se cherche,
-    parce qu'il est scanne. Les confondre laisserait quelqu'un reformuler dix
-    fois une question qui ne pouvait pas aboutir.
+    Le message disait pourquoi un document scanne est introuvable : « la
+    recherche porte sur le nom et sur le texte qu'ils contiennent ; un
+    document scanne n'a pas de texte a l'interieur ». Juste, utile, et quatre
+    phrases.
+
+    Releve en conditions reelles, sur « retrouve ma carte d'identite » :
+
+        « Je ne peux pas VOIR le fichier, mais tu peux le chercher dans ton
+          dossier personnel. »
+
+    Le modele a resume « pas de texte a l'interieur » en « je ne peux pas
+    voir » — un vocabulaire de VISION pour une recherche de fichiers. La
+    reponse etait incomprehensible, et elle envoyait chercher du cote de la
+    camera.
+
+    ⚠️ CE QU'ON GARDE EST LE REMEDE, PAS LA THEORIE.
+
+    « Si tu te rappelles un mot de son nom, dis-le-moi » est ce qui permet
+    d'avancer. Le pourquoi part dans le JOURNAL, ou personne ne le paraphrase.
     """
     _poser(maison, ["Documents/vacances.pdf"])
 
     sortie = bloc("retrouve-moi mon releve de compte de 2024")
 
     assert "AUCUN fichier" in sortie
-    assert "scanne" in sortie
+    assert "un mot de son nom" in sortie, "le remede reste dit"
+    assert "scanne" not in sortie, "la theorie ne part plus dans la bouche de Nova"
 
 
 def test_une_question_ordinaire_ne_coute_rien(maison):
@@ -1021,3 +1038,68 @@ def test_spotlight_ne_passe_jamais_par_un_shell():
     assert vus["kw"].get("shell") is not True
     assert vus["arguments"][0] == "/usr/bin/mdfind"
     assert vus["kw"]["timeout"] == 6.0, "un index en reconstruction ne bloque pas"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  UNE CARTE GRISE N'EST PAS UNE CARTE D'IDENTITE
+#
+#  ⚠️ LA FAMILLE LES CONTENAIT TOUTES, ET LA REQUETE EN PAYAIT LE PRIX.
+#
+#  Une famille dit « c'est la meme idee ». Celle de l'identite contenait
+#  identite, passeport, cni, permis, conduire, vitale, sejour, grise, titre —
+#  des PAPIERS DIFFERENTS. La requete Spotlight cherchait donc `*titre*`,
+#  `*grise*`, `*conduire*`, et `*carte*` jusque dans le TEXTE des documents.
+#
+#  Sur un Mac reel, `*titre*` attrape « sous-titres » et toute presentation ;
+#  `*carte*` en contenu attrape tout document ou le mot figure. Le moteur
+#  tronque a 1200 resultats NON TRIES : le bon fichier peut sortir avant
+#  d'atteindre le classement.
+#
+#  Ce n'est pas theorique — c'est deja arrive, mesure : « 2907 resultats,
+#  tronques a 400, zero retenu ».
+# ══════════════════════════════════════════════════════════════════════════
+def _termes_cherches(phrase: str) -> set[str]:
+    """Les mots que la requete Spotlight va reellement chercher."""
+    from nova.fichiers.moteurs import interrogation_par_groupes
+    from nova.fichiers.requete import groupes
+
+    recherche = lire(phrase, aujourdhui=MAINTENANT)
+    question = interrogation_par_groupes(groupes(recherche.mots), recherche.mots)
+    return set(re.findall(r'== "\*([a-z0-9_]+)\*"', question))
+
+
+def test_une_recherche_d_identite_ne_traine_plus_les_autres_papiers():
+    cherches = _termes_cherches("retrouve-moi ma carte d'identité")
+
+    assert {"identite", "passeport", "cni", "carte"} <= cherches
+    for etranger in ("titre", "grise", "conduire", "vitale", "sejour", "permis"):
+        assert etranger not in cherches, (
+            f"« {etranger} » n'est pas une carte d'identite, et elargit la "
+            "requete jusqu'a la rendre inutilisable"
+        )
+
+
+def test_carte_reste_dans_la_famille_de_l_identite():
+    """⚠️ SANS LUI, `CNI BERANGERE RECTO-1.png` SERAIT ECARTE.
+
+    « carte d'identite » formerait DEUX idees — {carte} et {identite,
+    passeport, cni} — et la passe precise les exigerait TOUTES LES DEUX. Un
+    fichier nomme « CNI… » ne porte pas « carte » : il tomberait.
+
+    Le mot appartient bien au terme. Il n'appartient pas aux autres papiers.
+    """
+    from nova.fichiers.requete import groupes
+
+    assert len(groupes(("carte", "identite"))) == 1, "une seule idee, pas deux"
+
+
+def test_les_papiers_voisins_restent_trouvables_par_leur_nom():
+    """Les separer ne devait rien casser : chacun se retrouve chez soi."""
+    assert "conduire" in _termes_cherches("retrouve-moi mon permis de conduire")
+    assert "grise" in _termes_cherches("retrouve-moi ma carte grise")
+    assert "vitale" in _termes_cherches("retrouve-moi ma carte vitale")
+
+
+def test_un_passeport_repond_toujours_a_une_demande_de_carte_d_identite():
+    """La raison d'etre de la table de synonymes ne change pas."""
+    assert "passeport" in _termes_cherches("retrouve-moi ma carte d'identité")

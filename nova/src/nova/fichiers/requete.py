@@ -142,8 +142,39 @@ FAMILLES: tuple[tuple[str, ...], ...] = (
     ("contrat", "contrats", "engagement", "bail", "convention", "avenant"),
     ("attestation", "attestations", "certificat", "justificatif", "preuve"),
     ("assurance", "assurances", "mutuelle", "garantie", "sinistre"),
-    ("identite", "passeport", "carte", "permis", "cni", "conduire",
-     "vitale", "sejour", "grise", "titre"),
+    # ⚠️ UNE CARTE GRISE N'EST PAS UNE CARTE D'IDENTITE.
+    #
+    # Cette famille les contenait toutes : identite, passeport, cni, permis,
+    # conduire, vitale, sejour, grise, titre. Une famille dit « c'est la meme
+    # idee » — et ce sont des PAPIERS DIFFERENTS. Les grouper avait deux
+    # consequences, et la seconde est la plus grave.
+    #
+    # 1. « retrouve ma carte d'identite » ramenait aussi la carte grise et le
+    #    permis. Genant.
+    #
+    # 2. La requete Spotlight cherchait `*titre*`, `*grise*`, `*conduire*`,
+    #    `*vitale*` — et `*carte*` jusque DANS LE TEXTE des documents. Sur un
+    #    Mac reel, `*titre*` seul attrape « sous-titres », « Titre de la
+    #    presentation », et `*carte*` en contenu attrape tout document ou le
+    #    mot figure.
+    #
+    # Le moteur tronque a 1200 resultats NON TRIES : le bon fichier peut
+    # sortir avant d'atteindre le classement. Ce n'est pas theorique — c'est
+    # deja arrive, mesure : « 2907 resultats, tronques a 400, zero retenu ».
+    #
+    # ⚠️ « carte » RESTE, ET C'EST NECESSAIRE.
+    #
+    # Sans lui, « carte d'identite » formerait DEUX idees — {carte} et
+    # {identite, passeport, cni} — que la passe precise exigerait toutes les
+    # deux. `CNI BERANGERE RECTO-1.png` ne porte pas « carte » : il serait
+    # ecarte. Le mot appartient bien au terme, il n'appartient pas aux autres.
+    ("identite", "passeport", "carte", "cni"),
+    # Les papiers voisins, chacun chez soi. On les retrouve toujours par leur
+    # nom propre — mais ils ne sont plus tires par une recherche d'identite.
+    ("permis", "conduire"),
+    ("grise", "immatriculation", "vehicule"),
+    ("vitale", "secu", "securite_sociale"),
+    ("sejour", "titre_de_sejour", "recepisse"),
     ("etat_civil", "naissance", "acte", "livret", "famille", "mariage",
      "deces", "domicile", "residence"),
     ("cv", "curriculum", "candidature", "lettre", "motivation"),
