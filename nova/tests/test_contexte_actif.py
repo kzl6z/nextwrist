@@ -356,3 +356,98 @@ def test_lire_le_contexte_ne_coute_qu_un_aller_retour(sans_projet):
     millisecondes = (time.perf_counter() - depart) * 1000 / 20
 
     assert millisecondes < 50, f"un bloc coûte {millisecondes:.1f} ms"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  LA SEANCE DE TRAVAIL, DE LA PHRASE PRONONCEE JUSQU'A LA BASE
+#
+#  ⚠️ C'EST LE BANC QUI DIT SI TOUT CE CHANTIER SERT A QUELQUE CHOSE.
+#
+#  Les bancs precedents verifient chaque piece. Celui-ci verifie qu'une
+#  conversation de travail — ouvrir, fixer un cap, decider, noter, changer de
+#  sujet, revenir — laisse Nova avec un etat juste.
+# ══════════════════════════════════════════════════════════════════════════
+def _client():
+    from fastapi.testclient import TestClient
+
+    from nova.api.app import app
+
+    return TestClient(app)
+
+
+def test_une_seance_de_travail_complete(sans_projet):
+    from nova.contexte import actif
+    from nova.voice import session
+
+    session.oublier()
+
+    with _client() as client:
+
+        def dire(phrase: str) -> str:
+            return client.post("/v1/action", json={"texte": phrase}).json()["message"]
+
+        assert "moteur" in dire("ouvre le projet moteur")
+        assert "gagner 15 %" in dire("on va essayer de gagner 15 % de puissance")
+        dire("on a décidé d'augmenter le débit parce que c'est le levier le moins coûteux")
+        # « ca » designe la phrase d'avant : on la dit, puis on l'ajoute.
+        dire("revoir le refroidissement avant d'augmenter la tension")
+        assert "revoir le refroidissement" in dire("ajoute ça aux prochaines étapes")
+        dire("je veux garder ça pour moi")
+
+        # On part ailleurs, puis on revient.
+        dire("ouvre le projet NOVA")
+        retour = dire("revenons au projet moteur")
+
+    assert "gagner 15 %" in retour, "revenir rappelle l'objectif"
+
+    courant = actif.projet_actif()
+    assert courant.nom == "moteur"
+    assert courant.objectif == "gagner 15 % de puissance"
+    assert courant.confidentialite == "personnel"
+    assert courant.decisions[0].contenu == "augmenter le débit"
+    assert courant.decisions[0].pourquoi == "c'est le levier le moins coûteux"
+    assert any("refroidissement" in t.contenu for t in courant.taches)
+
+
+def test_le_contexte_survit_a_un_redemarrage(sans_projet):
+    """⚠️ « TU TE RAPPELLES DE CE QU'ON DISAIT ? » DOIT MARCHER DEMAIN AUSSI.
+
+    Le cache tombe, tout revient de la base — comme pour la memoire.
+    """
+    from nova.contexte import actif
+
+    with _client() as client:
+        client.post("/v1/action", json={"texte": "ouvre le projet moteur"})
+        client.post(
+            "/v1/action",
+            json={"texte": "on a décidé d'augmenter le débit parce que c'est le moins cher"},
+        )
+
+    # Rien en memoire vive : on relit.
+    projet = actif.projet_actif()
+
+    assert projet.nom == "moteur"
+    assert projet.decisions[0].pourquoi == "c'est le moins cher"
+
+
+def test_le_bloc_de_prompt_porte_la_seance(sans_projet, monkeypatch):
+    """De bout en bout : ce que Nova lira reellement au tour suivant."""
+    from nova import orchestrator
+    from nova.documents import search as document_search
+    from nova.memory import conversations, facts
+
+    monkeypatch.setattr(document_search, "search", lambda *a, **k: [])
+    monkeypatch.setattr(facts, "list_facts", lambda *a, **k: [])
+    monkeypatch.setattr(conversations, "derniers_echanges", lambda *a, **k: [])
+
+    with _client() as client:
+        client.post("/v1/action", json={"texte": "ouvre le projet moteur"})
+        client.post("/v1/action", json={"texte": "on va essayer de gagner 15 % de puissance"})
+        client.post("/v1/action", json={"texte": "il faudra revoir le refroidissement"})
+
+    prompt, _ = orchestrator.build_system_prompt("et si on garde le même moteur ?")
+
+    assert "Projet : moteur" in prompt
+    assert "gagner 15 % de puissance" in prompt
+    assert "revoir le refroidissement" in prompt
+    assert "demande LAQUELLE" in prompt, "et la consigne d'ambiguïté"

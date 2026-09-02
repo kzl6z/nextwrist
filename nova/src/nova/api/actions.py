@@ -87,6 +87,41 @@ def executer(demande: DemandeAction) -> ReponseAction:
             niveau=fait.niveau, intention="proposition_acceptee", cible=None,
         )
 
+    # ⚠️ LE CONTEXTE DE TRAVAIL SE PILOTE A LA VOIX, ET AVANT TOUT LE RESTE.
+    #
+    # « ouvre le projet moteur » etait capte par `ouvrir_application` : la
+    # cible « projet moteur » partait au catalogue des applications. Les cinq
+    # autres ordres — objectif, tache, decision, confidentialite,
+    # basculement — ne declenchaient RIEN.
+    #
+    # ⚠️ ET « CA » SE RESOUT PAR LA PHRASE D'AVANT.
+    #
+    # « ajoute ca aux prochaines etapes » ne porte pas son contenu. On lit et
+    # on ecrit le propos precedent d'un seul geste : l'ordre des appels entre
+    # l'application et Nova Core n'est pas garanti, et deux temps
+    # introduiraient une course.
+    precedent = session.noter_le_propos(demande.texte)
+
+    from nova.contexte import actif as contexte_actif
+    from nova.contexte import commandes as contexte_commandes
+
+    ordre = contexte_commandes.lire(demande.texte, propos_precedent=precedent)
+    if ordre is not None:
+        try:
+            message = contexte_actif.appliquer(ordre, source=demande.texte)
+        except Exception as erreur:  # noqa: BLE001
+            log.warning("[Contexte] Ordre « %s » en echec : %s", ordre.genre, erreur)
+            return ReponseAction(
+                etat="echouee", message="Je n'ai pas réussi à noter ça.",
+                outil=None, niveau=None, intention="contexte", cible=None,
+            )
+        if message:
+            log.info("[Contexte] « %s » → %s", demande.texte, ordre.genre)
+            return ReponseAction(
+                etat="executee", message=message, outil=None, niveau=None,
+                intention=f"contexte_{ordre.genre}", cible=None,
+            )
+
     # ⚠️ « OUVRE LES 3 » N'EST PAS UN NOM D'APPLICATION.
     #
     # Nova vient d'annoncer trois fichiers : « les trois » est la suite

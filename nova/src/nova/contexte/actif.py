@@ -384,3 +384,60 @@ def bloc(question: str = "") -> str:
 
     log.info("[Contexte] %d caracteres injectes.", len(texte))
     return texte
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  EXECUTER UN ORDRE DE CONTEXTE
+# ══════════════════════════════════════════════════════════════════════════
+def appliquer(ordre, *, source: str = "") -> str:
+    """Execute l'ordre et rend la phrase que Nova doit dire. `""` si rien.
+
+    ⚠️ ELLE DIT CE QU'ELLE A NOTE, PAS « C'EST FAIT ».
+
+    « ajoute ca aux prochaines etapes » resout « ca » par le propos precedent.
+    C'est une deduction, et elle peut se tromper. Annoncer l'intitule retenu
+    permet de corriger d'un mot ; dire « c'est note » laisserait une tache
+    fausse s'installer sans que personne la voie.
+
+    C'est la meme regle que le rapprochement phonetique des fichiers : une
+    hypothese se dit.
+    """
+    if ordre is None:
+        return ""
+
+    if ordre.genre == "ouvrir":
+        projet = ouvrir(ordre.contenu)
+        return f"C'est ouvert : {projet.nom}."
+
+    if ordre.genre == "basculer":
+        projet = basculer(ordre.contenu)
+        if projet is None:
+            connus = ", ".join(p.nom for p in projets(limite=5))
+            if not connus:
+                return "Je n'ai aucun projet en mémoire."
+            return f"Je ne connais pas ce projet. J'ai : {connus}."
+        objectif = f" Objectif : {projet.objectif}." if projet.objectif else ""
+        return f"On revient sur {projet.nom}.{objectif}"
+
+    if ordre.genre == "objectif":
+        projet = fixer_objectif(ordre.contenu)
+        if projet is None:
+            return "Aucun projet ouvert : dis-moi lequel d'abord."
+        return f"Objectif noté : {ordre.contenu}."
+
+    if ordre.genre == "confidentiel":
+        projet = confidentialite("personnel")
+        if projet is None:
+            return "Aucun projet ouvert : dis-moi lequel d'abord."
+        return f"Entendu, {projet.nom} reste personnel."
+
+    if ordre.genre in ("tache", "decision"):
+        element = noter(
+            ordre.genre, ordre.contenu, pourquoi=ordre.pourquoi or None, source=source
+        )
+        if element is None:
+            return "Aucun projet ouvert : dis-moi lequel d'abord."
+        quoi = "Tâche notée" if ordre.genre == "tache" else "Décision notée"
+        return f"{quoi} : {element.contenu}."
+
+    return ""

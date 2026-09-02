@@ -137,3 +137,35 @@ def reglages_de_reference(monkeypatch):
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def registre_d_agents_propre():
+    """⚠️ LE REGISTRE D'AGENTS EST GLOBAL, ET IL FUIT D'UN BANC A L'AUTRE.
+
+    `enregistrer_agents_standard` est idempotent : il n'inscrit un agent que
+    si le nom est libre. C'est necessaire — relancer l'application ne doit pas
+    echouer sur un enregistrement deja fait.
+
+    Consequence en banc : le PREMIER qui demarre l'application gagne, et sa
+    fonction de reponse — celle qui appelle le vrai orchestrateur, donc le
+    vrai Ollama — reste inscrite pour tous les suivants. Un banc qui injecte
+    sa propre reponse voit la sienne ignoree.
+
+    ⚠️ ET LE DEFAUT DEPENDAIT DE L'ORDRE ALPHABETIQUE DES FICHIERS.
+
+    Il dormait depuis longtemps : les fichiers qui demarrent l'application
+    triaient tous APRES `test_core_gestionnaire.py`. Un fichier nomme
+    `test_contexte_actif.py` est passe devant, et le banc est tombe — sur une
+    panne de connexion a Ollama, qui n'a evidemment rien a voir avec ce qu'il
+    protege.
+
+    C'est la meme lecon que `focus` et `session` : un etat de module ne se
+    remet pas a zero tout seul, et compter sur chaque fichier pour y penser,
+    c'est attendre du prochain qu'il connaisse un piege invisible.
+    """
+    from nova.agents import registre_agents
+
+    registre_agents._entrees.clear()  # noqa: SLF001
+    yield
+    registre_agents._entrees.clear()  # noqa: SLF001

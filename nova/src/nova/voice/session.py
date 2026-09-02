@@ -226,6 +226,46 @@ def en_attente() -> tuple[str, dict] | None:
         return _proposition
 
 
+# ══════════════════════════════════════════════════════════════════════════
+#  LE PROPOS PRECEDENT — CE QUE « CA » DESIGNE
+# ══════════════════════════════════════════════════════════════════════════
+#: La derniere phrase prononcee avant celle qu'on traite.
+#:
+#: ⚠️ « AJOUTE CA AUX PROCHAINES ETAPES » NE PORTE PAS SON CONTENU.
+#:
+#: Dans une conversation, « ca » designe ce qu'on vient de dire. Sans cette
+#: memoire d'une phrase, l'ordre est compris et vide : Nova noterait une tache
+#: sans intitule, ou pire en inventerait un.
+#:
+#: Une seule phrase, en memoire vive, effacee avec la conversation. Ce n'est
+#: pas de la memoire — c'est le fil de la phrase en cours.
+_propos_precedent: str = ""
+
+
+def noter_le_propos(texte: str) -> str:
+    """Enregistre la phrase courante et rend CELLE D'AVANT.
+
+    Les deux d'un coup, et c'est deliberé : un appelant qui lirait puis
+    ecrirait en deux temps introduirait une course, et l'ordre des appels
+    entre l'application et Nova Core n'est pas garanti.
+    """
+    global _propos_precedent
+    with _verrou:
+        avant = _propos_precedent
+        if (texte or "").strip():
+            _propos_precedent = texte.strip()
+    return avant
+
+
+def propos_precedent() -> str:
+    """La phrase d'avant, sans rien enregistrer. Pour le journal et les bancs."""
+    with _verrou:
+        return _propos_precedent
+
+
 def oublier() -> None:
     """Remet tout a zero. Pour les bancs."""
+    global _propos_precedent
+    with _verrou:
+        _propos_precedent = ""
     fermer("remise a zero")
