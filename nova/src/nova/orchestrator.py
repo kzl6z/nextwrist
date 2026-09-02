@@ -652,6 +652,33 @@ def build_system_prompt(
     # se fait dans le fil d'entretien, pas dans la question de l'utilisateur.
     ajouter("memoire", _bloc_memoire(user_message))
 
+    # ⚠️ LE TRAVAIL EN COURS — CE QUI MANQUAIT ENTRE `focus` ET `memory`.
+    #
+    # `focus` retient un fichier pendant dix minutes. `memory` retient des
+    # faits pour toujours. Entre les deux, rien ne retenait ce sur quoi ON
+    # TRAVAILLE : l'objectif du moment, les decisions de l'apres-midi,
+    # l'hypothese qu'on fait evoluer.
+    #
+    # C'est ce qui manque pour que « et si on garde le meme moteur ? » veuille
+    # dire quelque chose trois phrases plus tard.
+    #
+    # ⚠️ CE BLOC NE RESOUT AUCUNE REFERENCE. IL FOURNIT LES REFERENTS.
+    #
+    # Pas de regle « si la phrase dit "augmente ca" alors … » : ce serait
+    # l'illusion de comprendre, et ca casserait a la premiere tournure non
+    # prevue. On dit au modele DE QUOI ON PARLE ; c'est lui qui rattache.
+    #
+    # Exactement ce qui a marche pour « ouvre le deuxieme » : nous ne
+    # devinons pas lequel, nous retenons la liste dans l'ordre annonce.
+    try:
+        from nova.contexte import actif as contexte_actif
+
+        ajouter("contexte", contexte_actif.bloc(user_message))
+    except Exception as exc:  # noqa: BLE001
+        # Un contexte indisponible fait une Nova qui en sait moins, jamais une
+        # Nova en panne. Meme regle que la memoire, la vision et les documents.
+        log.warning("[Contexte] Indisponible : %s", exc)
+
     # 3. Volatil — change a chaque minute, puis a chaque question.
     #
     # Un modele n'a AUCUNE notion du temps : sans cette ligne, « quelle heure
