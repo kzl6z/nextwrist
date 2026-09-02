@@ -147,6 +147,23 @@ def _executer(demande: DemandeAction) -> ReponseAction:
             )
 
     # ══════════════════════════════════════════════════════════════════════
+    #  ⚠️ METTRE A JOUR SE LIT AVANT CREER, ET L'ORDRE FAIT TOUT.
+    #
+    #  « mets le dossier a jour » porte un verbe de creation et le mot
+    #  « dossier » : `creer.demande_de_dossier` le prendrait pour lui, et Nova
+    #  repondrait poliment que le dossier est deja la — sans rien faire.
+    #
+    #  ⚠️ ET C'EST LA PREMIERE ACTION QUI PASSE PAR LE PORTILLON.
+    #
+    #  Reecrire un document existant est CONSEQUENT : le bareme le nomme mot
+    #  pour mot. `executer_outil` refuse donc tant que `confirme` ne vient pas
+    #  de l'UTILISATEUR — jamais du modele. C'est le contrat en deux temps
+    #  decrit en tete de ce fichier, et c'est son premier usage reel.
+    # ══════════════════════════════════════════════════════════════════════
+    if _mise_a_jour_demandee(demande.texte):
+        return _mettre_a_jour(demande)
+
+    # ══════════════════════════════════════════════════════════════════════
     #  ⚠️ CREER UN DOSSIER — LA PREMIERE FOIS QUE NOVA ECRIT SUR LE DISQUE.
     #
     #      « Nova, je cherche a creer un moteur electrique. »
@@ -405,3 +422,93 @@ def _proposer_le_dossier() -> str:
         # accompagne : « Décision notée » a de la valeur toute seule.
         log.warning("Proposition de dossier impossible : %s", exc)
         return ""
+
+
+def _mise_a_jour_demandee(texte: str) -> bool:
+    """Sans le contexte disponible, on ne reconnait rien — on ne casse rien."""
+    try:
+        from nova.contexte import document
+
+        return document.demande_de_mise_a_jour(texte)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Contexte indisponible : %s", exc)
+        return False
+
+
+def _mettre_a_jour(demande: DemandeAction) -> ReponseAction:
+    """Reecrit le document du projet — apres confirmation, jamais avant.
+
+    ⚠️ SANS DOCUMENT, CE N'EST PAS UNE MISE A JOUR : C'EST UNE ECRITURE.
+
+    Et une ecriture qui n'ecrase rien est REVERSIBLE. Demander une
+    confirmation pour creer un fichier absent habituerait a dire oui sans
+    lire — ce qui use exactement le garde-fou qu'on essaie de poser. Le
+    niveau suit le risque REEL, pas le nom de la phrase prononcee.
+    """
+    from nova.contexte import actif, document
+    from nova.outils import ConfirmationRequise, executer_outil
+
+    projet = actif.projet_actif()
+    if projet is None:
+        return ReponseAction(
+            etat="ignoree", message="Aucun projet ouvert.",
+            outil=None, niveau=None, intention="mettre_a_jour_projet", cible=None,
+        )
+
+    if not projet.dossier:
+        fait = orchestrator.executer_outil_propose("ecrire_projet", {"projet": projet.nom})
+        log.info("Mise a jour demandee, aucun document : ecriture (%s)", fait.etat)
+        return ReponseAction(
+            etat=fait.etat, message=fait.message, outil=fait.outil,
+            niveau=fait.niveau, intention="ecrire_projet", cible=projet.nom,
+        )
+
+    try:
+        message = executer_outil(
+            "mettre_a_jour_projet", confirme=demande.confirme, projet=projet.nom
+        )
+    except ConfirmationRequise:
+        # ⚠️ ON POSE NOTRE QUESTION, PAS CELLE DU PORTILLON.
+        #
+        # `ConfirmationRequise.question()` rend « Je m'apprete a
+        # mettre_a_jour_projet (projet = centrale nucleaire). Je confirme ? » —
+        # un nom d'outil et une liste d'arguments, lus a voix haute. Une
+        # confirmation qu'on ne comprend pas se donne au hasard, et le
+        # portillon ne protege plus rien.
+        question = document.question_de_remplacement(
+            projet, repris_a_la_main=not _document_intact(projet)
+        )
+        log.info("[Contexte] Mise a jour de « %s » : confirmation attendue", projet.nom)
+        return ReponseAction(
+            etat="a_confirmer", message=question, outil="mettre_a_jour_projet",
+            niveau=None, intention="mettre_a_jour_projet", cible=projet.nom,
+        )
+    except Exception as erreur:  # noqa: BLE001
+        log.warning("Mise a jour impossible : %s", erreur)
+        return ReponseAction(
+            etat="echouee", message=str(erreur), outil="mettre_a_jour_projet",
+            niveau=None, intention="mettre_a_jour_projet", cible=projet.nom,
+        )
+
+    return ReponseAction(
+        etat="executee", message=str(message), outil="mettre_a_jour_projet",
+        niveau=None, intention="mettre_a_jour_projet", cible=projet.nom,
+    )
+
+
+def _document_intact(projet) -> bool:
+    """Le document porte-t-il encore la signature de Nova ?
+
+    C'est la seule reponse bon marche a « ce fichier a-t-il ete repris a la
+    main ? ». Dans le doute — fichier illisible, dossier deplace — on repond
+    VRAI : on ne va pas alarmer sur une modification qu'on n'a pas constatee.
+    """
+    from pathlib import Path
+
+    from nova.contexte import document
+
+    try:
+        fichier = Path(projet.dossier) / document.nom_du_fichier(projet)
+        return document.porte_la_signature(fichier.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return True

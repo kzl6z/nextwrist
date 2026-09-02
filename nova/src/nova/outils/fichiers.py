@@ -208,37 +208,10 @@ class EcrireProjet:
 
     def executer(self, projet: str = "", ou: str = "") -> str:
         from nova.contexte import actif, document
-        from nova.fichiers.creer import _nom_propre, destination, nom_lisible
-        from nova.outils.systeme import ActionImpossible
 
-        courant = actif.projet_actif()
-        if courant is None:
-            raise ActionImpossible("Aucun projet ouvert.")
-        # Le nom vient de la proposition ; le projet a pu changer entre-temps.
-        # On ecrit ce qui est ACTIF, et on refuse si ce n'est plus le meme.
-        if projet and _plat(projet) != _plat(courant.nom):
-            raise ActionImpossible(
-                f"Le projet en cours n'est plus « {projet} », mais « {courant.nom} »."
-            )
-
-        dossier_voulu = _nom_propre(courant.nom)
-        if not dossier_voulu:
-            raise FichierRefuse(
-                f"« {courant.nom} » ne peut pas servir de nom de dossier."
-            )
-
-        parent = destination(ou)
-        if parent is None:
-            raise FichierRefuse(
-                "Je n'ai pas le droit de créer là. "
-                "Regarde NOVA_FICHIERS_CREATION_DOSSIERS."
-            )
-
-        racine = borner_creation(parent, dossier_voulu)
+        courant, racine, fichier, ou_dit = _emplacement(projet, ou)
         racine.mkdir(exist_ok=True)
 
-        fichier = racine / document.nom_du_fichier(courant)
-        ou_dit = nom_lisible(parent)
         if fichier.exists():
             # ⚠️ ON N'ECRASE PAS, ET ON NE SE TAIT PAS NON PLUS.
             #
@@ -248,8 +221,8 @@ class EcrireProjet:
             actif.fixer_dossier(courant.id, str(racine))
             log.info("Document deja present : %s", fichier)
             return (
-                f"Le dossier {racine.name} est déjà sur {ou_dit}, "
-                "avec son document. Je n'y touche pas."
+                f"Le dossier {racine.name} est déjà sur {ou_dit}, avec son "
+                "document. Je n'y touche pas — dis-moi de le mettre à jour."
             )
 
         fichier.write_text(document.rendre(courant), encoding="utf-8")
@@ -260,6 +233,91 @@ class EcrireProjet:
             f"C'est fait : le dossier {racine.name} est sur {ou_dit}, "
             f"avec {combien} élément(s) de notre conversation."
         )
+
+
+class MettreAJourProjet:
+    """Reecrit le document du projet avec ce qui a ete dit depuis."""
+
+    nom = "mettre_a_jour_projet"
+    description = "Réécrit le document d'un projet déjà écrit sur le disque"
+    capacite = "action"
+    #: ⚠️ CONSEQUENT, ET C'EST LE BAREME QUI LE DIT, MOT POUR MOT :
+    #
+    # « ecrire dans un fichier existant. Se defait mal. »
+    #
+    # `ecrire_projet` reste REVERSIBLE parce qu'il n'ecrase rien. Celui-ci
+    # ecrase, donc il passe par le portillon : `executer_outil` refuse de
+    # l'executer tant que `confirme` ne vient pas de l'UTILISATEUR. Un modele
+    # ne peut pas remplir ce champ, et c'est toute la difference entre un
+    # garde-fou et un decor.
+    niveau = contrats.CONSEQUENT
+
+    def executer(self, projet: str = "", ou: str = "") -> str:
+        from nova.contexte import actif, document
+        from nova.outils.systeme import ActionImpossible
+
+        courant, racine, fichier, ou_dit = _emplacement(projet, ou)
+        if not fichier.exists():
+            raise ActionImpossible(
+                f"Il n'y a pas encore de document pour {courant.nom}."
+            )
+
+        # ⚠️ ON GARDE L'ANCIEN AVANT DE L'EFFACER.
+        #
+        # Le portillon protege du « oui » distrait, pas de celui qu'on
+        # regrette une seconde apres. Une copie coute quelques kilo-octets et
+        # rend le seul accident possible ici entierement rattrapable.
+        #
+        # Une seule copie, remplacee a chaque fois : garder tout l'historique
+        # remplirait le dossier de fichiers que personne ne relit.
+        ancien = fichier.read_text(encoding="utf-8")
+        (racine / document.nom_de_la_precedente(courant)).write_text(
+            ancien, encoding="utf-8"
+        )
+        fichier.write_text(document.rendre(courant), encoding="utf-8")
+        actif.fixer_dossier(courant.id, str(racine))
+        log.info("Projet mis a jour : %s", fichier)
+        return (
+            f"C'est à jour : {document.poids(courant)} élément(s) dans le document "
+            f"de {courant.nom}, sur {ou_dit}. J'ai gardé l'ancienne version à côté."
+        )
+
+
+def _emplacement(projet: str, ou: str):
+    """Le projet actif, son dossier, son document et comment DIRE l'endroit.
+
+    Partage par les deux outils : ils doivent viser le meme fichier, et deux
+    calculs separes finiraient par diverger sur un detail — un accent, une
+    extension — que personne ne verrait avant de chercher un document a
+    l'endroit ou il n'est pas.
+    """
+    from nova.contexte import actif, document
+    from nova.fichiers.creer import _nom_propre, destination, nom_lisible
+    from nova.outils.systeme import ActionImpossible
+
+    courant = actif.projet_actif()
+    if courant is None:
+        raise ActionImpossible("Aucun projet ouvert.")
+    # Le nom vient de la proposition ; le projet a pu changer entre-temps. On
+    # ecrit ce qui est ACTIF, et on refuse si ce n'est plus le meme.
+    if projet and _plat(projet) != _plat(courant.nom):
+        raise ActionImpossible(
+            f"Le projet en cours n'est plus « {projet} », mais « {courant.nom} »."
+        )
+
+    dossier_voulu = _nom_propre(courant.nom)
+    if not dossier_voulu:
+        raise FichierRefuse(f"« {courant.nom} » ne peut pas servir de nom de dossier.")
+
+    parent = destination(ou)
+    if parent is None:
+        raise FichierRefuse(
+            "Je n'ai pas le droit de créer là. "
+            "Regarde NOVA_FICHIERS_CREATION_DOSSIERS."
+        )
+
+    racine = borner_creation(parent, dossier_voulu)
+    return courant, racine, racine / document.nom_du_fichier(courant), nom_lisible(parent)
 
 
 def _plat(texte: str) -> str:
@@ -330,7 +388,13 @@ def enregistrer_outils_fichiers(registre) -> tuple[str, ...]:
     dans la conversation, pas de ce qui EXISTE.
     """
     inscrits: list[str] = []
-    for outil in (RechercherFichier(), OuvrirFichier(), CreerDossier(), EcrireProjet()):
+    for outil in (
+        RechercherFichier(),
+        OuvrirFichier(),
+        CreerDossier(),
+        EcrireProjet(),
+        MettreAJourProjet(),
+    ):
         if outil.nom not in registre:
             registre.enregistrer(outil)
             inscrits.append(outil.nom)

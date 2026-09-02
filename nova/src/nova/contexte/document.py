@@ -32,9 +32,28 @@ perdrait ne vaudrait pas le disque qu'il occupe.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from datetime import date
 
 from nova.contexte import Projet
+
+#: La ligne par laquelle Nova signe ses documents.
+#:
+#: ⚠️ ELLE NE SERT PAS QU'A FAIRE JOLI : ELLE REPOND A UNE QUESTION.
+#:
+#: « Ce fichier a-t-il ete repris a la main ? » n'a aucune autre reponse
+#: bon marche. Avant de remplacer un document, Nova regarde si sa signature
+#: est encore la — et si elle ne l'est plus, elle le DIT dans sa question,
+#: parce que ce qu'on s'apprete a perdre n'est plus le sien.
+SIGNATURE = "*Écrit par Nova le"
+
+#: Le nom sous lequel l'ancienne version est gardee avant remplacement.
+#:
+#: Une seule, remplacee a chaque fois : garder tout l'historique remplirait
+#: le dossier de fichiers que personne ne relit. Une seule suffit a rattraper
+#: le « oui » de trop, qui est le seul accident possible ici.
+SUFFIXE_PRECEDENTE = " (version précédente)"
 
 #: Ce qu'il faut avoir dit d'un projet pour qu'un dossier vaille la peine.
 #:
@@ -141,3 +160,81 @@ def rendre(projet: Projet, *, le_jour: date | None = None) -> str:
         "",
     ]
     return "\n".join(lignes)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  METTRE A JOUR — l'action qui, elle, demande une confirmation
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def _plat(texte: str) -> str:
+    sans = "".join(
+        c for c in unicodedata.normalize("NFD", texte or "")
+        if unicodedata.category(c) != "Mn"
+    )
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9' ]+", " ", sans.lower())).strip()
+
+
+#: Remettre a jour, et non creer.
+#:
+#: ⚠️ CE MOTIF DOIT ETRE LU AVANT CELUI DE LA CREATION.
+#:
+#: « mets le dossier a jour » porte un verbe et le mot « dossier » : c'est
+#: exactement ce que `fichiers/creer.py` cherche. Sans priorite, la mise a
+#: jour serait comprise comme une creation, et Nova repondrait que le dossier
+#: est deja la — poliment, sans rien faire.
+_MISE_A_JOUR = re.compile(
+    r"\b(?:mets? (?:le |la |ce |mon |notre )?\w* ?a jour|mets? a jour|"
+    r"mettre a jour|met a jour|"
+    r"actualise|actualiser|rafraichis|"
+    r"reecris|reecrire|refais|regenere|"
+    r"remets? (?:le |la )?\w* ?a jour)\b"
+)
+
+#: Et ce qu'on met a jour : le document du projet.
+_OBJET_DU_PROJET = re.compile(r"\b(?:document|dossier|projet|fichier|note|notes)s?\b")
+
+
+def demande_de_mise_a_jour(texte: str) -> bool:
+    """Cette phrase demande-t-elle de reecrire le document du projet ?
+
+    Deux signaux, comme ailleurs : le verbe seul — « actualise » — ne dit pas
+    quoi, et « le document » seul n'est pas un ordre.
+    """
+    plat = _plat(texte)
+    if not plat:
+        return False
+    return bool(_MISE_A_JOUR.search(plat) and _OBJET_DU_PROJET.search(plat))
+
+
+def porte_la_signature(contenu: str) -> bool:
+    """Ce document est-il encore celui que Nova a ecrit ?"""
+    return SIGNATURE in (contenu or "")
+
+
+def nom_de_la_precedente(projet: Projet) -> str:
+    """Le nom de la copie gardee avant remplacement."""
+    return f"{projet.nom}{SUFFIXE_PRECEDENTE}.md"
+
+
+def question_de_remplacement(projet: Projet, *, repris_a_la_main: bool) -> str:
+    """Ce que Nova demande AVANT de remplacer. Pas la formule generique.
+
+    ⚠️ LA QUESTION PAR DEFAUT ETAIT IMPRONONCABLE.
+
+    `ConfirmationRequise.question()` rend « Je m'apprete a
+    mettre_a_jour_projet (projet = centrale nucleaire). Je confirme ? » —
+    un nom d'outil et une liste d'arguments, lus a voix haute. Une
+    confirmation qu'on ne comprend pas est une confirmation qu'on donne au
+    hasard, et le portillon ne protege plus rien.
+
+    Elle dit donc ce qui va etre remplace, et surtout SI le document a ete
+    repris a la main : c'est le seul cas ou « oui » fait perdre quelque
+    chose.
+    """
+    if repris_a_la_main:
+        return (
+            f"Le document de {projet.nom} a été modifié depuis que je l'ai écrit. "
+            "Je le remplace quand même ? Je garde l'ancien à côté."
+        )
+    return f"Je réécris le document de {projet.nom} avec ce qu'on s'est dit depuis ?"

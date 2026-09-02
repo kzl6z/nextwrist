@@ -396,3 +396,190 @@ def test_une_proposition_ratee_n_emporte_pas_la_reponse(monkeypatch):
     monkeypatch.setattr(actif, "projet_actif", casse)
 
     assert actions._proposer_le_dossier() == ""
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  METTRE A JOUR — la premiere action qui passe par le portillon
+# ══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "mets le document à jour",
+        "mets à jour le document",
+        "mets le dossier à jour",
+        "mets à jour le projet",
+        "actualise le document",
+        "réécris le document",
+        "regénère le document du projet",
+    ],
+)
+def test_les_demandes_de_mise_a_jour_sont_reconnues(phrase):
+    assert document.demande_de_mise_a_jour(phrase), phrase
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # Creer n'est pas mettre a jour.
+        "crée un dossier moteur électrique sur mon bureau",
+        "j'aimerais que tout soit classé dans un dossier sur mon bureau",
+        # Un seul signal ne suffit pas.
+        "actualise-moi sur les nouvelles",
+        "où est le document",
+        "quelle heure est-il",
+        "",
+    ],
+)
+def test_ces_phrases_ne_mettent_rien_a_jour(phrase):
+    assert not document.demande_de_mise_a_jour(phrase), phrase
+
+
+def test_mettre_a_jour_a_la_priorite_sur_creer():
+    """⚠️ « METS LE DOSSIER A JOUR » CONTIENT UN VERBE ET LE MOT « DOSSIER ».
+
+    C'est exactement ce que cherche `creer.demande_de_dossier`. Sans priorite,
+    la mise a jour serait comprise comme une creation, et Nova repondrait
+    poliment que le dossier est deja la — sans rien faire.
+    """
+    phrase = "mets le dossier à jour"
+
+    assert document.demande_de_mise_a_jour(phrase)
+    assert creer.demande_de_dossier(phrase) is not None, (
+        "ce banc suppose que les deux motifs se recouvrent ; sinon il ne "
+        "protege plus rien"
+    )
+
+
+def test_la_signature_dit_si_le_document_a_ete_repris():
+    """C'est la seule reponse bon marche a « ce fichier a-t-il ete modifie ? »."""
+    assert document.porte_la_signature(document.rendre(_projet()))
+    assert not document.porte_la_signature("j'ai tout réécrit à la main")
+
+
+def test_la_question_de_remplacement_previent_quand_il_y_a_a_perdre():
+    """⚠️ LA QUESTION PAR DEFAUT DU PORTILLON EST IMPRONONCABLE.
+
+    « Je m'apprête à mettre_a_jour_projet (projet = centrale nucléaire). Je
+    confirme ? » — un nom d'outil et une liste d'arguments, lus a voix haute.
+    Une confirmation qu'on ne comprend pas se donne au hasard.
+    """
+    intact = document.question_de_remplacement(_projet(), repris_a_la_main=False)
+    modifie = document.question_de_remplacement(_projet(), repris_a_la_main=True)
+
+    assert "centrale nucléaire" in intact
+    assert "_" not in intact, "un nom d'outil s'est glissé dans la question"
+    assert "modifié" in modifie, "le seul cas où « oui » fait perdre quelque chose"
+    assert "garde l'ancien" in modifie
+
+
+@besoin_de_base
+def test_le_niveau_de_la_mise_a_jour_exige_une_confirmation():
+    """⚠️ LE BAREME LE NOMME MOT POUR MOT : « ecrire dans un fichier
+    existant » est CONSEQUENT."""
+    from nova.core import contrats
+    from nova.outils.fichiers import MettreAJourProjet
+
+    assert MettreAJourProjet.niveau == contrats.CONSEQUENT
+    assert contrats.exige_confirmation(MettreAJourProjet.niveau)
+
+
+@besoin_de_base
+def test_la_mise_a_jour_demande_avant_d_ecrire(bureau, projet_en_base):
+    """Le contrat en deux temps, de bout en bout — son premier usage reel."""
+    from nova.outils.fichiers import EcrireProjet
+
+    EcrireProjet().executer()
+    fichier = bureau / "centrale nucléaire d'essai" / "centrale nucléaire d'essai.md"
+    avant = fichier.read_text(encoding="utf-8")
+
+    _dire("l'objectif c'est produire 900 mégawatts")
+    demande = _dire("mets le document à jour")
+
+    assert demande["etat"] == "a_confirmer"
+    assert "réécris" in demande["message"].lower()
+    assert fichier.read_text(encoding="utf-8") == avant, "écrit sans confirmation"
+
+    fait = _client().post(
+        "/v1/action", json={"texte": "mets le document à jour", "confirme": True}
+    ).json()
+
+    assert fait["etat"] == "executee", fait["message"]
+    assert "produire 900 mégawatts" in fichier.read_text(encoding="utf-8")
+
+
+@besoin_de_base
+def test_l_ancienne_version_est_gardee_a_cote(bureau, projet_en_base):
+    """⚠️ LE PORTILLON PROTEGE DU « OUI » DISTRAIT, PAS DE CELUI QU'ON
+    REGRETTE UNE SECONDE APRES.
+
+    Une copie coute quelques kilo-octets et rend le seul accident possible
+    ici entierement rattrapable.
+    """
+    from nova.outils.fichiers import EcrireProjet, MettreAJourProjet
+
+    EcrireProjet().executer()
+    dossier = bureau / "centrale nucléaire d'essai"
+    fichier = dossier / "centrale nucléaire d'essai.md"
+    fichier.write_text("mes notes à moi", encoding="utf-8")
+
+    MettreAJourProjet().executer()
+
+    garde = dossier / "centrale nucléaire d'essai (version précédente).md"
+    assert garde.read_text(encoding="utf-8") == "mes notes à moi"
+    assert "mes notes à moi" not in fichier.read_text(encoding="utf-8")
+
+
+@besoin_de_base
+def test_un_document_repris_a_la_main_est_signale(bureau, projet_en_base):
+    """Le seul cas ou dire « oui » fait perdre quelque chose."""
+    from nova.outils.fichiers import EcrireProjet
+
+    EcrireProjet().executer()
+    fichier = bureau / "centrale nucléaire d'essai" / "centrale nucléaire d'essai.md"
+    fichier.write_text("j'ai tout réécrit à la main", encoding="utf-8")
+
+    demande = _dire("mets le document à jour")
+
+    assert demande["etat"] == "a_confirmer"
+    assert "modifié" in demande["message"], (
+        "Nova a proposé de remplacer un document repris à la main sans le dire"
+    )
+
+
+@besoin_de_base
+def test_sans_document_la_mise_a_jour_ecrit_sans_rien_demander(bureau, projet_en_base):
+    """⚠️ UNE ECRITURE QUI N'ECRASE RIEN EST REVERSIBLE.
+
+    Demander une confirmation pour creer un fichier absent habituerait a dire
+    oui sans lire — ce qui use exactement le garde-fou qu'on essaie de poser.
+    Le niveau suit le risque REEL, pas le nom de la phrase prononcee.
+    """
+    _dire("l'objectif c'est produire 900 mégawatts")
+
+    fait = _dire("mets le document à jour")
+
+    assert fait["etat"] == "executee", fait["message"]
+    fichier = bureau / "centrale nucléaire d'essai" / "centrale nucléaire d'essai.md"
+    assert "produire 900 mégawatts" in fichier.read_text(encoding="utf-8")
+
+
+@besoin_de_base
+def test_le_document_suit_ce_qu_on_a_dit_depuis(bureau, projet_en_base):
+    """La raison d'etre de la mise a jour : le document ne fige pas la
+    conversation au moment ou on a dit oui."""
+    from nova.outils.fichiers import EcrireProjet, MettreAJourProjet
+
+    EcrireProjet().executer()
+    _dire("on part sur un refroidissement passif parce qu'il n'y a pas de pompe")
+    _dire("il faudra chiffrer le génie civil")
+
+    MettreAJourProjet().executer()
+
+    ecrit = (
+        bureau / "centrale nucléaire d'essai" / "centrale nucléaire d'essai.md"
+    ).read_text(encoding="utf-8")
+    assert "refroidissement passif" in ecrit
+    assert "*Pourquoi :* il n'y a pas de pompe" in ecrit
+    assert "- [ ] chiffrer le génie civil" in ecrit

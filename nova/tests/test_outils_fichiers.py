@@ -80,7 +80,8 @@ def test_les_outils_de_fichiers_sont_enregistres():
     noms = enregistrer_outils_fichiers(registre)
 
     assert set(noms) == {
-        "rechercher_fichier", "ouvrir_fichier", "creer_dossier", "ecrire_projet",
+        "rechercher_fichier", "ouvrir_fichier", "creer_dossier",
+        "ecrire_projet", "mettre_a_jour_projet",
     }
     # ⚠️ LE NIVEAU DIT LA VERITE : chercher LIT, les deux autres AGISSENT.
     assert registre.exiger("rechercher_fichier").niveau == contrats.LECTURE
@@ -92,6 +93,9 @@ def test_les_outils_de_fichiers_sont_enregistres():
     # dossier et un fichier absent. Reecrire un document existant serait
     # CONSEQUENT, et cette action-la n'existe pas encore.
     assert registre.exiger("ecrire_projet").niveau == contrats.REVERSIBLE
+    # Celui-la ECRASE : le bareme nomme « ecrire dans un fichier existant »
+    # dans CONSEQUENT, et le portillon exige donc une confirmation.
+    assert registre.exiger("mettre_a_jour_projet").niveau == contrats.CONSEQUENT
     # Enregistrer deux fois ne double pas.
     assert enregistrer_outils_fichiers(registre) == ()
 
