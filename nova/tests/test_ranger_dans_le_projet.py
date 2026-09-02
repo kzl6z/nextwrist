@@ -333,3 +333,54 @@ def test_annuler_deux_fois_ne_refait_pas_le_chemin_a_l_envers(
 
     assert fait["etat"] == "echouee"
     assert all(photo.exists() for photo in trois_photos)
+
+
+@besoin_de_base
+def test_un_fichier_retenu_seul_sans_liste_ne_se_range_pas(bureau, projet_ecrit, tmp_path):
+    """⚠️ « LA LISTE ANNONCEE », PAS « CE DONT ON VIENT DE PARLER ».
+
+    `focus` retient toujours UN fichier — celui qu'on vient d'ouvrir, celui
+    qu'on vient de decrire — et parfois une liste avec. Ranger sur la base du
+    fichier seul deplacerait quelque chose dont Nova n'a jamais dit le
+    nombre, et que l'on n'aurait donc pas pu contester.
+
+    Le banc precedent ne couvrait que « rien du tout en memoire ». Debrancher
+    la liste en gardant le fichier le laissait vert.
+    """
+    from nova.vision import focus
+
+    solitaire = tmp_path / "vue-en-passant.png"
+    solitaire.write_bytes(b"\x89PNG")
+    focus.retenir(solitaire, description="une image", origine="regard")
+    try:
+        fait = _dire("mets-les dans le dossier du projet")
+
+        assert fait["etat"] == "echouee"
+        assert solitaire.exists(), "un fichier jamais annoncé a été déplacé"
+    finally:
+        focus.oublier()
+
+
+@besoin_de_base
+def test_apres_un_retour_nova_ne_promet_plus_de_le_refaire(
+    bureau, projet_ecrit, trois_photos
+):
+    """⚠️ SANS LE MARQUAGE, NOVA REPROPOSE DE DEFAIRE CE QUI EST DEJA DEFAIT.
+
+    « Je remets 3 fichiers d'où ils venaient ? » alors qu'ils y sont deja :
+    une promesse que rien ne peut tenir, et l'on dit oui a une action qui
+    n'aura pas lieu.
+
+    Le banc de la double annulation ne voyait pas ce defaut : les fichiers
+    etant revenus, la verification d'existence bloquait tout de toute facon.
+    Il mesurait le garde-fou du dessous, pas le marquage.
+    """
+    _dire("mets-les dans le dossier du projet", confirme=True)
+    _dire("remets-les où ils étaient", confirme=True)
+
+    redemande = _dire("remets-les où ils étaient")
+
+    assert redemande["etat"] != "a_confirmer", (
+        "Nova propose de remettre des fichiers déjà remis"
+    )
+    assert ranger.a_defaire(projet_ecrit.id) == []
