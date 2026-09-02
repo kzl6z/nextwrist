@@ -65,7 +65,29 @@ class ReponseAction(BaseModel):
 
 @router.post("/action", response_model=ReponseAction)
 def executer(demande: DemandeAction) -> ReponseAction:
-    """Reconnait l'intention de la phrase et l'execute, si tout concorde."""
+    """Reconnait l'intention de la phrase et l'execute, si tout concorde.
+
+    ⚠️ CE POINT D'ENTREE REND TOUJOURS QUELQUE CHOSE A DIRE.
+
+    Il est donc le pendant du premier jeton de `answer_stream` : c'est ici
+    qu'une interruption cesse de valoir. « attends, ouvre plutot le
+    deuxieme » coupe la parole PUIS demande une action — sans cette levee,
+    la confirmation de l'action serait prononcee en silence, et Nova
+    paraitrait n'avoir rien fait.
+
+    On la leve APRES coup, une fois le message construit : d'ici la,
+    l'application peut encore vider en silence les phrases qu'elle avait en
+    attente de la reponse coupee.
+    """
+    reponse = _executer(demande)
+    if reponse.message:
+        from nova.voice import interruption
+
+        interruption.reprendre()
+    return reponse
+
+
+def _executer(demande: DemandeAction) -> ReponseAction:
     # ⚠️ UN « OUI » NU REPOND A LA PROPOSITION, PAS AU MODELE.
     #
     # Nova vient de dire « je te l'ouvre ? ». La reponse tient en un mot, et

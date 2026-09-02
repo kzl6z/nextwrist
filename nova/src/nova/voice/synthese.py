@@ -91,6 +91,22 @@ def _pipeline(langue: str):
     return pipeline
 
 
+def silence(duree: float = 0.08) -> bytes:
+    """Un WAV valide et muet, pour se taire sans avoir l'air en panne.
+
+    ⚠️ SE TAIRE ET TOMBER EN PANNE DOIVENT S'ENTENDRE DIFFEREMMENT.
+
+    Quand Nova est interrompue, la phrase suivante ne doit pas etre
+    prononcee. Repondre une erreur ferait passer un silence VOULU pour un
+    defaut — et l'application a un precedent : le jour ou la synthese
+    distante a echoue, elle est repassee a la voix du systeme sans rien dire.
+
+    Aucune dependance, aucun modele charge : c'est le meme `_en_wav` que la
+    vraie voix, avec des echantillons a zero.
+    """
+    return _en_wav([0.0] * int(max(0.0, duree) * ECHANTILLONNAGE))
+
+
 def _en_wav(echantillons) -> bytes:
     """Enveloppe des flottants [-1, 1] dans un WAV, sans une dependance de plus.
 

@@ -1022,9 +1022,28 @@ def answer_stream(
         ):
             if premier_morceau is None:
                 premier_morceau = time.perf_counter() - depart
+                # ⚠️ L'INTERRUPTION SE LEVE ICI, AU PREMIER MOT REELLEMENT
+                #    PRODUIT — PAS A L'ARRIVEE DE LA QUESTION.
+                #
+                # Entre « attends » et la reponse suivante, l'application peut
+                # encore demander la synthese des phrases qu'elle avait en
+                # attente. Lever le silence plus tot les laisserait passer :
+                # on entendrait la fin de la reponse qu'on venait de couper,
+                # apres avoir parle.
+                _reprendre_la_parole()
+            # ⚠️ ET ON RELIT LE DRAPEAU A CHAQUE MORCEAU.
+            #
+            # Ce n'est pas seulement pour cesser de parler : sur une machine
+            # de 8 Go, une reponse de trois cents mots que personne
+            # n'ecoutera occupe le modele pendant que la question suivante
+            # attend. Couper la generation rend la machine tout de suite.
+            elif _coupee():
+                log.info("Generation interrompue apres %d caracteres.", len("".join(collected)))
+                break
             collected.append(piece)
             yield piece
-        completed = True
+        else:
+            completed = True
     finally:
         total = time.perf_counter() - depart
         sortie = "".join(collected)
@@ -1073,6 +1092,28 @@ def answer_stream(
                     "interrompu": not completed,
                 },
             )
+
+
+# ⚠️ LA COUCHE VOIX EST FACULTATIVE : NOVA DOIT DEMARRER SANS ELLE.
+#
+# Meme regle que `session.prolonger` juste au-dessus. Une interruption
+# indisponible signifie « on ne coupe pas » — jamais « on ne repond pas ».
+def _coupee() -> bool:
+    try:
+        from nova.voice import interruption
+
+        return interruption.interrompue()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _reprendre_la_parole() -> None:
+    try:
+        from nova.voice import interruption
+
+        interruption.reprendre()
+    except Exception:  # noqa: BLE001, S110
+        pass
 
 
 def answer(question: str, *, mode: str = "normal") -> str:

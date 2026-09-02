@@ -16,7 +16,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 from nova import orchestrator
 from nova.logging_setup import get_logger
 from nova.settings import get_settings
-from nova.voice import adresse, transcribe, wake
+from nova.voice import adresse, interruption, transcribe, wake
 
 log = get_logger(__name__)
 router = APIRouter(prefix="/v1", tags=["audio"])
@@ -215,6 +215,32 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
     #  conversation dans la piece — ou la television — garderait le micro
     #  ouvert indefiniment sans qu'un seul echange ait lieu.
     # ══════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════
+    #  ⚠️ UNE REPONSE PARTIE ETAIT UNE REPONSE QU'ON SUBISSAIT JUSQU'AU BOUT.
+    #
+    #      « quelle est la carte la plus rare, Pokemon ? »
+    #      « Je ne trouve pas de CARTE BLANCHE correspondant a un SKATE… »
+    #      « attends — »
+    #      « …les cartes de skate se collectionnent depuis les annees 1990… »
+    #
+    #  On interrompt un assistant ; on subit un repondeur.
+    #
+    #  ⚠️ ET CE N'EST PAS UN CONGE : LA FENETRE RESTE OUVERTE.
+    #
+    #  On coupe precisement parce qu'on a quelque chose a dire. « attends,
+    #  ouvre plutot le deuxieme » est UNE phrase : on interrompt, et la suite
+    #  repart comme commande. La jeter obligerait a la repeter, ce qui
+    #  rendrait l'interruption plus couteuse que d'attendre la fin.
+    # ══════════════════════════════════════════════════════════════════════
+    if enchaine and interruption.demande_d_interruption(texte):
+        interruption.interrompre(texte)
+        session.prolonger()
+        suite = interruption.reste_apres(texte)
+        if not suite:
+            return {"wake": False, "text": texte, "commande": "", "confiance": None}
+        log.info("Interrompue, et la demande suit : « %s »", suite)
+        return {"wake": True, "text": texte, "commande": suite, "confiance": None}
+
     if enchaine and adresse.pense_tout_haut(texte):
         session.noter_le_propos(texte)
         log.info(
@@ -354,6 +380,24 @@ def synthese_vocale(demande: dict) -> Response:
     texte = (demande.get("input") or demande.get("text") or "").strip()
     if not texte:
         raise HTTPException(400, "champ « input » (ou « text ») vide ou absent")
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  ⚠️ C'EST LE SEUL ENDROIT OU NOVA CORE PEUT FAIRE TAIRE NOVA.
+    #
+    #  Le haut-parleur appartient a l'application : elle joue les phrases une
+    #  a une, en demandant chaque synthese ici pendant que le modele ecrit
+    #  les suivantes. Nova Core ne peut donc pas couper le son en cours — mais
+    #  elle tient la phrase D'APRES.
+    #
+    #  On rend du silence plutot qu'une erreur. Un 4xx ferait passer une
+    #  interruption voulue pour une panne, et l'application a un precedent
+    #  facheux en la matiere : le jour ou la synthese distante a echoue, elle
+    #  est repassee a la voix du systeme, masculine et anglophone, sans rien
+    #  dire. Un WAV valide et muet ne peut pas declencher ce repli.
+    # ══════════════════════════════════════════════════════════════════════
+    if interruption.interrompue():
+        log.info("Synthese muette : Nova a ete interrompue (« %s »)", texte[:60])
+        return Response(content=synthese.silence(), media_type="audio/wav")
 
     try:
         wav = synthese.synthetiser(
