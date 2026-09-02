@@ -272,14 +272,25 @@ def test_les_derniers_messages_restent_hors_du_resume(conversation):
     « L'utilisateur a parle de Mars » ne dit pas a quoi « y » renvoie : il
     faut la phrase, telle qu'elle a ete dite. Le resume sert le lointain ; le
     proche reste brut, toujours.
+
+    ⚠️ CE BANC LISAIT `resume.GARDE_BRUTE` DANS SON ASSERTION.
+
+    Il suivait donc la constante : mise a zero, le banc restait vert en
+    verifiant tranquillement que zero message etait garde. Un banc qui
+    s'aligne sur ce qu'il surveille ne surveille rien. Les nombres sont
+    ecrits en clair.
     """
     _dire(conversation, 20)
     ids = _identifiants(conversation)
 
     _, echanges, jusqu_a = resume.a_resumer(conversation)
 
-    assert len(echanges) == 20 - resume.GARDE_BRUTE
-    assert jusqu_a == ids[20 - resume.GARDE_BRUTE - 1]
+    assert len(echanges) == 14
+    assert jusqu_a == ids[13]
+    plies = " ".join(m["content"] for m in echanges)
+    assert "message 013" in plies
+    assert "message 014" not in plies, "un des six derniers messages a ete plie"
+    assert "message 019" not in plies
 
 
 @besoin_de_base
@@ -430,6 +441,78 @@ def test_le_fil_survit_a_un_passage_qui_leve(conversation, monkeypatch):
     resume.entretenir(arret)
 
     assert len(passages) >= 3, "le fil s'est arrete au premier echec"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  LE CABLAGE
+#
+#  ⚠️ SANS CES DEUX BANCS, TOUT CE QUI PRECEDE POURRAIT ETRE JUSTE ET INUTILE.
+#
+#  C'est exactement le defaut que le Model Router a corrige : un module qui
+#  existe, qui est teste, et dont personne ne lit le resultat. Ici il y a deux
+#  fils a couper — la lecture dans l'orchestrateur, l'ecriture dans le fil
+#  d'entretien — et couper l'un ou l'autre suffit a ce que le resume
+#  n'existe qu'en theorie.
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def test_l_orchestrateur_donne_le_resume_au_modele(monkeypatch):
+    """La lecture : sans ce banc, `rappeler` pourrait n'etre appele nulle part."""
+    from nova import orchestrator
+
+    capture: dict = {}
+
+    def faux_flux(usage, messages, **kwargs):
+        capture["messages"] = messages
+        yield "reponse"
+
+    monkeypatch.setattr(orchestrator.routage, "flux", faux_flux)
+    monkeypatch.setattr(orchestrator, "build_system_prompt", lambda *a, **k: ("SYS", []))
+    monkeypatch.setattr(orchestrator.conversations, "get_or_create", lambda *a, **k: 1)
+    monkeypatch.setattr(orchestrator.conversations, "log_message", lambda *a, **k: None)
+    monkeypatch.setattr(
+        orchestrator.resume,
+        "rappeler",
+        lambda *a, **k: resume.Rappel(resume=f"- {DEBUT}", messages=[]),
+    )
+
+    # « et pourquoi ? » ne porte aucun sujet : c'est une phrase qui s'appuie
+    # sur ce qui precede, donc une de celles qui declenchent le rappel.
+    list(orchestrator.answer_stream([{"role": "user", "content": "et pourquoi ?"}]))
+
+    entete = capture["messages"][0]["content"]
+    assert entete.startswith("SYS"), "le resume a remplace le prompt systeme"
+    assert DEBUT in entete, "le resume n'est jamais arrive jusqu'au modele"
+
+
+def test_le_fil_de_resume_demarre_avec_nova(monkeypatch):
+    """L'ecriture : la lecture est cablee, mais rien n'ecrirait jamais une ligne."""
+    import asyncio
+
+    from nova.api import app as api
+
+    lances: list[tuple[str, object]] = []
+
+    class FilDeFacade:
+        def __init__(self, target=None, name="", **kwargs):
+            lances.append((name, target))
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(api.threading, "Thread", FilDeFacade)
+    monkeypatch.setattr(api, "run_migrations", lambda: [])
+
+    async def demarrer():
+        async with api.lifespan(None):
+            pass
+
+    asyncio.run(demarrer())
+
+    noms = {nom for nom, _ in lances}
+    assert "resumes" in noms, f"aucun fil de resume au demarrage — fils lances : {noms}"
+    cible = next(cible for nom, cible in lances if nom == "resumes")
+    assert cible is resume.entretenir
 
 
 # ══════════════════════════════════════════════════════════════════════════
