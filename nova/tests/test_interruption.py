@@ -324,18 +324,39 @@ def test_le_premier_mot_de_la_reponse_suivante_leve_le_silence(modele_bavard):
     demander la synthese des phrases qu'elle avait en attente. Lever le
     silence plus tot les laisserait passer : on entendrait la fin de la
     reponse qu'on venait de couper, apres avoir parle.
+
+    ⚠️ CE BANC N'OBSERVAIT D'ABORD RIEN DU TOUT.
+
+    Il appelait `answer_stream` puis verifiait le drapeau avant le premier
+    `next`. Or `answer_stream` est un GENERATEUR : rien de son corps ne
+    s'execute a l'appel. Deplacer la levee tout en haut de la fonction le
+    laissait vert — le banc mesurait la paresse de Python, pas l'ordre du
+    code.
+
+    On observe donc le drapeau PENDANT la construction du prompt, qui est
+    justement la phase longue — memoire, documents, contexte — et donc la
+    fenetre exacte ou l'application vide sa file.
     """
     from nova import orchestrator
 
-    interruption.interrompre("attends")
-    flux = orchestrator.answer_stream([{"role": "user", "content": "et donc ?"}])
+    vu: list[bool] = []
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(
+        orchestrator,
+        "build_system_prompt",
+        lambda *a, **k: (vu.append(interruption.interrompue()), ("SYS", []))[1],
+    )
+    try:
+        interruption.interrompre("attends")
+        flux = orchestrator.answer_stream([{"role": "user", "content": "et donc ?"}])
 
-    assert interruption.interrompue(), "le silence est tombe avant qu'un mot ne sorte"
+        next(flux)
 
-    next(flux)
-
-    assert not interruption.interrompue()
-    flux.close()
+        assert vu == [True], "le silence est tombe pendant que le prompt se construisait"
+        assert not interruption.interrompue(), "le premier mot n'a pas rendu la parole"
+        flux.close()
+    finally:
+        monkeypatch.undo()
 
 
 def test_une_action_rend_la_parole_a_nova(monkeypatch):
