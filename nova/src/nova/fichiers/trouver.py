@@ -827,6 +827,9 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
     # est deja ouvert ferait repondre « oui » a une question sans objet.
     from nova.vision import focus
 
+    # Les mots de la demande, calcules AVANT la retenue : c'est ce que la
+    # personne redira pour designer le fichier — jamais son nom.
+    quoi = " ".join(recherche.mots) or "ce que tu decris"
     focus.retenir(
         meilleur.chemin,
         description=f"{meilleur.nom} ({meilleur.date_lisible()})",
@@ -838,6 +841,7 @@ def bloc_et_resultat(texte: str) -> tuple[str, bool]:
         # ordre que celui qui sort de la bouche de Nova ouvrirait un fichier
         # que personne n'a designe, en ayant l'air d'obeir.
         liste=tuple(t.chemin for t, _ in classes),
+        demande=quoi,
     )
     # ⚠️ ON N'OUVRE PLUS D'OFFICE. ON PROPOSE.
     #

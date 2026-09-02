@@ -75,6 +75,17 @@ class Retenue:
     #: qu'on a annoncee et le fichier dont on parle sont la meme chose vue de
     #: deux facons ; ils vivent et meurent ensemble.
     liste: tuple[Path, ...] = ()
+    #: Les mots de la DEMANDE qui a mene ici — « une casquette blanche ».
+    #:
+    #: ⚠️ CE QU'ON REDIT N'EST JAMAIS LE NOM DU FICHIER.
+    #:
+    #: Releve en conditions reelles : « ouvre la photo ou je tiens une
+    #: casquette » ne partage aucun mot avec « IMG_8156.JPG », et ne peut pas
+    #: en partager. Le resolveur comparait au nom, ne trouvait rien, et la
+    #: cible partait au catalogue des applications.
+    #:
+    #: Ce que la personne repete, c'est SA PROPRE DEMANDE. On la garde.
+    demande: str = ""
 
 
 _retenue: Retenue | None = None
@@ -88,6 +99,7 @@ def retenir(
     origine: str = "regard",
     genre: str = "image",
     liste: tuple[Path, ...] = (),
+    demande: str = "",
 ) -> None:
     """Note le fichier dont on vient de parler, et ceux annonces avec lui."""
     global _retenue
@@ -99,6 +111,7 @@ def retenir(
             time.monotonic(),
             genre,
             tuple(Path(c) for c in liste),
+            demande,
         )
     log.info("%s retenu (%s) : %s", genre.capitalize(), origine, Path(chemin).name)
 

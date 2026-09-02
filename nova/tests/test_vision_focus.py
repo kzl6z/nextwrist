@@ -471,3 +471,105 @@ def test_designer_le_dossier_l_emporte_sur_l_image_retenue(tmp_path, monkeypatch
     vu = regard.bloc(phrase)
 
     assert "courriel.png" in vu, phrase
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  TROIS FACONS DE DESIGNER LA MEME PHOTO — DEUX PARTAIENT AU CATALOGUE
+#
+#  Releve en conditions reelles, juste apres que Nova ait annonce deux photos
+#  de casquette :
+#
+#      « ouvre la premiere »
+#      → « "premiere" peut designer "Grapher", "Print Center" ou
+#         "Preview". Laquelle ? »
+#
+#      « ouvre la photo ou je tiens une casquette »
+#      → « Je ne trouve pas d'application "Photos ou je tiens une
+#         casquette" sur cette machine. »
+#
+#  Deux reponses exactes du point de vue du catalogue d'applications, et
+#  absurdes du point de vue de la conversation : Nova venait de nommer ces
+#  photos elle-meme.
+# ══════════════════════════════════════════════════════════════════════════
+@pytest.fixture
+def deux_photos_annoncees(tmp_path):
+    """L'etat exact ou la conversation se trouvait : deux photos retenues."""
+    from nova.vision import focus
+
+    premiere = tmp_path / "IMG_8156.JPG"
+    seconde = tmp_path / "IMG_9001.JPG"
+    for fichier in (premiere, seconde):
+        fichier.write_bytes(PNG)
+    focus.retenir(
+        premiere,
+        description="une main tenant une casquette blanche",
+        origine="recherche",
+        genre="image",
+        demande="une casquette blanche",
+        liste=(premiere, seconde),
+    )
+    return premiere, seconde
+
+
+def test_le_rang_designe_la_photo_et_non_une_application(deux_photos_annoncees):
+    """⚠️ LE RANG ETAIT COMPRIS, PUIS JETE.
+
+    `rang_demande` rendait bien 1 pour « la premiere ». Mais seul le resolveur
+    de FICHIERS le consultait, et il ne regarde qu'une retenue de genre
+    « fichier » : apres une recherche d'IMAGE la reponse etait toujours
+    `None`, et la cible partait au catalogue des applications.
+    """
+    from nova.vision.regard import image_en_tete_pour
+
+    premiere, seconde = deux_photos_annoncees
+
+    assert image_en_tete_pour("première") == premiere
+    assert image_en_tete_pour("deuxième") == seconde
+    assert image_en_tete_pour("dernière") == seconde
+
+
+def test_un_rang_hors_liste_ne_rabat_pas_sur_la_plus_proche(deux_photos_annoncees):
+    """Meme regle que cote fichiers : « la cinquieme » quand il y en a deux
+    est une meconnaissance, pas une approximation. Ouvrir la deuxieme serait
+    une reussite apparente sur une photo que personne n'a demandee."""
+    from nova.vision.regard import image_en_tete_pour
+
+    assert image_en_tete_pour("troisième") is None
+
+
+def test_les_mots_de_la_demande_designent_la_photo(deux_photos_annoncees):
+    """⚠️ ON COMPARAIT AU NOM DU FICHIER, QUI N'EST JAMAIS CE QU'ON DIT.
+
+    « la photo ou je tiens une casquette » n'a aucun mot commun avec
+    « IMG_8156.JPG », et ne peut pas en avoir : la personne n'a jamais entendu
+    ce nom. Ce qu'elle redit, c'est SA PROPRE DEMANDE — celle qui a servi a
+    trouver la photo. La retenue la garde desormais.
+    """
+    from nova.vision.regard import image_en_tete_pour
+
+    premiere, _ = deux_photos_annoncees
+
+    assert image_en_tete_pour("photo où je tiens une casquette") == premiere
+    assert image_en_tete_pour("casquette blanche") == premiere
+
+
+def test_un_vrai_nom_d_application_va_toujours_au_catalogue(deux_photos_annoncees):
+    """⚠️ LA GARDE QUI REND TOUT LE RESTE ACCEPTABLE.
+
+    Rendre l'image retenue des qu'il y en a une detournerait « ouvre Chrome »
+    pendant dix minutes. Il faut que la cible recoupe REELLEMENT ce dont on
+    vient de parler.
+    """
+    from nova.vision.regard import image_en_tete_pour
+
+    assert image_en_tete_pour("Chrome") is None
+    assert image_en_tete_pour("Safari") is None
+    assert image_en_tete_pour("Photos") is not None, "« Photos » seul reste ambigu"
+
+
+def test_sans_photo_retenue_le_rang_ne_designe_rien(tmp_path):
+    """Hors d'une conversation sur une image, « la premiere » ne veut rien
+    dire — et doit suivre son cours normal vers le catalogue."""
+    from nova.vision.regard import image_en_tete_pour
+
+    assert image_en_tete_pour("première") is None

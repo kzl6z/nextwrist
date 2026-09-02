@@ -224,18 +224,93 @@ def image_en_tete_pour(cible: str):
 
     Rend un `Path` ou `None`. Sert a l'orchestrateur, la ou le determinant a
     deja ete retire de la cible et ou seul le contexte peut trancher.
+
+    ⚠️ TROIS FACONS DE DESIGNER LA MEME PHOTO, ET DEUX MANQUAIENT.
+
+    Releve en conditions reelles, juste apres que Nova ait annonce deux
+    photos de casquette :
+
+        « ouvre la premiere »
+        → « "premiere" peut designer "Grapher", "Print Center" ou
+           "Preview". Laquelle ? »
+
+        « ouvre la photo ou je tiens une casquette »
+        → « Je ne trouve pas d'application "Photos ou je tiens une
+           casquette" sur cette machine. »
+
+    Deux reponses exactes du point de vue du catalogue d'applications, et
+    absurdes du point de vue de la conversation : Nova venait de nommer ces
+    photos elle-meme.
+
+    On accepte donc les trois formes :
+
+        LE PRONOM      « ouvre-la »            — deja gere
+        LE RANG        « ouvre la premiere »   — compris, puis JETE
+        LA DEMANDE     « la photo ou je tiens une casquette »
     """
     from nova.vision import focus
 
     if not (cible or "").strip():
         return None
+    retenue = focus.derniere("image")
+    if retenue is None:
+        return None
+
+    # ── LE RANG, ET IL PASSE AVANT TOUT LE RESTE ─────────────────────────
+    #
+    # ⚠️ IL ETAIT DEJA COMPRIS, ET PERSONNE NE LE LISAIT.
+    #
+    # `rang_demande` rendait bien 1 pour « la premiere ». Mais seul le
+    # resolveur de FICHIERS le consultait, et il ne regarde qu'une retenue de
+    # genre « fichier » : apres une recherche d'IMAGE, la reponse etait
+    # toujours `None` et la cible partait au catalogue des applications.
+    #
+    # Le rang est l'information la plus precise d'une phrase : il passe avant
+    # le recoupement de mots, ici comme cote fichiers.
+    from nova.fichiers.trouver import _au_rang, rang_demande
+
+    if (rang := rang_demande(cible)) is not None:
+        if (choisie := _au_rang(retenue.liste, rang)) is not None:
+            log.info("Rang %d demande : %s", rang, choisie.name)
+            return choisie
+        log.info(
+            "Rang %d demande, mais la liste annoncee en compte %d.",
+            rang, len(retenue.liste),
+        )
+        # ⚠️ ON NE RABAT PAS SUR LA PLUS PROCHE.
+        #
+        # Meme regle que cote fichiers : « la cinquieme » quand il y en a
+        # deux est une meconnaissance, pas une approximation.
+        return None
+
     reste = _depouiller(cible)
     # Vide = la cible n'etait qu'un pronom (« ouvre-la ») : elle designe
     # forcement ce dont on vient de parler.
-    if reste and reste not in _MOT_D_IMAGE_SEUL:
-        return None
-    retenue = focus.derniere("image")
-    return retenue.chemin if retenue is not None else None
+    if not reste or reste in _MOT_D_IMAGE_SEUL:
+        return retenue.chemin
+
+    # ── LES MOTS DE LA DEMANDE ───────────────────────────────────────────
+    #
+    # ⚠️ ON COMPARAIT AU NOM DU FICHIER, QUI N'EST JAMAIS CE QU'ON DIT.
+    #
+    # « la photo ou je tiens une casquette » n'a aucun mot commun avec
+    # « IMG_8156.JPG » — et ne peut pas en avoir. Ce que la personne redit,
+    # c'est SA PROPRE DEMANDE, celle qui a servi a trouver la photo.
+    #
+    # La retenue la garde depuis `_bloc_recherche` : c'est elle qu'on
+    # recoupe, et accessoirement la description du catalogue.
+    contre = " ".join(
+        filter(None, (retenue.demande, retenue.description, retenue.chemin.name))
+    )
+    mots_dits = {
+        mot
+        for mot in re.findall(r"[a-z0-9]{4,}", sans_accents(reste).lower())
+        if mot not in _ACCROCHES
+    }
+    if mots_dits and any(mot in sans_accents(contre).lower() for mot in mots_dits):
+        log.info("« %s » designe l'image retenue (%s).", cible, retenue.chemin.name)
+        return retenue.chemin
+    return None
 
 
 def _reprise_d_image(texte: str) -> bool:
@@ -679,6 +754,9 @@ def _bloc_recherche(texte: str) -> str:
         # classement ouvrirait une image que personne n'a designee, en ayant
         # l'air d'obeir.
         liste=tuple(entree.chemin for entree, _ in trouvees),
+        # Ce que la personne redira pour la designer — jamais le nom du
+        # fichier, qu'elle n'a pas entendu et ne prononcera pas.
+        demande=quoi,
     )
     ouverte = _ouvrir_si_evident(trouvees)
 
