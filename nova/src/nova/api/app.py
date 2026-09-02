@@ -231,6 +231,17 @@ async def lifespan(app: FastAPI):
     threading.Thread(
         target=indexer_les_images, args=(arret,), daemon=True, name="images"
     ).start()
+    # ⚠️ RESUMER COUTE UN APPEL DE MODELE — DONC JAMAIS PENDANT QU'ON PARLE.
+    #
+    # Ce fil ne touche qu'aux conversations silencieuses depuis deux minutes,
+    # et n'en fait qu'une par passage. Sans lui, le resume de session
+    # n'existerait qu'en theorie : la lecture est cablee dans l'orchestrateur
+    # depuis le debut, mais rien n'aurait jamais ecrit une ligne.
+    from nova.memory.resume import entretenir as resumer_les_sessions
+
+    threading.Thread(
+        target=resumer_les_sessions, args=(arret,), daemon=True, name="resumes"
+    ).start()
 
     yield
 

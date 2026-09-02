@@ -36,7 +36,7 @@ from nova.core.routeur import Routeur
 from nova.documents import search as document_search
 from nova.llm.client import Message
 from nova.logging_setup import get_logger
-from nova.memory import conversations, facts, reprise
+from nova.memory import conversations, facts, reprise, resume
 from nova.memory.models import SearchHit
 from nova.modeles import routage
 from nova.settings import get_settings, get_tuning
@@ -903,19 +903,35 @@ def answer_stream(
     # `reprise` repond a une seule question, sans modele et sans base : cette
     # phrase renvoie-t-elle a quelque chose d'anterieur ? Sinon, 1200
     # caracteres de prompt en moins, et aucun sujet abandonne pour revenir.
+    # ── ⚠️ ET LE LOINTAIN REVIENT RESUME, PLUTOT QUE PAS DU TOUT ────────
+    #
+    # Le budget garde les messages RECENTS. Au bout d'une heure de travail,
+    # tout ce qui a ete etabli au debut avait disparu du prompt, sans un mot.
+    # `resume.rappeler` rend le meme rappel qu'avant tant qu'aucun resume
+    # n'existe, et le remplace ensuite par « resume du lointain + proche
+    # brut » — dans le MEME budget total, pas en plus.
     passe: list[Message] = []
+    bloc_resume = ""
     if len(history) <= 1 and reprise.reprend_le_passe(last_user):
         try:
             with chrono.mesurer("rappel de l'historique"):
-                passe = conversations.derniers_echanges(
+                rappel = resume.rappeler(
                     conversation_id, budget_caracteres=get_tuning().historique_budget
                 )
+            passe = list(rappel.messages)
+            bloc_resume = resume.bloc(rappel)
         except Exception as exc:  # noqa: BLE001
             # Un contexte indisponible degrade la conversation ; il ne doit
             # jamais empecher de repondre. Chaque capacite est facultative.
             log.warning("Historique de conversation indisponible : %s", exc)
 
-    full: list[Message] = [{"role": "system", "content": system_prompt}, *passe, *history]
+    entete = system_prompt + ("\n\n" + bloc_resume if bloc_resume else "")
+    full: list[Message] = [{"role": "system", "content": entete}, *passe, *history]
+    if bloc_resume:
+        log.info(
+            "Contexte : le debut de la conversation rappele en resume (%d caracteres).",
+            len(bloc_resume),
+        )
     if passe:
         log.info(
             "Contexte : %d message(s) precedent(s) rappeles (%d caracteres) — %s.",

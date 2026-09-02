@@ -68,7 +68,11 @@ def log_message(
 
 
 def derniers_echanges(
-    conversation_id: int, *, budget_caracteres: int, tours_max: int = 8
+    conversation_id: int,
+    *,
+    budget_caracteres: int,
+    tours_max: int = 8,
+    apres: int | None = None,
 ) -> list[dict[str, str]]:
     """Les derniers messages de la conversation, prets a etre envoyes au modele.
 
@@ -96,17 +100,31 @@ def derniers_echanges(
 
     `tours_max` est un second garde-fou, contre une conversation faite de
     milliers de messages minuscules que le budget seul laisserait passer.
+
+    `apres` BORNE LE PASSE PAR LE BAS, ET C'EST CE QUE LE RESUME UTILISE
+
+    Quand un resume couvre deja les messages jusqu'a l'identifiant N, les
+    relire bruts les ferait figurer DEUX FOIS dans le prompt : une fois
+    resumes, une fois mot pour mot. Un modele qui lit deux versions du meme
+    passe n'a aucun moyen de savoir qu'il s'agit du meme.
     """
+    borne = "AND id > %s" if apres is not None else ""
+    parametres: tuple = (
+        (conversation_id, apres, tours_max * 2)
+        if apres is not None
+        else (conversation_id, tours_max * 2)
+    )
     with connection() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT role, content
             FROM messages
             WHERE conversation_id = %s AND role IN ('user', 'assistant')
+              {borne}
             ORDER BY id DESC
             LIMIT %s
-            """,
-            (conversation_id, tours_max * 2),
+            """,  # noqa: S608 — `borne` est une constante du module, jamais une entree
+            parametres,
         ).fetchall()
 
     retenus: list[dict[str, str]] = []
