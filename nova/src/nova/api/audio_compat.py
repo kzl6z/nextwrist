@@ -16,7 +16,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 from nova import orchestrator
 from nova.logging_setup import get_logger
 from nova.settings import get_settings
-from nova.voice import transcribe, wake
+from nova.voice import adresse, transcribe, wake
 
 log = get_logger(__name__)
 router = APIRouter(prefix="/v1", tags=["audio"])
@@ -187,6 +187,41 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
     if enchaine:
         log.info("Conversation ouverte (%.0f s restantes) : « %s »",
                  session.restant(), texte)
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  ⚠️ TOUT CE QUI PASSE PAR CETTE LIGNE DEVENAIT UNE DEMANDE.
+    #
+    #  C'est le prix de ne plus dire « Nova » — et c'est aussi ce qui faisait
+    #  repondre Nova quand on pensait a voix haute :
+    #
+    #      « bon… il faudrait que je revoie le refroidissement »
+    #      Nova : « Le refroidissement d'un moteur electrique repose sur… »
+    #
+    #  Personne n'avait rien demande. Un assistant qui coupe la parole
+    #  pendant qu'on reflechit finit par empecher de reflechir devant lui.
+    #
+    #  ⚠️ MAIS ON RETIENT LA PHRASE, ET C'EST TOUTE LA DIFFERENCE AVEC LA
+    #     JETER.
+    #
+    #  Se taire ne veut pas dire ne pas ecouter. La pensee devient le propos
+    #  precedent, donc l'antecedent de « ca » : « ajoute ca aux prochaines
+    #  etapes » juste apres sait de quoi il parle.
+    #
+    #  ⚠️ ET LA FENETRE N'EST PAS PROLONGEE.
+    #
+    #  `prolonger` n'est appele que par une reponse. Une pensee ne repousse
+    #  donc pas l'echeance, et c'est deliberé : la fenetre reste « courte et
+    #  comptee depuis le dernier ECHANGE », comme promis. Sans cela, une
+    #  conversation dans la piece — ou la television — garderait le micro
+    #  ouvert indefiniment sans qu'un seul echange ait lieu.
+    # ══════════════════════════════════════════════════════════════════════
+    if enchaine and adresse.pense_tout_haut(texte):
+        session.noter_le_propos(texte)
+        log.info(
+            "Nova n'interrompt pas (%s) : « %s »", adresse.raison(texte), texte
+        )
+        return {"wake": False, "text": texte, "commande": "", "confiance": None}
+
     if detecte:
         session.ouvrir()
 
@@ -233,6 +268,14 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
     # Pendant une conversation ouverte, la phrase ENTIERE est la commande :
     # il n'y a pas de mot de reveil a retirer devant.
     commande = texte if enchaine else wake.commande_apres_reveil(texte)
+    # ⚠️ « NOVA, EUH… » N'EST PAS UNE QUESTION.
+    #
+    # Le nom a bien ete dit : la fenetre s'ouvre, l'application fait son
+    # signal, et Nova attend. Ce qui suit ne porte rien a exaucer, et partait
+    # pourtant au modele — qui repond toujours quelque chose.
+    if adresse.hesitation_seule(commande):
+        log.info("Reveil sans question : « %s »", commande)
+        commande = ""
     if not commande:
         return {"wake": True, "text": texte, "commande": "", "confiance": None}
 
