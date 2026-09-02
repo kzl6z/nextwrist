@@ -424,6 +424,24 @@ class Settings(BaseSettings):
     # jamais de papiers personnels et souvent des secrets : `~/Library`, les
     # dossiers caches, les depots de code, et tout fichier de clef.
     fichiers_dossiers: str = "~"
+
+    # ── Ou Nova a le droit de CREER ──────────────────────────────────────
+    #
+    # ⚠️ CE REGLAGE EST SEPARE DU PRECEDENT, ET IL DOIT LE RESTER.
+    #
+    # Trois portees, trois reglages, dans l'ordre croissant de degat :
+    #
+    #     `fichiers_dossiers`          ce que Nova peut NOMMER      ~
+    #     `vision_dossiers`            ce que Nova peut LIRE        3 dossiers
+    #     `fichiers_creation_dossiers` ce que Nova peut CREER       le Bureau
+    #
+    # Reutiliser « ~ » ici lui donnerait un troisieme sens qu'il n'a jamais
+    # eu, et Nova pourrait fabriquer un dossier n'importe ou dans le dossier
+    # personnel — sur une phrase mal transcrite, ce qui arrive.
+    #
+    # Le Bureau seul, donc : c'est la ou l'on range ce sur quoi on travaille,
+    # et c'est le seul endroit ou un dossier de trop se voit tout de suite.
+    fichiers_creation_dossiers: str = "~/Desktop"
     # Mettre `false` desactive la recherche de fichiers dans la conversation.
     #
     # Contrairement a la vision, elle est active par defaut : elle ne charge

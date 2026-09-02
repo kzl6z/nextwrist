@@ -135,6 +135,104 @@ class OuvrirFichier:
         return f"J'ai ouvert {cible.name}."
 
 
+class CreerDossier:
+    """Cree un dossier, sous une racine ou Nova a le droit d'ecrire."""
+
+    nom = "creer_dossier"
+    description = "Cree un dossier sur la machine, dans une zone autorisee"
+    capacite = "action"
+    #: ⚠️ LE BAREME LE NOMMAIT DEJA.
+    #
+    # `contrats.REVERSIBLE` : « modifie quelque chose, mais le geste se
+    # defait : ouvrir une application, CREER UN DOSSIER, monter le son ».
+    # Ecrit avant le premier outil qui agit, precisement pour que ce choix ne
+    # se decide pas au moment ou l'on a envie que ca marche.
+    #
+    # Le corollaire est dans `executer` : cet outil ne remplace RIEN. Ecraser
+    # un dossier existant serait CONSEQUENT, donc a confirmer — on ne le fait
+    # pas du tout plutot que de demander.
+    niveau = contrats.REVERSIBLE
+
+    # ⚠️ L'ARGUMENT NE PEUT PAS S'APPELER `nom`, ET LE BANC LE DIT.
+    #
+    # `executer_outil(nom, *, confirme, **arguments)` : son premier parametre
+    # est le nom de L'OUTIL. Un outil qui declare un argument `nom` produit
+    # « executer_outil() got multiple values for argument 'nom' » — au moment
+    # de l'appel, jamais a l'enregistrement. La fonctionnalite se serait
+    # cassee en conditions reelles, pas en relisant le code.
+    def executer(self, dossier: str = "", ou: str = "") -> str:
+        from nova.fichiers.creer import destination, nom_lisible
+
+        propre = (dossier or "").strip()
+        if not propre:
+            raise FichierRefuse("Aucun nom de dossier.")
+
+        parent = destination(ou)
+        if parent is None:
+            raise FichierRefuse(
+                "Je n'ai pas le droit de créer là. "
+                "Regarde NOVA_FICHIERS_CREATION_DOSSIERS."
+            )
+
+        cible = borner_creation(parent, propre)
+        ou_dit = nom_lisible(parent)
+        if cible.exists():
+            # Ni erreur ni ecrasement : le dossier voulu est la, ce qui est le
+            # resultat demande. Le dire evite d'en fabriquer un second sous un
+            # nom legerement different.
+            log.info("Dossier deja present : %s", cible)
+            return f"Le dossier {cible.name} est déjà sur {ou_dit}."
+
+        cible.mkdir()
+        log.info("Dossier cree : %s", cible)
+        return f"J'ai créé le dossier {cible.name} sur {ou_dit}."
+
+
+def borner_creation(parent: Path, nom: str) -> Path:
+    """Le chemin a creer, s'il est legitime. Sinon, on refuse.
+
+    ⚠️ CE N'EST PAS `borner`, ET LES DEUX NE PEUVENT PAS FUSIONNER.
+
+    `borner` exige `is_file()` : il verifie qu'une chose EXISTE avant d'y
+    toucher. Ici la chose n'existe precisement pas encore, et c'est le PARENT
+    qui doit exister. Une seule fonction pour les deux devrait donc rendre
+    l'existence facultative — c'est-a-dire renoncer au controle qui fait tout
+    l'interet de `borner`.
+
+    Ce qui est verifie ici, dans cet ordre :
+
+        le nom est UN SEUL cran — ni « / », ni « .. », ni un point en tete
+        le parent est une racine d'ECRITURE declaree, resolue
+        le resultat est encore SOUS ce parent apres resolution
+        le resultat est ACCEPTABLE au sens de `fichiers/moteurs.py`
+
+    La troisieme n'est pas redondante avec la premiere : sur macOS, un lien
+    symbolique dans le parent peut faire sortir un nom pourtant anodin.
+    """
+    from nova.fichiers.creer import dossiers_ou_creer
+    from nova.fichiers.moteurs import acceptable
+
+    if nom in (".", "..") or "/" in nom or "\\" in nom or nom.startswith("."):
+        raise FichierRefuse(f"« {nom} » n'est pas un nom de dossier valable.")
+
+    racines = dossiers_ou_creer()
+    if parent not in racines:
+        raise FichierRefuse("Ce dossier n'est pas une zone où Nova peut créer.")
+    if not parent.is_dir():
+        raise FichierRefuse(f"« {parent.name} » n'existe pas sur cette machine.")
+
+    cible = parent / nom
+    try:
+        resolu = cible.resolve()
+    except OSError as erreur:
+        raise FichierRefuse(f"Chemin illisible : {erreur}") from erreur
+    if resolu.parent != parent.resolve():
+        raise FichierRefuse(f"« {nom} » sort du dossier visé.")
+    if not acceptable(resolu, racines=racines):
+        raise FichierRefuse(f"Nova ne crée pas « {nom} » : ce nom est hors de sa portée.")
+    return resolu
+
+
 def enregistrer_outils_fichiers(registre) -> tuple[str, ...]:
     """Inscrit les outils de fichiers. Rend leurs noms.
 
@@ -147,7 +245,7 @@ def enregistrer_outils_fichiers(registre) -> tuple[str, ...]:
     dans la conversation, pas de ce qui EXISTE.
     """
     inscrits: list[str] = []
-    for outil in (RechercherFichier(), OuvrirFichier()):
+    for outil in (RechercherFichier(), OuvrirFichier(), CreerDossier()):
         if outil.nom not in registre:
             registre.enregistrer(outil)
             inscrits.append(outil.nom)

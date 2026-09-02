@@ -71,7 +71,7 @@ def test_sans_racine_configuree_on_refuse_tout(maison):
         borner(str(maison / "Documents" / "releve.pdf"), ())
 
 
-def test_les_deux_outils_sont_enregistres():
+def test_les_outils_de_fichiers_sont_enregistres():
     from nova.core import contrats
     from nova.core.registre import Registre
     from nova.outils.fichiers import enregistrer_outils_fichiers
@@ -79,10 +79,13 @@ def test_les_deux_outils_sont_enregistres():
     registre = Registre("outil")
     noms = enregistrer_outils_fichiers(registre)
 
-    assert set(noms) == {"rechercher_fichier", "ouvrir_fichier"}
-    # ⚠️ LE NIVEAU DIT LA VERITE : chercher LIT, ouvrir AGIT.
+    assert set(noms) == {"rechercher_fichier", "ouvrir_fichier", "creer_dossier"}
+    # ⚠️ LE NIVEAU DIT LA VERITE : chercher LIT, les deux autres AGISSENT.
     assert registre.exiger("rechercher_fichier").niveau == contrats.LECTURE
     assert registre.exiger("ouvrir_fichier").niveau == contrats.REVERSIBLE
+    # Creer un dossier se defait en le supprimant : le bareme le nommait deja
+    # dans REVERSIBLE, avant que cet outil n'existe.
+    assert registre.exiger("creer_dossier").niveau == contrats.REVERSIBLE
     # Enregistrer deux fois ne double pas.
     assert enregistrer_outils_fichiers(registre) == ()
 

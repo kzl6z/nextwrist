@@ -144,6 +144,43 @@ def _executer(demande: DemandeAction) -> ReponseAction:
                 intention=f"contexte_{ordre.genre}", cible=None,
             )
 
+    # ══════════════════════════════════════════════════════════════════════
+    #  ⚠️ CREER UN DOSSIER — LA PREMIERE FOIS QUE NOVA ECRIT SUR LE DISQUE.
+    #
+    #      « Nova, je cherche a creer un moteur electrique. »
+    #      « J'aimerais que tout soit classe dans un dossier sur mon bureau. »
+    #
+    #  La seconde phrase ne porte pas de nom : il vient du projet actif, que
+    #  la premiere vient d'ouvrir. C'est exactement ce que le contexte de
+    #  travail existe pour rendre possible — et c'est pourquoi ce branchement
+    #  passe APRES lui, jamais avant.
+    #
+    #  ⚠️ ET NOVA DIT LE NOM QU'ELLE A DEDUIT.
+    #
+    #  « J'ai cree le dossier moteur electrique sur ton Bureau » : le nom
+    #  vient d'une deduction, la destination d'un defaut. Dire « c'est fait »
+    #  laisserait un dossier mal nomme s'installer quelque part, et on le
+    #  retrouverait trois jours plus tard sans savoir d'ou il sort.
+    # ══════════════════════════════════════════════════════════════════════
+    from nova.fichiers import creer
+
+    if (voulu := creer.demande_de_dossier(demande.texte)) is not None:
+        nom = voulu.nom or _nom_du_projet_actif()
+        if not nom:
+            return ReponseAction(
+                etat="ignoree",
+                message="Comment veux-tu appeler ce dossier ?",
+                outil=None, niveau=None, intention="creer_dossier", cible=None,
+            )
+        fait = orchestrator.executer_outil_propose(
+            "creer_dossier", {"dossier": nom, "ou": voulu.ou}
+        )
+        log.info("« %s » → creer_dossier « %s » (%s)", demande.texte, nom, fait.etat)
+        return ReponseAction(
+            etat=fait.etat, message=fait.message, outil=fait.outil,
+            niveau=fait.niveau, intention="creer_dossier", cible=nom,
+        )
+
     # ⚠️ « OUVRE LES 3 » N'EST PAS UN NOM D'APPLICATION.
     #
     # Nova vient d'annoncer trois fichiers : « les trois » est la suite
@@ -307,3 +344,23 @@ def catalogue() -> dict:
         "intentions_reconnues": list(voice_intentions.intentions_connues()),
         "applications": len(installees),
     }
+
+
+def _nom_du_projet_actif() -> str:
+    """Le nom du projet en cours, quand il y en a un. Jamais une panne.
+
+    ⚠️ C'EST CE QUI PERMET A LA PHRASE DE NE PAS PORTER SON NOM.
+
+    « j'aimerais que tout soit classe dans un dossier sur mon bureau » ne dit
+    pas quel dossier. Dans une conversation, il n'y en a qu'un possible :
+    celui du projet dont on parle. Sans ce relais, la phrase la plus
+    naturelle des deux serait la seule a ne pas marcher.
+    """
+    try:
+        from nova.contexte import actif
+
+        projet = actif.projet_actif()
+        return projet.nom if projet else ""
+    except Exception as exc:  # noqa: BLE001
+        log.debug("Projet actif indisponible : %s", exc)
+        return ""
