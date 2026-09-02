@@ -283,6 +283,137 @@ class MettreAJourProjet:
         )
 
 
+class RangerDansLeProjet:
+    """Deplace dans le dossier du projet les fichiers que Nova vient d'annoncer."""
+
+    nom = "ranger_dans_le_projet"
+    description = "Déplace les fichiers annoncés dans le dossier du projet en cours"
+    capacite = "action"
+    #: ⚠️ CONSEQUENT, ET C'EST LA TRACE QUI L'EMPECHE D'ETRE IRREVERSIBLE.
+    #
+    # Sur le papier, deplacer n'est ni supprimer ni ecraser : le fichier
+    # existe toujours, entier, ailleurs. En pratique on ne retrouve pas ce
+    # qu'on ne sait pas nommer — trois photos rangees au mauvais endroit sont
+    # perdues, et la difference avec « detruites » n'interesse que les
+    # informaticiens.
+    #
+    # `fichiers/ranger.py` enregistre d'ou venait chaque fichier. C'est ce qui
+    # fait passer l'action de « ne se defait pas » a « se defait mal », donc
+    # au niveau ou une confirmation suffit. Sans cette trace, il faudrait
+    # IRREVERSIBLE — et le bareme n'a pas de niveau au-dessus.
+    niveau = contrats.CONSEQUENT
+
+    def executer(self, projet: str = "", ou: str = "") -> str:
+        import shutil
+
+        from nova.fichiers import ranger
+        from nova.outils.systeme import ActionImpossible
+
+        courant, racine, _, _ = _emplacement(projet, ou)
+        if not racine.is_dir():
+            raise ActionImpossible(
+                f"Le dossier de {courant.nom} n'existe pas encore. "
+                "Dis-moi d'abord de le créer."
+            )
+
+        chemins = _liste_a_ranger()
+        if not chemins:
+            raise ActionImpossible("Je n'ai rien annoncé récemment à ranger.")
+
+        salve = ranger.nouvelle_salve()
+        ranges, ignores = [], []
+        for source in chemins:
+            arrivee = racine / source.name
+            # ⚠️ ON NE REMPLACE JAMAIS, MEME EN RANGEANT.
+            #
+            # Deux photos du meme nom venues de deux dossiers : la seconde
+            # ecraserait la premiere, et le fichier serait detruit pour de
+            # bon. `shutil.move` le fait sans rien dire.
+            if arrivee.exists():
+                ignores.append(source.name)
+                continue
+            try:
+                shutil.move(str(source), str(arrivee))
+            except Exception as erreur:  # noqa: BLE001
+                log.warning("« %s » non range : %s", source, erreur)
+                ignores.append(source.name)
+                continue
+            ranger.noter(courant.id, salve, source, arrivee)
+            ranges.append(source.name)
+
+        if not ranges:
+            raise ActionImpossible("Je n'ai réussi à en ranger aucun.")
+        log.info("%d fichier(s) ranges dans %s", len(ranges), racine)
+        dit = f"J'ai rangé {len(ranges)} fichier(s) dans {racine.name}."
+        if ignores:
+            dit += f" J'en ai laissé {len(ignores)} : ils portaient un nom déjà pris."
+        return dit + " Dis « remets-les où ils étaient » si je me suis trompée."
+
+
+class RemettreOuIlsEtaient:
+    """Defait le dernier rangement : chaque fichier retourne d'ou il venait."""
+
+    nom = "remettre_ou_ils_etaient"
+    description = "Remet à leur place les fichiers du dernier rangement"
+    capacite = "action"
+    #: Defaire un deplacement reste un deplacement : meme niveau, meme
+    #: confirmation. Un « remets tout comme avant » mal entendu au milieu
+    #: d'une phrase deferait un rangement qu'on venait de vouloir.
+    niveau = contrats.CONSEQUENT
+
+    def executer(self) -> str:
+        import shutil
+
+        from nova.contexte import actif
+        from nova.fichiers import ranger
+        from nova.outils.systeme import ActionImpossible
+
+        courant = actif.projet_actif()
+        faits = ranger.a_defaire(courant.id if courant else None)
+        if not faits:
+            raise ActionImpossible("Je n'ai rien rangé récemment.")
+
+        remis, bloques = [], []
+        for fait in faits:
+            if not fait.est_alle_a.exists() or fait.venait_de.exists():
+                bloques.append(fait.est_alle_a.name)
+                continue
+            try:
+                fait.venait_de.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(fait.est_alle_a), str(fait.venait_de))
+            except Exception as erreur:  # noqa: BLE001
+                log.warning("« %s » non remis : %s", fait.est_alle_a, erreur)
+                bloques.append(fait.est_alle_a.name)
+                continue
+            remis.append(fait.id)
+
+        ranger.marquer_annules(remis)
+        if not remis:
+            raise ActionImpossible("Je n'ai pas pu en remettre un seul.")
+        log.info("%d fichier(s) remis a leur place", len(remis))
+        dit = f"C'est défait : {len(remis)} fichier(s) sont retournés d'où ils venaient."
+        if bloques:
+            dit += f" J'en ai laissé {len(bloques)} : leur place d'origine n'est plus libre."
+        return dit
+
+
+def _liste_a_ranger() -> tuple[Path, ...]:
+    """Ce que Nova vient d'annoncer. Vide s'il n'y a rien de recent.
+
+    ⚠️ C'EST LA BORNE LA PLUS IMPORTANTE DE CET OUTIL.
+
+    Un outil qui accepterait un chemin libre pourrait ranger n'importe quoi.
+    Celui-ci ne peut toucher que des fichiers dont Nova vient de dire le
+    nombre a voix haute — et que l'on peut donc contester avant de dire oui.
+    """
+    from nova.vision import focus
+
+    retenue = focus.derniere()
+    if retenue is None or not retenue.liste:
+        return ()
+    return tuple(chemin for chemin in retenue.liste if chemin.is_file())
+
+
 def _emplacement(projet: str, ou: str):
     """Le projet actif, son dossier, son document et comment DIRE l'endroit.
 
@@ -394,6 +525,8 @@ def enregistrer_outils_fichiers(registre) -> tuple[str, ...]:
         CreerDossier(),
         EcrireProjet(),
         MettreAJourProjet(),
+        RangerDansLeProjet(),
+        RemettreOuIlsEtaient(),
     ):
         if outil.nom not in registre:
             registre.enregistrer(outil)

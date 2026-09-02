@@ -96,6 +96,15 @@ _VERBE = re.compile(
 #: rapprochement phonetique des fichiers.
 _OBJET = re.compile(r"\b(?:dossier|repertoire|fichier)s?\b")
 
+#: Le dossier DONT ON PARLE DEJA — celui du projet, pas un nouveau.
+#:
+#: Le pendant exact de `fichiers/ranger.py` : ce qui est nomme par un article
+#: defini existe deja, et l'on ne cree pas ce qui existe.
+_DANS_CELUI_QUI_EXISTE = re.compile(
+    r"\bdans (?:le |ce |mon |notre |son )(?:dossier|projet|repertoire)\b"
+    r"|\bdans le projet\b|\bdedans\b"
+)
+
 #: Le nom donne explicitement.
 _APPELE = re.compile(
     r"\b(?:qui s appelle|qui s appellerait|appele|appelee|nomme|nommee|"
@@ -162,6 +171,18 @@ def demande_de_dossier(texte: str) -> Demande | None:
     """
     plat = _plat(texte)
     if not (_VERBE.search(plat) and _OBJET.search(plat)):
+        return None
+    # ⚠️ « DANS LE DOSSIER » NE DEMANDE PAS D'EN CREER UN.
+    #
+    #     « range tout dans UN dossier Photos »   → creer
+    #     « mets-les dans LE dossier »            → ranger dedans
+    #
+    # Ce module prenait les deux. Il n'etait sauve que par l'ordre des
+    # branchements dans `/v1/action` — c'est-a-dire par une decision ecrite
+    # ailleurs, qu'un deplacement de trois lignes aurait annulee en silence.
+    # L'article defini renvoie a ce dont on parle deja ; l'indefini annonce
+    # ce qui n'existe pas encore. Chaque module lit sa phrase, tout seul.
+    if _DANS_CELUI_QUI_EXISTE.search(plat):
         return None
 
     ou = ""

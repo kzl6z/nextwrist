@@ -164,6 +164,26 @@ def _executer(demande: DemandeAction) -> ReponseAction:
         return _mettre_a_jour(demande)
 
     # ══════════════════════════════════════════════════════════════════════
+    #  ⚠️ RANGER SE LIT AVANT CREER, POUR LA MEME RAISON QUE METTRE A JOUR.
+    #
+    #  « mets-les dans le dossier » porte un verbe et le mot « dossier » :
+    #  `creer.demande_de_dossier` le prendrait pour lui. Ce qui les separe est
+    #  l'ARTICLE — « dans UN dossier Photos » cree, « dans LE dossier » range —
+    #  et l'ordre garantit que le defini n'est jamais lu comme un indefini.
+    # ══════════════════════════════════════════════════════════════════════
+    from nova.fichiers import ranger
+
+    if ranger.demande_d_annuler(demande.texte):
+        return _agir_sur_les_fichiers(
+            demande, "remettre_ou_ils_etaient", _question_de_retour
+        )
+
+    if ranger.demande_de_ranger(demande.texte):
+        return _agir_sur_les_fichiers(
+            demande, "ranger_dans_le_projet", _question_de_rangement
+        )
+
+    # ══════════════════════════════════════════════════════════════════════
     #  ⚠️ CREER UN DOSSIER — LA PREMIERE FOIS QUE NOVA ECRIT SUR LE DISQUE.
     #
     #      « Nova, je cherche a creer un moteur electrique. »
@@ -571,3 +591,82 @@ def _liste_annoncee() -> tuple[tuple, str, str]:
     except Exception as exc:  # noqa: BLE001
         log.warning("Liste annoncee indisponible : %s", exc)
         return (), "ouvrir_fichier", "fichiers"
+
+
+def _agir_sur_les_fichiers(demande: DemandeAction, outil: str, question) -> ReponseAction:
+    """Execute un outil de rangement — apres confirmation, jamais avant.
+
+    ⚠️ DEPLACER EST LA SEULE ACTION OU L'ON PEUT PERDRE SANS SAVOIR QUOI.
+
+    Le fichier n'est pas detruit, il est ailleurs. En pratique on ne retrouve
+    pas ce qu'on ne sait pas nommer, et trois photos rangees au mauvais
+    endroit sont perdues. D'ou le portillon, et d'ou la question qui DIT
+    combien de fichiers vont bouger et vers ou : accepter sans savoir ce qui
+    va se passer, c'est accepter au hasard.
+    """
+    from nova.outils import ConfirmationRequise, executer_outil
+
+    try:
+        message = executer_outil(outil, confirme=demande.confirme)
+    except ConfirmationRequise:
+        dite = question()
+        if not dite:
+            return ReponseAction(
+                etat="echouee", message="Je n'ai rien à ranger pour l'instant.",
+                outil=outil, niveau=None, intention=outil, cible=None,
+            )
+        log.info("« %s » → %s : confirmation attendue", demande.texte, outil)
+        return ReponseAction(
+            etat="a_confirmer", message=dite, outil=outil,
+            niveau=None, intention=outil, cible=None,
+        )
+    except Exception as erreur:  # noqa: BLE001
+        log.warning("%s impossible : %s", outil, erreur)
+        return ReponseAction(
+            etat="echouee", message=str(erreur), outil=outil,
+            niveau=None, intention=outil, cible=None,
+        )
+
+    return ReponseAction(
+        etat="executee", message=str(message), outil=outil,
+        niveau=None, intention=outil, cible=None,
+    )
+
+
+def _question_de_rangement() -> str:
+    """« Je déplace les 3 photos dans le dossier X ? » — jamais un nom d'outil.
+
+    Le compte et la destination, tous les deux. Sans le compte, on ne peut pas
+    contester ; sans la destination, on ne sait pas ou chercher apres.
+    """
+    try:
+        from nova.contexte import actif
+        from nova.outils.fichiers import _liste_a_ranger
+
+        chemins = _liste_a_ranger()
+        projet = actif.projet_actif()
+        if not chemins or projet is None:
+            return ""
+        combien = len(chemins)
+        quoi = "fichier" if combien == 1 else "fichiers"
+        return f"Je déplace {combien} {quoi} dans le dossier {projet.nom} ?"
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Question de rangement indisponible : %s", exc)
+        return ""
+
+
+def _question_de_retour() -> str:
+    """« Je remets les 3 fichiers d'où ils venaient ? »"""
+    try:
+        from nova.contexte import actif
+        from nova.fichiers import ranger
+
+        projet = actif.projet_actif()
+        faits = ranger.a_defaire(projet.id if projet else None)
+        if not faits:
+            return ""
+        quoi = "fichier" if len(faits) == 1 else "fichiers"
+        return f"Je remets {len(faits)} {quoi} d'où ils venaient ?"
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Question de retour indisponible : %s", exc)
+        return ""

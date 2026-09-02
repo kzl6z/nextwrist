@@ -82,6 +82,7 @@ def test_les_outils_de_fichiers_sont_enregistres():
     assert set(noms) == {
         "rechercher_fichier", "ouvrir_fichier", "creer_dossier",
         "ecrire_projet", "mettre_a_jour_projet",
+        "ranger_dans_le_projet", "remettre_ou_ils_etaient",
     }
     # ⚠️ LE NIVEAU DIT LA VERITE : chercher LIT, les deux autres AGISSENT.
     assert registre.exiger("rechercher_fichier").niveau == contrats.LECTURE
@@ -96,6 +97,11 @@ def test_les_outils_de_fichiers_sont_enregistres():
     # Celui-la ECRASE : le bareme nomme « ecrire dans un fichier existant »
     # dans CONSEQUENT, et le portillon exige donc une confirmation.
     assert registre.exiger("mettre_a_jour_projet").niveau == contrats.CONSEQUENT
+    # Deplacer non plus ne se defait pas tout seul : c'est la TRACE de
+    # l'origine qui l'empeche d'etre IRREVERSIBLE, et le bareme n'a pas de
+    # niveau au-dessus.
+    assert registre.exiger("ranger_dans_le_projet").niveau == contrats.CONSEQUENT
+    assert registre.exiger("remettre_ou_ils_etaient").niveau == contrats.CONSEQUENT
     # Enregistrer deux fois ne double pas.
     assert enregistrer_outils_fichiers(registre) == ()
 
