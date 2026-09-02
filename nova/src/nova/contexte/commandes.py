@@ -153,7 +153,18 @@ _DECISION = re.compile(
 )
 
 #: La raison, quand elle est dite dans la meme phrase.
-_PARCE_QUE = re.compile(r"\s+(?:parce que|car|puisque|vu que)\s+(?P<raison>.+)$")
+#: ⚠️ « PARCE QU'IL » NE SE TERMINE PAS PAR « QUE ».
+#:
+#: L'aplatissement rend « parce qu'il n'y a pas de pompe » en « parce qu il n
+#: y a pas de pompe » : le motif qui exigeait « parce que » n'attrapait donc
+#: aucune des elisions — « qu'il », « qu'on », « qu'elle », « qu'en » — qui
+#: sont parmi les plus frequentes du francais parle.
+#:
+#: La decision etait notee, sa RAISON perdue en silence. C'est-a-dire
+#: exactement la colonne pour laquelle `elements.pourquoi` existe.
+_PARCE_QUE = re.compile(
+    r"\s+(?:parce que|parce qu|car|puisque|vu que)\s+(?P<raison>.+)$"
+)
 
 #: « je veux garder ca pour moi », « c'est personnel », « ne partage pas ».
 _CONFIDENTIEL = re.compile(

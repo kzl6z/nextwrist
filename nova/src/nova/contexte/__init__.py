@@ -81,6 +81,11 @@ class Projet:
     #: « personnel » quand on a dit vouloir garder ca pour soi. Les outils le
     #: lisent AVANT d'ecrire ou d'envoyer quoi que ce soit.
     confidentialite: str = "normal"
+    #: Ou le projet vit sur le disque, quand Nova l'y a ecrit. Vide sinon.
+    dossier: str | None = None
+    #: Quand Nova a propose de l'ecrire. Rempli meme si la reponse fut non :
+    #: c'est ce qui distingue « jamais demande » de « demande et refuse ».
+    document_propose_le: datetime | None = None
     elements: tuple[Element, ...] = ()
 
     def par_genre(self, genre: str, *, ouverts_seulement: bool = True):

@@ -140,7 +140,9 @@ def _executer(demande: DemandeAction) -> ReponseAction:
         if message:
             log.info("[Contexte] « %s » → %s", demande.texte, ordre.genre)
             return ReponseAction(
-                etat="executee", message=message, outil=None, niveau=None,
+                etat="executee",
+                message=message + _proposer_le_dossier(),
+                outil=None, niveau=None,
                 intention=f"contexte_{ordre.genre}", cible=None,
             )
 
@@ -363,4 +365,43 @@ def _nom_du_projet_actif() -> str:
         return projet.nom if projet else ""
     except Exception as exc:  # noqa: BLE001
         log.debug("Projet actif indisponible : %s", exc)
+        return ""
+
+
+def _proposer_le_dossier() -> str:
+    """« Veux-tu que je mette ce projet sur ton Bureau ? », le moment venu.
+
+    ⚠️ ELLE PROPOSE DERRIERE UNE PHRASE QU'ELLE PRONONCE DEJA.
+
+    Nova vient de dire « Décision notée : … ». C'est le seul moment ou une
+    proposition n'interrompt personne : elle a la parole, et la phrase qui
+    suit porte sur ce dont on vient de parler. Une proposition spontanee, au
+    milieu du silence, serait exactement ce que « penser a voix haute » vient
+    d'apprendre a Nova a ne pas faire.
+
+    ⚠️ ET UNE SEULE FOIS PAR PROJET.
+
+    `merite_un_dossier` verifie que la question n'a pas deja ete posee, et
+    `marquer_propose` l'enregistre A LA QUESTION, pas a la reponse. Un refus
+    suivi de la meme question trente secondes plus tard n'est plus une
+    proposition — et l'on finirait par ne plus rien dicter.
+
+    Rend une chaine vide dans tous les autres cas : ce n'est pas une panne de
+    ne rien proposer.
+    """
+    try:
+        from nova.contexte import actif, document
+        from nova.voice import session
+
+        projet = actif.projet_actif()
+        if not document.merite_un_dossier(projet):
+            return ""
+        session.proposer("ecrire_projet", {"projet": projet.nom})
+        actif.marquer_propose(projet.id)
+        log.info("[Contexte] Dossier propose pour « %s »", projet.nom)
+        return " " + document.question(projet)
+    except Exception as exc:  # noqa: BLE001
+        # Une proposition qui echoue ne doit pas emporter la reponse qu'elle
+        # accompagne : « Décision notée » a de la valeur toute seule.
+        log.warning("Proposition de dossier impossible : %s", exc)
         return ""

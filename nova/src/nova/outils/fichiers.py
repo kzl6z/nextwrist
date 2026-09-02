@@ -188,6 +188,91 @@ class CreerDossier:
         return f"J'ai créé le dossier {cible.name} sur {ou_dit}."
 
 
+class EcrireProjet:
+    """Ecrit le projet actif sur le disque : un dossier, et un document dedans."""
+
+    nom = "ecrire_projet"
+    description = "Crée le dossier du projet en cours et y écrit ce qui a été dit"
+    capacite = "action"
+    #: ⚠️ REVERSIBLE PARCE QU'IL N'ECRASE RIEN, ET POUR AUCUNE AUTRE RAISON.
+    #
+    # Le bareme range « ecrire dans un fichier existant » dans CONSEQUENT :
+    # ca se defait mal. Cet outil reste donc en deca — il cree un dossier
+    # (nomme dans REVERSIBLE) et un fichier QUI N'EXISTE PAS. Quand le
+    # document est deja la, il ne le touche pas et le dit.
+    #
+    # Mettre a jour un document existant est une autre action, avec son
+    # niveau et sa confirmation. Elle n'existe pas encore, et il vaut mieux
+    # ne pas l'avoir que l'avoir sans confirmation.
+    niveau = contrats.REVERSIBLE
+
+    def executer(self, projet: str = "", ou: str = "") -> str:
+        from nova.contexte import actif, document
+        from nova.fichiers.creer import _nom_propre, destination, nom_lisible
+        from nova.outils.systeme import ActionImpossible
+
+        courant = actif.projet_actif()
+        if courant is None:
+            raise ActionImpossible("Aucun projet ouvert.")
+        # Le nom vient de la proposition ; le projet a pu changer entre-temps.
+        # On ecrit ce qui est ACTIF, et on refuse si ce n'est plus le meme.
+        if projet and _plat(projet) != _plat(courant.nom):
+            raise ActionImpossible(
+                f"Le projet en cours n'est plus « {projet} », mais « {courant.nom} »."
+            )
+
+        dossier_voulu = _nom_propre(courant.nom)
+        if not dossier_voulu:
+            raise FichierRefuse(
+                f"« {courant.nom} » ne peut pas servir de nom de dossier."
+            )
+
+        parent = destination(ou)
+        if parent is None:
+            raise FichierRefuse(
+                "Je n'ai pas le droit de créer là. "
+                "Regarde NOVA_FICHIERS_CREATION_DOSSIERS."
+            )
+
+        racine = borner_creation(parent, dossier_voulu)
+        racine.mkdir(exist_ok=True)
+
+        fichier = racine / document.nom_du_fichier(courant)
+        ou_dit = nom_lisible(parent)
+        if fichier.exists():
+            # ⚠️ ON N'ECRASE PAS, ET ON NE SE TAIT PAS NON PLUS.
+            #
+            # Le document peut avoir ete repris a la main. Le reecrire
+            # perdrait ce travail sans que rien ne le dise — exactement ce que
+            # CONSEQUENT designe dans le bareme.
+            actif.fixer_dossier(courant.id, str(racine))
+            log.info("Document deja present : %s", fichier)
+            return (
+                f"Le dossier {racine.name} est déjà sur {ou_dit}, "
+                "avec son document. Je n'y touche pas."
+            )
+
+        fichier.write_text(document.rendre(courant), encoding="utf-8")
+        actif.fixer_dossier(courant.id, str(racine))
+        log.info("Projet ecrit : %s", fichier)
+        combien = document.poids(courant)
+        return (
+            f"C'est fait : le dossier {racine.name} est sur {ou_dit}, "
+            f"avec {combien} élément(s) de notre conversation."
+        )
+
+
+def _plat(texte: str) -> str:
+    """Pour comparer deux noms de projet, pas pour les afficher."""
+    import unicodedata
+
+    sans = "".join(
+        c for c in unicodedata.normalize("NFD", texte or "")
+        if unicodedata.category(c) != "Mn"
+    )
+    return " ".join(sans.lower().split())
+
+
 def borner_creation(parent: Path, nom: str) -> Path:
     """Le chemin a creer, s'il est legitime. Sinon, on refuse.
 
@@ -245,7 +330,7 @@ def enregistrer_outils_fichiers(registre) -> tuple[str, ...]:
     dans la conversation, pas de ce qui EXISTE.
     """
     inscrits: list[str] = []
-    for outil in (RechercherFichier(), OuvrirFichier(), CreerDossier()):
+    for outil in (RechercherFichier(), OuvrirFichier(), CreerDossier(), EcrireProjet()):
         if outil.nom not in registre:
             registre.enregistrer(outil)
             inscrits.append(outil.nom)

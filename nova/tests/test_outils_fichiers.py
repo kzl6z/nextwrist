@@ -79,13 +79,19 @@ def test_les_outils_de_fichiers_sont_enregistres():
     registre = Registre("outil")
     noms = enregistrer_outils_fichiers(registre)
 
-    assert set(noms) == {"rechercher_fichier", "ouvrir_fichier", "creer_dossier"}
+    assert set(noms) == {
+        "rechercher_fichier", "ouvrir_fichier", "creer_dossier", "ecrire_projet",
+    }
     # ⚠️ LE NIVEAU DIT LA VERITE : chercher LIT, les deux autres AGISSENT.
     assert registre.exiger("rechercher_fichier").niveau == contrats.LECTURE
     assert registre.exiger("ouvrir_fichier").niveau == contrats.REVERSIBLE
     # Creer un dossier se defait en le supprimant : le bareme le nommait deja
     # dans REVERSIBLE, avant que cet outil n'existe.
     assert registre.exiger("creer_dossier").niveau == contrats.REVERSIBLE
+    # `ecrire_projet` reste REVERSIBLE parce qu'il n'ECRASE rien : il cree un
+    # dossier et un fichier absent. Reecrire un document existant serait
+    # CONSEQUENT, et cette action-la n'existe pas encore.
+    assert registre.exiger("ecrire_projet").niveau == contrats.REVERSIBLE
     # Enregistrer deux fois ne double pas.
     assert enregistrer_outils_fichiers(registre) == ()
 

@@ -52,6 +52,8 @@ def _projet(ligne: dict, elements: tuple[Element, ...] = ()) -> Projet:
         objectif=ligne.get("objectif"),
         espace=ligne.get("espace"),
         confidentialite=ligne.get("confidentialite", "normal"),
+        dossier=ligne.get("dossier"),
+        document_propose_le=ligne.get("document_propose_le"),
         elements=elements,
     )
 
@@ -441,3 +443,28 @@ def appliquer(ordre, *, source: str = "") -> str:
         return f"{quoi} : {element.contenu}."
 
     return ""
+
+
+def fixer_dossier(projet_id: int, chemin: str) -> None:
+    """Retient ou le projet vit sur le disque. Nova ne le repropose plus."""
+    with connection() as conn:
+        conn.execute(
+            "UPDATE projets SET dossier = %s, document_propose_le = now() WHERE id = %s",
+            (chemin, projet_id),
+        )
+    log.info("[Contexte] Projet %d ecrit dans %s", projet_id, chemin)
+
+
+def marquer_propose(projet_id: int) -> None:
+    """Note que la question a ete posee — meme si la reponse fut non.
+
+    ⚠️ ON MARQUE A LA QUESTION, PAS A LA REPONSE.
+
+    Attendre le « oui » ferait revenir la proposition a chaque decision notee
+    tant que personne n'accepte. Une proposition refusee qui revient trente
+    secondes plus tard n'est plus une proposition.
+    """
+    with connection() as conn:
+        conn.execute(
+            "UPDATE projets SET document_propose_le = now() WHERE id = %s", (projet_id,)
+        )
