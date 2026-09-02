@@ -262,15 +262,27 @@ def test_la_pensee_devient_l_antecedent_de_ca(entendu):
     assert session.propos_precedent() == PENSEE
 
 
-def test_une_pensee_ne_consomme_pas_la_proposition_en_attente(entendu):
-    """Nova vient de demander « je te l'ouvre ? ». Penser tout haut entre les
-    deux ne doit pas faire disparaitre la question."""
+def test_une_pensee_ne_referme_pas_la_conversation(entendu):
+    """⚠️ SE TAIRE ET RACCROCHER SONT DEUX CHOSES DIFFERENTES.
+
+    Seul un conge referme la fenetre. Une pensee laisse Nova a l'ecoute :
+    c'est justement le moment ou l'ordre va venir.
+
+    ⚠️ CE BANC N'ASSERTAIT D'ABORD QUE LA SURVIE DE LA PROPOSITION.
+
+    Il ne protegeait rien : la proposition ne se consomme que dans
+    `/v1/action`, ou une pensee ne va jamais. Debrancher toute la detection
+    le laissait vert. Ce qui se casserait vraiment, c'est une pensee qui
+    appellerait `fermer` — et alors la fenetre ET la proposition tombent
+    ensemble.
+    """
     session.ouvrir()
     session.proposer("ouvrir_fichier", {"chemin": "/tmp/x.pdf"}, comme="tes impots")
     entendu(PENSEE)
 
     appeler()
 
+    assert session.est_ouverte(), "penser tout haut a raccroche"
     assert session.en_attente() == ("ouvrir_fichier", {"chemin": "/tmp/x.pdf"})
 
 
