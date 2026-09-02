@@ -186,8 +186,21 @@ def _executer(demande: DemandeAction) -> ReponseAction:
     if (voulu := creer.demande_de_dossier(demande.texte)) is not None:
         nom = voulu.nom or _nom_du_projet_actif()
         if not nom:
+            # ⚠️ `ignoree` ETAIT LE MAUVAIS ETAT, ET LA QUESTION SE PERDAIT.
+            #
+            # Le contrat le dit : `ignoree` signifie « reconnu, mais pas assez
+            # sur — ou pas encore implemente ». L'application enchaine alors
+            # sur le modele de langue, qui repond toujours quelque chose.
+            # Releve en conditions reelles :
+            #
+            #     « Créer un dossier sur mon bureau… »
+            #     « …est possible via le menu 'Fichier' > 'Nouveau dossier'. »
+            #
+            # Nova avait la bonne question a poser ; personne ne l'a entendue.
+            # `echouee` — « tente, et rate ; voici pourquoi » — decrit
+            # exactement la situation, et l'application le PRONONCE.
             return ReponseAction(
-                etat="ignoree",
+                etat="echouee",
                 message="Comment veux-tu appeler ce dossier ?",
                 outil=None, niveau=None, intention="creer_dossier", cible=None,
             )
@@ -223,15 +236,29 @@ def _executer(demande: DemandeAction) -> ReponseAction:
     # elle exige une liste deja annoncee. Elle passe donc avant.
     from nova.fichiers import trouver
 
-    if trouver.demande_tout_ouvrir(demande.texte) and (
-        liste := trouver.liste_en_tete()
-    ):
-        fait = orchestrator.ouvrir_toute_la_liste(liste)
-        log.info("« %s » → %d fichier(s) ouvert(s)", demande.texte, len(liste))
-        return ReponseAction(
-            etat=fait.etat, message=fait.message, outil=fait.outil,
-            niveau=fait.niveau, intention="ouvrir_tout", cible=None,
-        )
+    # ⚠️ ET « LES TROIS » PEUVENT ETRE DES PHOTOS.
+    #
+    # Ce branchement lisait `liste_en_tete()`, qui ne rend QUE des fichiers.
+    # Releve en conditions reelles, juste apres une recherche d'images :
+    #
+    #     « J'ai trouve 3 photos d'une carte Pokemon. Laquelle veux-tu ? »
+    #     « Ouvre-les toutes. »
+    #     « Je ne trouve pas d'application "toutes" sur cette machine. »
+    #
+    # La liste etait vide — les photos sont retenues sous un autre genre — le
+    # branchement ne prenait pas, et « toutes » repartait au catalogue des
+    # applications. Le correctif de « peux-tu tous les ouvrir » ne couvrait
+    # qu'une moitie du probleme, et personne ne pouvait le voir : les deux
+    # cotes ont chacun leur banc, aucun n'avait celui-la.
+    if trouver.demande_tout_ouvrir(demande.texte):
+        liste, outil, mot = _liste_annoncee()
+        if liste:
+            fait = orchestrator.ouvrir_toute_la_liste(liste, outil=outil, mot=mot)
+            log.info("« %s » → %d %s ouvert(s)", demande.texte, len(liste), mot)
+            return ReponseAction(
+                etat=fait.etat, message=fait.message, outil=fait.outil,
+                niveau=fait.niveau, intention="ouvrir_tout", cible=None,
+            )
 
     # ⚠️ « FERME LES QUATRE FICHIERS » CHERCHAIT UNE APPLICATION.
     #
@@ -512,3 +539,35 @@ def _document_intact(projet) -> bool:
         return document.porte_la_signature(fichier.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
         return True
+
+
+#: De quoi Nova vient de parler → avec quel outil l'ouvrir, et comment le DIRE.
+#:
+#: Les deux cotes existaient deja et s'ignoraient : `focus` retient le genre
+#: depuis le debut, `ouvrir_image` et `ouvrir_fichier` ont chacun leur borne.
+#: Il ne manquait que cette table de trois lignes pour que « ouvre-les
+#: toutes » fonctionne des deux cotes.
+_COMMENT_OUVRIR: dict[str, tuple[str, str]] = {
+    "image": ("ouvrir_image", "photos"),
+    "fichier": ("ouvrir_fichier", "fichiers"),
+}
+
+
+def _liste_annoncee() -> tuple[tuple, str, str]:
+    """La derniere liste annoncee — photos OU documents — et comment l'ouvrir.
+
+    Rend une liste vide quand il n'y a rien de recent : « ouvre-les toutes »
+    sans rien avant ne designe rien, et il vaut mieux ne rien faire que
+    d'ouvrir ce qui trainait.
+    """
+    try:
+        from nova.vision import focus
+
+        retenue = focus.derniere()
+        if retenue is None or not retenue.liste:
+            return (), "ouvrir_fichier", "fichiers"
+        outil, mot = _COMMENT_OUVRIR.get(retenue.genre, ("ouvrir_fichier", "fichiers"))
+        return retenue.liste, outil, mot
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Liste annoncee indisponible : %s", exc)
+        return (), "ouvrir_fichier", "fichiers"

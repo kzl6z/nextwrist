@@ -377,7 +377,9 @@ def test_sans_nom_ni_projet_nova_demande(bureau, monkeypatch):
     reponse = _client().post("/v1/action", json={"texte": dit})
 
     fait = reponse.json()
-    assert fait["etat"] == "ignoree"
+    # ⚠️ `echouee`, PAS `ignoree` : l'application enchaine sur le modele quand
+    # une demande est « ignoree », et la question de Nova se perdait.
+    assert fait["etat"] == "echouee"
     assert "appeler" in fait["message"]
     assert list(bureau.iterdir()) == []
 
@@ -477,7 +479,7 @@ def test_un_separateur_dans_le_nom_fait_refuser(bureau, monkeypatch):
         "/v1/action", json={"texte": "crée un dossier plans/secrets sur mon bureau"}
     ).json()
 
-    assert fait["etat"] == "ignoree", fait["message"]
+    assert fait["etat"] == "echouee", fait["message"]
     assert list(bureau.iterdir()) == []
 
 

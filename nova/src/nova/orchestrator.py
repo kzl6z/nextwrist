@@ -1525,21 +1525,35 @@ def _confronter_au_reel(
     return action, {action.argument: retenu}, None
 
 
-def ouvrir_toute_la_liste(chemins) -> Resultat:
-    """Ouvre tous les fichiers que Nova vient d'annoncer. Ne leve jamais.
+def ouvrir_toute_la_liste(
+    chemins, *, outil: str = "ouvrir_fichier", mot: str = "fichiers"
+) -> Resultat:
+    """Ouvre tout ce que Nova vient d'annoncer. Ne leve jamais.
 
     ⚠️ UN ECHEC SUR L'UN N'ARRETE PAS LES AUTRES.
 
     Trois avis d'imposition, le deuxieme deplace entre-temps : ouvrir le
     premier puis abandonner serait le pire des deux mondes. On ouvre ce qu'on
     peut et on dit combien.
+
+    ⚠️ ET L'OUTIL DEPEND DE CE QU'ON A ANNONCE.
+
+    Cette fonction ouvrait toujours des FICHIERS. Releve en conditions
+    reelles, juste apres une recherche d'images :
+
+        « J'ai trouve 3 photos d'une carte Pokemon. Laquelle veux-tu ? »
+        « Ouvre-les toutes. »
+        « Je ne trouve pas d'application "toutes" sur cette machine. »
+
+    Une image s'ouvre par `ouvrir_image`, dont la borne n'est pas la meme.
+    L'appelant sait de quoi il vient de parler ; il le dit ici.
     """
     from nova.outils import executer_outil
 
     ouverts, rates = [], []
     for chemin in chemins:
         try:
-            executer_outil("ouvrir_fichier", chemin=str(chemin))
+            executer_outil(outil, chemin=str(chemin))
         except Exception as erreur:  # noqa: BLE001
             log.warning("« %s » non ouvert : %s", chemin, erreur)
             rates.append(str(chemin))
@@ -1548,10 +1562,10 @@ def ouvrir_toute_la_liste(chemins) -> Resultat:
 
     if not ouverts:
         return Resultat("echouee", "Je n'ai réussi à en ouvrir aucun.")
-    combien = f"J'ai ouvert les {len(ouverts)} fichiers."
+    combien = f"J'ai ouvert les {len(ouverts)} {mot}."
     if rates:
-        combien = f"J'ai ouvert {len(ouverts)} fichiers sur {len(ouverts) + len(rates)}."
-    return Resultat("executee", combien, outil="ouvrir_fichier")
+        combien = f"J'ai ouvert {len(ouverts)} {mot} sur {len(ouverts) + len(rates)}."
+    return Resultat("executee", combien, outil=outil)
 
 
 def memoriser(phrase: str) -> Resultat:

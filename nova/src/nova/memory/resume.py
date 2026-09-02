@@ -161,7 +161,21 @@ def rappeler(
     `derniers_echanges`. C'est ce qui permet a ce module d'arriver sans rien
     changer tant que le fil d'entretien n'a pas tourne.
     """
-    vieux = courant(conversation_id)
+    # ⚠️ UNE PANNE DE RESUME NE DOIT PAS EMPORTER LE RAPPEL BRUT.
+    #
+    # `rappeler` a remplace un appel nu a `derniers_echanges`. En lisant le
+    # resume EN PREMIER, elle a introduit un point de panne devant une
+    # fonctionnalite qui marchait : table absente, migration non appliquee,
+    # base momentanement injoignable — et le passe recent disparaissait avec.
+    #
+    # Trois bancs ecrits bien avant ce module l'ont montre, le jour ou la base
+    # s'est arretee pendant une passe. Ils avaient raison : le resume est un
+    # PLUS, et un plus ne prend pas en otage ce qu'il complete.
+    try:
+        vieux = courant(conversation_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[Resume] Resume indisponible, rappel brut conserve : %s", exc)
+        vieux = None
     if vieux is None:
         return Rappel(
             messages=conversations.derniers_echanges(

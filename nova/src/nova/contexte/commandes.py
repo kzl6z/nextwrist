@@ -177,6 +177,54 @@ _CONFIDENTIEL = re.compile(
 )
 
 
+#: Ouvrir un projet SANS prononcer le mot « projet ».
+#:
+#: ⚠️ PERSONNE NE DIT « OUVRE LE PROJET FUSEE ». RELEVE EN CONDITIONS REELLES.
+#:
+#:     « je cherche a creer une fusee »
+#:     Nova : rien.
+#:
+#: `_OUVRIR` exigeait le mot « projet ». Toute la suite en dependait : sans
+#: projet actif, l'objectif ne s'enregistre pas, les decisions non plus, et
+#: la proposition d'ecrire le dossier ne peut jamais arriver. Une chaine
+#: entiere de fonctionnalites restait morte derriere un mot que personne ne
+#: prononce.
+#:
+#: ⚠️ ET CE N'EST PAS UN VERBE SEUL : IL EN FAUT DEUX.
+#:
+#: Une VOLONTE a la premiere personne — « je cherche a », « j'aimerais » —
+#: suivie d'un verbe de FABRICATION. « je cherche mes impots » n'ouvre rien ;
+#: « creer un compte » non plus. C'est la conjonction des deux qui dit
+#: « j'entreprends quelque chose », et c'est une propriete de la phrase, pas
+#: une devinette sur l'intention.
+_PROJET_IMPLICITE = re.compile(
+    r"\b(?:je (?:cherche a|voudrais|veux|compte|souhaite|pense)|"
+    r"j aimerais(?: bien)?|j ai envie de|"
+    r"on (?:va|voudrait|aimerait|pense))\s+"
+    r"(?:creer|faire|monter|construire|batir|concevoir|developper|fabriquer|"
+    r"mettre au point|me lancer dans|nous lancer dans)\s+"
+    r"(?P<nom>.+?)\s*$"
+)
+
+#: Les articles qu'on retire en tete d'un nom de projet.
+#:
+#: « une centrale nucleaire » deviendra un DOSSIER sur le Bureau. « une »
+#: n'a rien a faire dans un nom de dossier, et on le lit chaque jour.
+_ARTICLE = re.compile(r"^(?:un|une|le|la|les|des|du|de la|mon|ma|mes|notre|nos)\s+")
+
+#: Ce qui, derriere un verbe de fabrication, n'est PAS un projet.
+#:
+#: ⚠️ « J'AIMERAIS CREER UN DOSSIER SUR MON BUREAU » N'OUVRE PAS DE PROJET.
+#:
+#: C'est une demande de fichier, traitee par `fichiers/creer.py`. Sans cette
+#: exclusion, Nova ouvrirait un projet nomme « un dossier sur mon bureau » —
+#: et le creerait en base, ou il resterait.
+_PAS_UN_PROJET = re.compile(
+    r"^(?:un |une |le |la |mon |ma |ce |nouveau |nouvelle )*"
+    r"(?:dossier|repertoire|fichier|document|note|compte|rendez vous|rappel)\b"
+)
+
+
 def lire(texte: str, *, propos_precedent: str = "") -> Ordre | None:
     """L'ordre que cette phrase donne au contexte, ou `None`.
 
@@ -206,6 +254,19 @@ def lire(texte: str, *, propos_precedent: str = "") -> Ordre | None:
 
     if (trouve := _OUVRIR.search(plat)) and (nom := tel_quel(trouve, "nom")):
         return Ordre("ouvrir", nom)
+
+    # ⚠️ APRES `_OUVRIR`, ET AVANT TOUT LE RESTE.
+    #
+    # Apres, parce que « ouvre le projet X » dit deja explicitement ce qu'il
+    # veut. Avant `_OBJECTIF`, parce que « on va creer une fusee » porte les
+    # deux signaux — « on va » y ouvre un objectif — et qu'un objectif sans
+    # projet actif ne s'enregistre nulle part. Ouvrir d'abord, noter ensuite.
+    if trouve := _PROJET_IMPLICITE.search(plat):
+        brut = plat[trouve.start("nom") : trouve.end("nom")].strip()
+        if not _PAS_UN_PROJET.match(brut):
+            depart = trouve.start("nom") + len(_article_en_tete(brut))
+            if nom := _nettoyer(texte[depart : trouve.end("nom")]):
+                return Ordre("ouvrir", nom)
 
     if _CONFIDENTIEL.search(plat):
         return Ordre("confidentiel")
@@ -246,3 +307,15 @@ def _nettoyer(brut: str) -> str:
         if texte.endswith(queue):
             texte = texte[: -len(queue)].strip(" ,.;:!?")
     return texte
+
+
+def _article_en_tete(plat: str) -> str:
+    """L'article a retirer devant un nom de projet, ou une chaine vide.
+
+    Rendu comme du TEXTE et non comme une longueur : l'aplatissement preserve
+    les positions, donc ce qu'on retire ici se retire du meme nombre de
+    caracteres dans l'original — et « l'été » ne devient pas « été » decale
+    d'un cran.
+    """
+    trouve = _ARTICLE.match(plat)
+    return trouve.group(0) if trouve else ""
