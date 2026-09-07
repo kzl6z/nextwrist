@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 import unicodedata
 
 from nova.logging_setup import get_logger
@@ -142,9 +143,15 @@ def reste_apres(texte: str) -> str:
 
 def interrompre(pourquoi: str = "") -> None:
     """Coupe la parole en cours. Vaut jusqu'a ce que Nova ait du neuf a dire."""
-    global _coupee, _pourquoi
+    global _coupee, _pourquoi, _parle_jusqu_a
     with _verrou:
         _coupee, _pourquoi = True, pourquoi
+        # ⚠️ ET L'OREILLE SE ROUVRE TOUT DE SUITE.
+        #
+        # Sans cette ligne, la fenetre de parole courrait encore sur ce qui
+        # ne sera jamais prononce, et la phrase qui SUIT l'interruption —
+        # celle pour laquelle on a coupe — serait prise pour de l'echo.
+        _parle_jusqu_a = 0.0
     log.info("Interruption : Nova se tait%s.", f" ({pourquoi})" if pourquoi else "")
 
 
@@ -184,6 +191,76 @@ def reprendre() -> None:
 
 def oublier() -> None:
     """Remet l'etat a zero. Pour les bancs."""
-    global _coupee, _pourquoi
+    global _coupee, _pourquoi, _parle_jusqu_a
     with _verrou:
         _coupee, _pourquoi = False, ""
+        _parle_jusqu_a = 0.0
+        _parle_jusqu_a = 0.0
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  QUAND NOVA PARLE — et pourquoi il faut le savoir
+# ══════════════════════════════════════════════════════════════════════════
+#
+# ⚠️ NOVA S'ENTEND ELLE-MEME, ET REPOND A SON PROPRE ECHO.
+#
+# Releve en conditions reelles, pendant qu'elle parlait :
+#
+#     [reveil] 2432 ms → « Hier, le poste, le poste, le poste. »
+#     enchaine sur : « Et le public s'est montre. »
+#     Nova : « Le public s'est montre car 3 photos de toi avec ta casquette
+#              blanche sur ton bureau. »
+#
+#     [reveil] → « Apelle le juste, son train nucleaire. »
+#     Nova : « C'est un projet de centrale nucleaire qui doit produire… »
+#
+# Le micro reste ouvert pendant la lecture : Whisper transcrit la voix de
+# Nova, en charabia, et ce charabia repart au modele comme une question. Nova
+# se repond a elle-meme, longuement, sur des phrases que personne n'a dites.
+#
+# ⚠️ MAIS COUPER LE MICRO TUERAIT L'INTERRUPTION.
+#
+# C'est le meme flux qui porte « attends ». On ne ferme donc pas l'oreille :
+# on ne retient, pendant qu'elle parle, que ce qui s'adresse a elle SANS
+# ambiguite — son nom, un conge, un ordre de se taire. Tout le reste est de
+# l'echo, et se jette.
+#
+# La duree vient du WAV lui-meme, lue dans son en-tete. Pas d'estimation a
+# partir du nombre de caracteres : une phrase courte lue lentement dure plus
+# qu'une longue lue vite, et c'est precisement pendant ce surplus que l'echo
+# revient.
+
+_parle_jusqu_a: float = 0.0
+
+
+def nova_parle_pendant(secondes: float) -> None:
+    """A appeler quand un extrait audio part vers l'application.
+
+    On PROLONGE, on ne remplace pas : l'application demande parfois la
+    synthese de la phrase suivante avant d'avoir fini la precedente, et
+    ecraser l'echeance rouvrirait l'oreille au milieu de la parole.
+    """
+    global _parle_jusqu_a
+    if secondes <= 0:
+        return
+    with _verrou:
+        _parle_jusqu_a = max(_parle_jusqu_a, time.monotonic()) + secondes
+
+
+def nova_parle() -> bool:
+    """Nova a-t-elle encore du son en train de sortir ?"""
+    with _verrou:
+        return _parle_jusqu_a > time.monotonic()
+
+
+def secondes_de_parole() -> float:
+    """Ce qu'il reste a prononcer. Pour le journal et les bancs."""
+    with _verrou:
+        return max(0.0, _parle_jusqu_a - time.monotonic())
+
+
+def elle_a_fini() -> None:
+    """La parole s'arrete ici — interruption, conge, ou remise a zero."""
+    global _parle_jusqu_a
+    with _verrou:
+        _parle_jusqu_a = 0.0

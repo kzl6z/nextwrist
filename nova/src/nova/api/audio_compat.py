@@ -181,6 +181,9 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
     # dire au revoir ne peut pas etre une facon de dire bonjour.
     if session.demande_de_veille(texte):
         session.fermer("conge")
+        # Un conge coupe la parole en cours, comme « attends » — sinon
+        # l'oreille resterait fermee sur ce qui ne sera jamais prononce.
+        interruption.interrompre(texte)
         return {"wake": False, "text": texte, "commande": "", "confiance": None}
 
     enchaine = session.est_ouverte() and not detecte
@@ -236,10 +239,51 @@ def detection_reveil(file: UploadFile = File(...)) -> dict:
         interruption.interrompre(texte)
         session.prolonger()
         suite = interruption.reste_apres(texte)
+        # ⚠️ `interrompre` DIT A L'APPLICATION D'ARRETER LE SON.
+        #
+        # Nova Core ne tient pas le haut-parleur : elle a rendu un WAV, et
+        # l'application le joue. Tant que celle-ci ne lit pas ce champ, Nova
+        # finira sa phrase — c'est la limite honnete, et elle est du cote
+        # application, pas ici. Le champ existe pour qu'une ligne suffise a
+        # l'y brancher.
         if not suite:
-            return {"wake": False, "text": texte, "commande": "", "confiance": None}
+            return {
+                "wake": False, "text": texte, "commande": "",
+                "confiance": None, "interrompre": True,
+            }
         log.info("Interrompue, et la demande suit : « %s »", suite)
-        return {"wake": True, "text": texte, "commande": suite, "confiance": None}
+        return {
+            "wake": True, "text": texte, "commande": suite,
+            "confiance": None, "interrompre": True,
+        }
+
+    # ══════════════════════════════════════════════════════════════════════
+    #  ⚠️ PENDANT QU'ELLE PARLE, NOVA S'ENTEND ELLE-MEME.
+    #
+    #  Le micro reste ouvert pendant la lecture. Whisper transcrit la voix de
+    #  Nova, en charabia, et ce charabia repartait au modele comme une
+    #  question. Releve en conditions reelles, trois fois de suite :
+    #
+    #      « Hier, le poste, le poste, le poste. »
+    #      « Et le public s'est montre. »
+    #      « Apelle le juste, son train nucleaire. »
+    #
+    #  Nova s'est repondu a elle-meme, longuement, sur des phrases que
+    #  personne n'avait dites.
+    #
+    #  ⚠️ ON NE FERME PAS L'OREILLE POUR AUTANT.
+    #
+    #  C'est le meme flux qui porte « attends ». Le conge et l'interruption
+    #  sont testes AVANT et passent donc toujours ; le mot de reveil aussi.
+    #  Ne tombe ici que ce qui ne s'adresse a Nova par aucun signe — et
+    #  pendant qu'elle parle, cela n'a qu'une explication.
+    # ══════════════════════════════════════════════════════════════════════
+    if enchaine and interruption.nova_parle():
+        log.info(
+            "Echo ignore (%.1f s de parole restante) : « %s »",
+            interruption.secondes_de_parole(), texte,
+        )
+        return {"wake": False, "text": texte, "commande": "", "confiance": None}
 
     if enchaine and adresse.pense_tout_haut(texte):
         session.noter_le_propos(texte)
@@ -420,4 +464,18 @@ def synthese_vocale(demande: dict) -> Response:
         log.exception("Synthese impossible")
         raise HTTPException(500, f"synthese impossible : {exc}") from exc
 
+    # ⚠️ C'EST ICI QUE NOVA APPREND QU'ELLE VA PARLER, ET COMBIEN DE TEMPS.
+    #
+    # Le micro reste ouvert pendant la lecture : sans cette ligne, Whisper
+    # transcrit la voix de Nova en charabia, et ce charabia repart au modele
+    # comme une question. Releve en conditions reelles :
+    #
+    #     [reveil] → « Hier, le poste, le poste, le poste. »
+    #     Nova : « Le public s'est montre car 3 photos de toi avec ta
+    #              casquette blanche sur ton bureau. »
+    #
+    # La duree se lit dans l'en-tete du WAV, jamais deduite du nombre de
+    # caracteres : une phrase courte lue lentement dure plus qu'une longue lue
+    # vite, et c'est pendant ce surplus que l'echo revient.
+    interruption.nova_parle_pendant(synthese._duree_wav(wav))
     return Response(content=wav, media_type="audio/wav")

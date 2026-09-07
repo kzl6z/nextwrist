@@ -35,6 +35,31 @@ def sans_image_retenue():
 
 
 @pytest.fixture(autouse=True)
+def sans_parole_en_cours():
+    """⚠️ UN CONGE COUPE LA PAROLE, ET LE DRAPEAU SURVIVAIT AU BANC.
+
+    « c'est bon » fait desormais taire Nova — c'est ce qu'on veut d'un conge :
+    l'application ne doit pas finir de prononcer ce qu'on vient d'arreter.
+    Mais `interruption` est un etat de MODULE, comme la fenetre d'ecoute et la
+    retenue d'image, et il traversait donc les bancs suivants.
+
+    Releve tel quel : un banc de conge dans un fichier faisait rendre du
+    SILENCE a `/v1/audio/speech` dans un autre, qui attendait une erreur 503.
+    Le banc echouait pour une raison qui n'avait rien a voir avec lui — et il
+    passait tout seul, ce qui est la pire des combinaisons.
+
+    La fenetre « Nova parle » se remet a zero avec, pour la meme raison :
+    tant qu'elle court, le point d'entree de reveil jette tout ce qu'il
+    entend comme de l'echo.
+    """
+    from nova.voice import interruption
+
+    interruption.oublier()
+    yield
+    interruption.oublier()
+
+
+@pytest.fixture(autouse=True)
 def sans_conversation_ouverte():
     """⚠️ UNE CONVERSATION OUVERTE DURE 45 SECONDES — DONC TOUTE UNE SUITE.
 

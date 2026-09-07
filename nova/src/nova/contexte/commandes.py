@@ -75,6 +75,23 @@ def _plat(texte: str) -> str:
     return "".join(sortie)
 
 
+def _souple(motif: str) -> re.Pattern:
+    """Compile un motif ou chaque espace tolere la ponctuation aplatie.
+
+    ⚠️ « L'OBJECTIF, C'EST… » DEVIENT « l objectif  c est » — DEUX ESPACES.
+
+    `_plat` remplace chaque signe par un espace SANS bouger d'un cran, pour
+    que les positions du motif vaillent dans le texte d'origine. La
+    contrepartie : une virgule au milieu d'une formule y laisse un espace de
+    PLUS, et un motif ecrit avec un seul espace ne matche plus.
+
+    C'est la ponctuation la plus naturelle du francais parle qui tombait.
+    Releve en conditions reelles : « Donc, l'objectif, c'est de produire
+    900 MW » n'enregistrait aucun objectif, sans que rien ne le dise.
+    """
+    return re.compile(motif.replace(" ", r"\s+"))
+
+
 @dataclass(frozen=True)
 class Ordre:
     """Ce que la phrase demande de faire au contexte."""
@@ -107,7 +124,7 @@ class Ordre:
 #: Une phrase qui PARLE d'un projet n'ordonne pas de l'ouvrir. Il faut un
 #: verbe, et il faut le mot « projet » — deux signaux, comme
 #: `demande_de_fichier`, et pour la meme raison.
-_OUVRIR = re.compile(
+_OUVRIR = _souple(
     r"\b(?:ouvre|ouvrir|lance|demarre|commence|"
     r"nouveau|nouvelle|"
     r"on travaille sur|je travaille sur|"
@@ -116,14 +133,14 @@ _OUVRIR = re.compile(
 )
 
 #: « revenons au projet NOVA », « reviens au projet moteur ».
-_BASCULER = re.compile(
+_BASCULER = _souple(
     r"\b(?:revenons|revenez|reviens|retour|retourne|on reprend|reprenons)\s+"
     r"(?:a |au |a la |sur |sur le |vers )?(?:le |la |mon |ma )?"
     r"projets?\s+(?P<nom>.+)$"
 )
 
 #: « on va essayer de gagner 15 % », « l'objectif c'est de… », « le but est… ».
-_OBJECTIF = re.compile(
+_OBJECTIF = _souple(
     r"\b(?:"
     r"l objectif (?:c est|est|sera)|le but (?:c est|est|sera)|"
     # ⚠️ `\s*` ET NON `\s+` APRES CETTE ALTERNATIVE.
@@ -137,7 +154,7 @@ _OBJECTIF = re.compile(
 )
 
 #: « ajoute ca aux prochaines etapes », « ajoute une tache », « il faudra… ».
-_TACHE = re.compile(
+_TACHE = _souple(
     r"\b(?:"
     r"ajoute (?:ca |cela |le |la )?(?:a |aux |dans )?(?:nos |les |mes )?"
     r"(?:prochaines etapes|taches|todo|choses a faire)|"
@@ -147,9 +164,9 @@ _TACHE = re.compile(
 )
 
 #: « on a decide de X parce que Y », « on part sur X ».
-_DECISION = re.compile(
+_DECISION = _souple(
     r"\b(?:on a decide (?:de |d )?|on decide (?:de |d )?|on part sur |"
-    r"on retient |c est decide[ ,]*)\s*(?P<quoi>.+)$"
+    r"on retient |c est decide[,\s]*)\s*(?P<quoi>.+)$"
 )
 
 #: La raison, quand elle est dite dans la meme phrase.
@@ -167,7 +184,7 @@ _PARCE_QUE = re.compile(
 )
 
 #: « je veux garder ca pour moi », « c'est personnel », « ne partage pas ».
-_CONFIDENTIEL = re.compile(
+_CONFIDENTIEL = _souple(
     r"\b(?:"
     r"garde(?:r|s)? (?:ca|cela|le|la) pour (?:moi|nous)|"
     r"c est (?:personnel|confidentiel|prive)|"
@@ -197,7 +214,7 @@ _CONFIDENTIEL = re.compile(
 #: « creer un compte » non plus. C'est la conjonction des deux qui dit
 #: « j'entreprends quelque chose », et c'est une propriete de la phrase, pas
 #: une devinette sur l'intention.
-_PROJET_IMPLICITE = re.compile(
+_PROJET_IMPLICITE = _souple(
     r"\b(?:je (?:cherche a|voudrais|veux|compte|souhaite|pense)|"
     r"j aimerais(?: bien)?|j ai envie de|"
     r"on (?:va|voudrait|aimerait|pense))\s+"
@@ -249,10 +266,19 @@ def lire(texte: str, *, propos_precedent: str = "") -> Ordre | None:
     # par `_OUVRIR` — qui le CREERAIT s'il n'existe pas. Or « revenons »
     # suppose qu'il existe deja : le creer sur un nom mal transcrit
     # fabriquerait un projet fantome qui prendrait la place du vrai.
-    if (trouve := _BASCULER.search(plat)) and (nom := tel_quel(trouve, "nom")):
+    # ⚠️ UN NOM DE PROJET S'ARRETE AVANT LA PHRASE SUIVANTE.
+    #
+    # `tel_quel` rend tout ce que le motif a pris, et le motif prend jusqu'a
+    # la fin. Whisper rendant plusieurs phrases d'un coup, le nom avalait le
+    # paragraphe — et le DOSSIER cree ensuite portait ce paragraphe.
+    if (trouve := _BASCULER.search(plat)) and (
+        nom := _premier_segment(tel_quel(trouve, "nom"))
+    ):
         return Ordre("basculer", nom)
 
-    if (trouve := _OUVRIR.search(plat)) and (nom := tel_quel(trouve, "nom")):
+    if (trouve := _OUVRIR.search(plat)) and (
+        nom := _premier_segment(tel_quel(trouve, "nom"))
+    ):
         return Ordre("ouvrir", nom)
 
     # ⚠️ APRES `_OUVRIR`, ET AVANT TOUT LE RESTE.
@@ -265,7 +291,7 @@ def lire(texte: str, *, propos_precedent: str = "") -> Ordre | None:
         brut = plat[trouve.start("nom") : trouve.end("nom")].strip()
         if not _PAS_UN_PROJET.match(brut):
             depart = trouve.start("nom") + len(_article_en_tete(brut))
-            if nom := _nettoyer(texte[depart : trouve.end("nom")]):
+            if nom := _premier_segment(texte[depart : trouve.end("nom")]):
                 return Ordre("ouvrir", nom)
 
     if _CONFIDENTIEL.search(plat):
@@ -300,6 +326,50 @@ def lire(texte: str, *, propos_precedent: str = "") -> Ordre | None:
     return None
 
 
+#: Un nom de projet ne depasse pas ca. Au-dela, ce n'est plus un nom.
+NOM_DE_PROJET_MAX = 48
+
+#: Ce qui termine un nom de projet dans une transcription.
+#:
+#: ⚠️ WHISPER REND PLUSIEURS PHRASES D'UN COUP, ET LE NOM LES AVALAIT TOUTES.
+#:
+#: Releve en conditions reelles, une seule transcription :
+#:
+#:     « je cherche a creer une centrale nucleaire. Donc, l'objectif, c'est
+#:       de produire 900 MW, on part sur un »
+#:
+#: `(?P<nom>.+?)$` prenait tout. Nova a ouvert un projet nomme comme ce
+#: paragraphe — puis en a fait un DOSSIER du meme nom sur le Bureau. Un
+#: dossier qu'il faut ensuite retrouver et supprimer a la main.
+#:
+#: On coupe donc a la premiere ponctuation forte, et a la premiere cheville
+#: qui enchaine sur autre chose.
+_FIN_DU_NOM = re.compile(
+    r"[.;:!?]|\b(?:donc|ensuite|puis|alors que|et l objectif|l objectif|"
+    r"le but|on part sur|on a decide|il faudra|parce que)\b"
+)
+
+
+def _premier_segment(brut: str) -> str:
+    """Le NOM, coupe avant ce qui n'en fait plus partie.
+
+    On lit la ponctuation dans le texte d'origine — l'aplatissement la
+    transforme en espaces — et les chevilles dans sa version aplatie. Les
+    positions se correspondent, c'est tout l'interet de `_plat`.
+    """
+    texte = (brut or "").strip()
+    if not texte:
+        return ""
+    trouve = _FIN_DU_NOM.search(_plat(texte))
+    if trouve is not None:
+        # La ponctuation, elle, ne survit qu'a l'original : on la cherche la.
+        texte = texte[: trouve.start()]
+    ponctuation = re.search(r"[.;:!?]", texte)
+    if ponctuation is not None:
+        texte = texte[: ponctuation.start()]
+    return _nettoyer(texte)[:NOM_DE_PROJET_MAX].strip(" ,-")
+
+
 def _nettoyer(brut: str) -> str:
     """Retire la politesse et la ponctuation de bord."""
     texte = re.sub(r"\s+", " ", (brut or "")).strip(" ,.;:!?")
@@ -319,3 +389,66 @@ def _article_en_tete(plat: str) -> str:
     """
     trouve = _ARTICLE.match(plat)
     return trouve.group(0) if trouve else ""
+
+
+#: Ce qui COMMENCE un ordre. Sert a decouper, pas a reconnaitre.
+#:
+#: ⚠️ WHISPER NE REND PAS UNE PHRASE, IL REND CE QU'IL A ENTENDU.
+#:
+#: Releve en conditions reelles, une seule transcription :
+#:
+#:     « je cherche a creer une centrale nucleaire. Donc, l'objectif, c'est
+#:       de produire 900 MW, on part sur un »
+#:
+#: Trois ordres dans une transcription : ouvrir, fixer l'objectif, decider.
+#: `lire` n'en rendait qu'UN — le premier — et les deux autres etaient
+#: perdus sans que rien ne le dise. On parle en enchainant ; c'est le
+#: decoupage qui doit s'adapter, pas la facon de parler.
+_DEBUT_D_ORDRE = _souple(
+    r"\b(?:"
+    r"l objectif (?:c est|est|sera)|le but (?:c est|est|sera)|"
+    r"on va (?:essayer de |tenter de )?|on cherche a |on doit |"
+    r"on a decide|on decide|on part sur|on retient|c est decide|"
+    r"il faudra|il faudrait penser a|pense a|ajoute (?:ca|une tache)|"
+    r"note une tache|"
+    r"ouvre le projet|ouvrir le projet|revenons? au projet|"
+    r"je cherche a|j aimerais|je voudrais|je veux|j ai envie de|"
+    r"garde (?:ca|cela) pour|c est personnel|c est confidentiel"
+    r")\b"
+)
+
+
+def lire_tous(texte: str, *, propos_precedent: str = "") -> list[Ordre]:
+    """Tous les ordres que cette transcription contient, dans l'ordre.
+
+    ⚠️ UN SEUL ORDRE PAR PHRASE ETAIT UNE HYPOTHESE SUR LA PONCTUATION.
+
+    Elle tenait a l'ecrit. A la voix, Whisper rend un bloc : ponctuation
+    approximative, phrases collees, et parfois aucune. Ne lire que le premier
+    ordre revenait a jeter en silence tout ce qui suivait — l'objectif et la
+    decision d'un projet qu'on venait d'ouvrir.
+
+    On coupe donc a la ponctuation forte ET devant chaque debut d'ordre
+    reconnu. Un fragment qui ne porte aucun ordre ne rend rien : le decoupage
+    ne peut pas inventer.
+    """
+    entier = (texte or "").strip()
+    if not entier:
+        return []
+
+    coupes = {0, len(entier)}
+    plat = _plat(entier)
+    for trouve in re.finditer(r"[.;:!?]", entier):
+        coupes.add(trouve.end())
+    for trouve in _DEBUT_D_ORDRE.finditer(plat):
+        coupes.add(trouve.start())
+
+    bornes = sorted(coupes)
+    ordres: list[Ordre] = []
+    for depart, fin in zip(bornes, bornes[1:], strict=False):
+        morceau = entier[depart:fin].strip(" ,")
+        if not morceau:
+            continue
+        if (ordre := lire(morceau, propos_precedent=propos_precedent)) is not None:
+            ordres.append(ordre)
+    return ordres

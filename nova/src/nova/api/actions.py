@@ -127,24 +127,40 @@ def _executer(demande: DemandeAction) -> ReponseAction:
     from nova.contexte import actif as contexte_actif
     from nova.contexte import commandes as contexte_commandes
 
-    ordre = contexte_commandes.lire(demande.texte, propos_precedent=precedent)
-    if ordre is not None:
-        try:
-            message = contexte_actif.appliquer(ordre, source=demande.texte)
-        except Exception as erreur:  # noqa: BLE001
-            log.warning("[Contexte] Ordre « %s » en echec : %s", ordre.genre, erreur)
-            return ReponseAction(
-                etat="echouee", message="Je n'ai pas réussi à noter ça.",
-                outil=None, niveau=None, intention="contexte", cible=None,
-            )
-        if message:
-            log.info("[Contexte] « %s » → %s", demande.texte, ordre.genre)
+    # ⚠️ UNE TRANSCRIPTION PORTE SOUVENT PLUSIEURS ORDRES.
+    #
+    # Releve en conditions reelles, en un seul bloc :
+    #
+    #     « je cherche a creer une centrale nucleaire. Donc, l'objectif,
+    #       c'est de produire 900 MW, on part sur un refroidissement passif »
+    #
+    # Trois ordres — ouvrir, objectif, decision. `lire` n'en rendait qu'un, et
+    # les deux autres etaient perdus sans que rien ne le dise. On parle en
+    # enchainant : c'est le decoupage qui doit s'adapter.
+    ordres = contexte_commandes.lire_tous(demande.texte, propos_precedent=precedent)
+    if ordres:
+        dits, genres = [], []
+        for ordre in ordres:
+            try:
+                message = contexte_actif.appliquer(ordre, source=demande.texte)
+            except Exception as erreur:  # noqa: BLE001
+                log.warning("[Contexte] Ordre « %s » en echec : %s", ordre.genre, erreur)
+                continue
+            if message:
+                dits.append(message)
+                genres.append(ordre.genre)
+        if dits:
+            log.info("[Contexte] « %s » → %s", demande.texte, ", ".join(genres))
             return ReponseAction(
                 etat="executee",
-                message=message + _proposer_le_dossier(),
+                message=" ".join(dits) + _proposer_le_dossier(),
                 outil=None, niveau=None,
-                intention=f"contexte_{ordre.genre}", cible=None,
+                intention=f"contexte_{genres[0]}", cible=None,
             )
+        return ReponseAction(
+            etat="echouee", message="Je n'ai pas réussi à noter ça.",
+            outil=None, niveau=None, intention="contexte", cible=None,
+        )
 
     # ══════════════════════════════════════════════════════════════════════
     #  ⚠️ METTRE A JOUR SE LIT AVANT CREER, ET L'ORDRE FAIT TOUT.
