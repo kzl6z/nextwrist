@@ -252,3 +252,36 @@ def test_deux_syntheses_de_suite_prolongent_au_lieu_d_ecraser():
     interruption.nova_parle_pendant(3.0)
 
     assert interruption.secondes_de_parole() > 5.0
+
+
+@pytest.mark.skipif(
+    __import__("importlib").util.find_spec("psycopg") is None,
+    reason="base absente",
+)
+def test_les_trois_ordres_arrivent_jusqu_au_contexte():
+    """⚠️ `lire_tous` PEUT ETRE JUSTE ET N'ETRE APPELE NULLE PART.
+
+    C'est le defaut que le Model Router a corrige, et il s'est represente
+    ici : debrancher `/v1/action` de `lire_tous` laissait tous les bancs de ce
+    fichier verts, parce qu'aucun ne passait par le point d'entree.
+
+    Ce banc dit ce que la personne ENTEND : les trois ordres, dans une seule
+    reponse.
+    """
+    from fastapi.testclient import TestClient
+
+    from nova.api.app import app
+    from nova.db import connection
+
+    with connection() as conn:
+        conn.execute("UPDATE projets SET actif = false WHERE actif")
+    try:
+        dit = TestClient(app).post("/v1/action", json={"texte": BLOC}).json()
+    finally:
+        with connection() as conn:
+            conn.execute("DELETE FROM projets WHERE nom = 'centrale nucléaire'")
+
+    assert dit["etat"] == "executee", dit["message"]
+    assert "C'est ouvert : centrale nucléaire." in dit["message"]
+    assert "Objectif noté" in dit["message"], "l'objectif s'est perdu en route"
+    assert "Décision notée" in dit["message"], "la décision s'est perdue en route"
