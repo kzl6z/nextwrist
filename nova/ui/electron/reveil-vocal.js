@@ -217,6 +217,50 @@
       }
       const res = await rep.json();
       if (res.text) console.info('[NOVA/réveil] ' + ms + ' ms → « ' + res.text + ' »');
+
+      // ══════════════════════════════════════════════════════════════════
+      //  ⚠️ « ATTENDS » — ET C'EST ICI, ET NULLE PART AILLEURS.
+      //
+      //  Nova Core ne tient pas le haut-parleur : elle rend un WAV, et c'est
+      //  cette fenêtre qui le joue. Elle peut donc DÉTECTER l'interruption —
+      //  elle le fait, et son journal le dit — mais elle ne peut pas
+      //  l'appliquer.
+      //
+      //  Relevé en conditions réelles : on dit « attends », Nova continue de
+      //  parler jusqu'au bout. Elle avait cessé d'écrire ; le son était déjà
+      //  parti.
+      //
+      //  ⚠️ ON ARRÊTE TOUT CE QUI SONNE, SANS RIEN SUPPOSER.
+      //
+      //  Cette boucle ne connaît pas le nom de la variable qui porte la
+      //  lecture — elle vit ailleurs, dans le rendu. Chercher un identifiant
+      //  précis en ferait un couplage qui casserait au premier renommage, en
+      //  silence, et personne ne saurait pourquoi « attends » a cessé de
+      //  marcher. Le DOM, lui, dit toujours la vérité sur ce qui joue.
+      //
+      //  ⚠️ ET ON NE TOUCHE PAS À CE QUI NE JOUE PAS.
+      //
+      //  Remettre à zéro un élément déjà en pause ferait repartir du début la
+      //  réponse suivante, qui réutilise le même élément.
+      //
+      //  `speechSynthesis` avec : c'est la voix de repli du système, celle
+      //  qui a parlé le soir où la synthèse distante est tombée. Couper l'une
+      //  sans l'autre laisserait Nova finir sa phrase avec une autre voix.
+      // ══════════════════════════════════════════════════════════════════
+      if (res.interrompre) {
+        let coupees = 0;
+        try {
+          document.querySelectorAll('audio').forEach((son) => {
+            if (son.paused) return;
+            son.pause();
+            son.currentTime = 0;
+            coupees++;
+          });
+        } catch (e) { console.warn('[NOVA/réveil] audio non coupé :', e.message); }
+        try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) {}
+        console.info('[NOVA/réveil] interruption — ' + coupees + ' lecture(s) arrêtée(s)');
+      }
+
       if (res.wake && disponible()) {
         commande = (res.commande || '').trim() || null;
         console.info('[NOVA/réveil] déclenché'

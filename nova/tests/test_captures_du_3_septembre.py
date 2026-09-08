@@ -254,10 +254,25 @@ def test_deux_syntheses_de_suite_prolongent_au_lieu_d_ecraser():
     assert interruption.secondes_de_parole() > 5.0
 
 
-@pytest.mark.skipif(
-    __import__("importlib").util.find_spec("psycopg") is None,
-    reason="base absente",
-)
+def _base_joignable() -> bool:
+    """⚠️ « PSYCOPG EST INSTALLE » NE VEUT PAS DIRE « LA BASE REPOND ».
+
+    Le premier `skipif` ne testait que l'import. Le banc tombait donc des que
+    Postgres etait arrete — pour une raison qui n'avait rien a voir avec ce
+    qu'il protege, et seulement dans la suite complete.
+    """
+    try:
+        import psycopg
+
+        from nova.settings import get_settings
+
+        with psycopg.connect(get_settings().database_url, connect_timeout=2) as conn:
+            return conn.execute("SELECT to_regclass('public.projets')").fetchone()[0] is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
+@pytest.mark.skipif(not _base_joignable(), reason="base injoignable")
 def test_les_trois_ordres_arrivent_jusqu_au_contexte():
     """⚠️ `lire_tous` PEUT ETRE JUSTE ET N'ETRE APPELE NULLE PART.
 
