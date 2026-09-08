@@ -100,9 +100,20 @@ _OBJET = re.compile(r"\b(?:dossier|repertoire|fichier)s?\b")
 #:
 #: Le pendant exact de `fichiers/ranger.py` : ce qui est nomme par un article
 #: defini existe deja, et l'on ne cree pas ce qui existe.
+#: ⚠️ « DEDANS » N'EN FAIT PAS PARTIE, ET C'EST UNE CORRECTION.
+#:
+#: « cree un dossier Souvenirs et range les images DEDANS » : le pronom
+#: designe le dossier qu'on vient de demander, dans la meme phrase. Le
+#: prendre pour une reference a un dossier existant faisait refuser une
+#: creation parfaitement claire.
+#:
+#: Ce qui vise un dossier deja la, c'est l'article defini SUIVI DU NOM —
+#: « dans LE DOSSIER ». Un pronom nu ne designe rien tout seul, et
+#: `demande_de_dossier` exige de toute facon le mot « dossier » : « mets ça
+#: dedans » ne passe deja pas ici.
 _DANS_CELUI_QUI_EXISTE = re.compile(
     r"\bdans (?:le |ce |mon |notre |son )(?:dossier|projet|repertoire)\b"
-    r"|\bdans le projet\b|\bdedans\b"
+    r"|\bdans le projet\b"
 )
 
 #: Le nom donne explicitement.
@@ -115,6 +126,16 @@ _APPELE = re.compile(
 _APRES_L_OBJET = re.compile(
     r"\b(?:dossier|repertoire|fichier)s?\s+(?P<nom>.+?)\s*$"
 )
+
+#: Ce qui ENCHAINE sur autre chose, et ne fait donc plus partie du nom.
+#:
+#: ⚠️ « CREE UN DOSSIER CASQUETTES ET METS-Y LES PHOTOS ».
+#:
+#: Sans cette coupe, le dossier s'appellerait « casquettes et mets-y les
+#: photos ». Le meme defaut que le nom de projet qui avalait un paragraphe,
+#: au meme endroit du raisonnement : un motif qui prend jusqu'a la fin prend
+#: la phrase suivante avec.
+_ENCHAINE = re.compile(r"\b(?:et|puis|ensuite|avec|pour|afin de)\b")
 
 #: Ce qui suit n'est pas un nom mais une destination ou une cheville.
 _PAS_UN_NOM = re.compile(
@@ -214,6 +235,16 @@ def demande_de_dossier(texte: str) -> Demande | None:
         # « Impots dans mes documents ».
         if place is not None and depart < place.start() < bout:
             bout = place.start()
+        # ⚠️ ET LE NOM S'ARRETE DEVANT CE QUI ENCHAINE SUR AUTRE CHOSE.
+        #
+        # « cree un dossier casquettes ET METS-Y LES PHOTOS » : sans cette
+        # coupe, le dossier s'appellerait « casquettes et mets-y les photos ».
+        # Le meme defaut que le nom de projet qui avalait un paragraphe.
+        #
+        # On coupe le NOM, jamais la zone de recherche : « qui s'appelle X »
+        # arrive apres la destination, et reduire la zone perdait ce nom-la.
+        if (suite := _ENCHAINE.search(plat, depart)) is not None and suite.start() < bout:
+            bout = suite.start()
         brut = cherche[depart:bout].strip()
         if not brut or _PAS_UN_NOM.match(brut):
             continue

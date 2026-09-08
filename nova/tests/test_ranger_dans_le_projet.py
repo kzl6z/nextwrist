@@ -384,3 +384,121 @@ def test_apres_un_retour_nova_ne_promet_plus_de_le_refaire(
         "Nova propose de remettre des fichiers déjà remis"
     )
     assert ranger.a_defaire(projet_ecrit.id) == []
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  CREER ET RANGER EN UNE SEULE PHRASE
+#
+#  ⚠️ DEUX NIVEAUX DE RISQUE DANS LA MEME DEMANDE.
+#
+#  Creer est REVERSIBLE, deplacer est CONSEQUENT. On ne peut pas tout faire
+#  d'un coup, et on ne va pas non plus baisser le second au niveau du
+#  premier : le dossier se cree tout de suite, le deplacement se DEMANDE.
+# ══════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        # ⚠️ LA PHRASE EXACTE DU JOURNAL.
+        "Créer un dossier sur mon bureau et mettre les trois photos où je "
+        "tiens la casquette blanche",
+        "crée un dossier casquettes sur mon bureau et mets-y les photos",
+        "fais un dossier sur le bureau avec les photos",
+        "crée un dossier Souvenirs et range les images dedans",
+    ],
+)
+def test_une_phrase_peut_demander_les_deux(phrase):
+    assert creer.demande_de_dossier(phrase) is not None, "la création n'est pas vue"
+    assert ranger.aussi_y_mettre(phrase), "le rangement n'est pas vu"
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "crée un dossier Impôts 2024 sur mon bureau",
+        "crée-moi un dossier sur le bureau qui s'appelle Moteur",
+        "mets-les dans le dossier du projet",
+    ],
+)
+def test_une_creation_seule_ne_range_rien(phrase):
+    assert not ranger.aussi_y_mettre(phrase), phrase
+
+
+def test_le_nom_du_dossier_s_arrete_avant_le_rangement():
+    """⚠️ SANS CETTE COUPE, LE DOSSIER S'APPELLERAIT « casquettes et mets-y
+    les photos ».
+
+    Le meme defaut que le nom de projet qui avalait un paragraphe : un motif
+    qui prend jusqu'a la fin prend la phrase suivante avec.
+    """
+    voulu = creer.demande_de_dossier(
+        "crée un dossier casquettes sur mon bureau et mets-y les photos"
+    )
+
+    assert voulu is not None
+    assert voulu.nom == "casquettes"
+
+
+def test_un_nom_annonce_apres_la_destination_survit():
+    """⚠️ J'AI D'ABORD COUPE LA ZONE DE RECHERCHE AU LIEU DU NOM.
+
+    « qui s'appelle Moteur » arrive APRES « sur le bureau ». Reduire la zone
+    de recherche perdait ce nom-la, et Nova demandait comment appeler un
+    dossier qu'on venait de nommer. Le banc l'a vu tout de suite.
+    """
+    voulu = creer.demande_de_dossier(
+        "crée-moi un dossier sur le bureau qui s'appelle Moteur"
+    )
+
+    assert voulu is not None
+    assert voulu.nom == "Moteur"
+
+
+@besoin_de_base
+def test_creer_et_ranger_de_bout_en_bout(bureau, projet_ecrit, trois_photos):
+    """Le dossier apparait tout de suite ; les photos attendent un oui."""
+    demande = _dire("crée un dossier casquettes sur mon bureau et mets-y les photos")
+
+    assert demande["etat"] == "a_confirmer", demande["message"]
+    assert (bureau / "casquettes").is_dir(), "le dossier devait être créé sans attendre"
+    assert "3" in demande["message"], "la question doit dire combien"
+    assert all(photo.exists() for photo in trois_photos), "déplacé sans confirmation"
+
+    fait = _dire(
+        "crée un dossier casquettes sur mon bureau et mets-y les photos", confirme=True
+    )
+
+    assert fait["etat"] == "executee", fait["message"]
+    assert sorted(p.name for p in (bureau / "casquettes").glob("*.png")) == [
+        "casquette-0.png", "casquette-1.png", "casquette-2.png",
+    ]
+
+
+@besoin_de_base
+def test_le_dossier_apparait_avant_que_rien_ne_bouge(bureau, projet_ecrit, trois_photos):
+    """⚠️ C'EST CE QUI PERMET DE CORRIGER LE NOM AVANT LE DEGAT.
+
+    Fabriquer un dossier vide se defait en le supprimant. Le montrer tout de
+    suite, avant de demander, laisse voir un nom mal transcrit pendant qu'il
+    ne coute encore rien.
+    """
+    _dire("crée un dossier Souvenirs sur mon bureau et mets-y les photos")
+
+    assert (bureau / "Souvenirs").is_dir()
+    assert list((bureau / "Souvenirs").iterdir()) == []
+    assert all(photo.exists() for photo in trois_photos)
+
+
+@besoin_de_base
+def test_sans_liste_annoncee_on_cree_seulement(bureau, projet_ecrit):
+    """Rien a ranger : la phrase redevient une simple creation."""
+    from nova.vision import focus
+
+    focus.oublier()
+
+    fait = _dire("crée un dossier casquettes sur mon bureau et mets-y les photos")
+
+    assert fait["etat"] == "executee", fait["message"]
+    assert fait["intention"] == "creer_dossier"
+    assert (bureau / "casquettes").is_dir()

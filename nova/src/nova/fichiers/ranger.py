@@ -212,3 +212,41 @@ def marquer_annules(identifiants) -> None:
 
     with connection() as conn:
         conn.execute("UPDATE deplacements SET annule = true WHERE id = ANY(%s)", (ids,))
+
+
+#: « …et mets-y les photos », « …avec les trois photos ».
+#:
+#: ⚠️ UNE SEULE PHRASE, DEUX NIVEAUX DE RISQUE.
+#:
+#: Releve en conditions reelles :
+#:
+#:     « Creer un dossier sur mon bureau et mettre les trois photos ou je
+#:       tiens la casquette blanche »
+#:
+#: Nova creait le dossier et s'arretait la. Il fallait redire « mets-les dans
+#: le dossier » — c'est-a-dire repeter une demande deja formulee, ce qui est
+#: exactement ce qu'on reproche a un assistant.
+#:
+#: Creer est REVERSIBLE, deplacer est CONSEQUENT. On ne peut donc pas tout
+#: faire d'un coup : le dossier se cree tout de suite, le deplacement se
+#: demande. Le niveau suit le risque, phrase par phrase et non geste par
+#: geste.
+_ET_AUSSI = re.compile(
+    r"\b(?:et|puis|ensuite)\s+(?:y\s+)?"
+    r"(?:mettre|mets|mettez|ranger|range|rangez|glisser|glisse|"
+    r"ajouter|ajoute|deplacer|deplace|mettre dedans)\b"
+    r"|\bavec\s+(?:les |la |le |mes |ces |tous les |toutes les )?"
+    r"(?:photos?|images?|fichiers?|documents?)\b"
+    r"|\b(?:et|puis)\s+(?:les |la |le |mes |ces )"
+    r"(?:photos?|images?|fichiers?|documents?)\b"
+)
+
+
+def aussi_y_mettre(texte: str) -> bool:
+    """Cette demande de dossier veut-elle AUSSI qu'on y range quelque chose ?
+
+    Ne dit rien de ce qu'il y a a ranger : c'est la liste annoncee qui le dit,
+    et l'appelant la verifie. Ce module ne lit que la phrase.
+    """
+    plat = _plat(texte)
+    return bool(plat and _ET_AUSSI.search(plat))

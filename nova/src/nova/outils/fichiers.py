@@ -303,17 +303,27 @@ class RangerDansLeProjet:
     # IRREVERSIBLE — et le bareme n'a pas de niveau au-dessus.
     niveau = contrats.CONSEQUENT
 
-    def executer(self, projet: str = "", ou: str = "") -> str:
+    # ⚠️ `dossier` NOMME UNE DESTINATION QUI N'EST PAS CELLE DU PROJET.
+    #
+    # « cree un dossier casquettes sur mon bureau et mets-y les photos » range
+    # dans « casquettes », pas dans le dossier du projet en cours. Sans cet
+    # argument il faudrait deux outils pour le meme geste, et ils
+    # divergeraient sur la borne d'ecriture — c'est-a-dire sur la seule chose
+    # qui compte ici.
+    def executer(self, projet: str = "", ou: str = "", dossier: str = "") -> str:
         import shutil
 
         from nova.fichiers import ranger
         from nova.outils.systeme import ActionImpossible
 
-        courant, racine, _, _ = _emplacement(projet, ou)
+        if dossier:
+            courant, racine = None, _dossier_nomme(dossier, ou)
+        else:
+            courant, racine, _, _ = _emplacement(projet, ou)
         if not racine.is_dir():
+            quoi = f"de {courant.nom}" if courant else racine.name
             raise ActionImpossible(
-                f"Le dossier de {courant.nom} n'existe pas encore. "
-                "Dis-moi d'abord de le créer."
+                f"Le dossier {quoi} n'existe pas encore. Dis-moi d'abord de le créer."
             )
 
         chemins = _liste_a_ranger()
@@ -338,7 +348,7 @@ class RangerDansLeProjet:
                 log.warning("« %s » non range : %s", source, erreur)
                 ignores.append(source.name)
                 continue
-            ranger.noter(courant.id, salve, source, arrivee)
+            ranger.noter(courant.id if courant else None, salve, source, arrivee)
             ranges.append(source.name)
 
         if not ranges:
@@ -412,6 +422,28 @@ def _liste_a_ranger() -> tuple[Path, ...]:
     if retenue is None or not retenue.liste:
         return ()
     return tuple(chemin for chemin in retenue.liste if chemin.is_file())
+
+
+def _dossier_nomme(dossier: str, ou: str) -> Path:
+    """Un dossier DESIGNE PAR SON NOM, sous une racine d'ecriture.
+
+    Passe par `borner_creation` comme la creation elle-meme : le rangement
+    n'a aucune raison d'avoir une borne plus large que ce qui a fabrique le
+    dossier, et deux bornes differentes pour le meme endroit sont une
+    invitation a se tromper.
+    """
+    from nova.fichiers.creer import _nom_propre, destination
+
+    propre = _nom_propre(dossier)
+    if not propre:
+        raise FichierRefuse(f"« {dossier} » n'est pas un nom de dossier valable.")
+    parent = destination(ou)
+    if parent is None:
+        raise FichierRefuse(
+            "Je n'ai pas le droit de créer là. "
+            "Regarde NOVA_FICHIERS_CREATION_DOSSIERS."
+        )
+    return borner_creation(parent, propre)
 
 
 def _emplacement(projet: str, ou: str):

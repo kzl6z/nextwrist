@@ -219,6 +219,29 @@ def _executer(demande: DemandeAction) -> ReponseAction:
     # ══════════════════════════════════════════════════════════════════════
     from nova.fichiers import creer
 
+    # ══════════════════════════════════════════════════════════════════════
+    #  ⚠️ UNE SEULE PHRASE, DEUX NIVEAUX DE RISQUE.
+    #
+    #      « Creer un dossier sur mon bureau et mettre les trois photos ou
+    #        je tiens la casquette blanche »
+    #
+    #  Nova creait le dossier et s'arretait la. Il fallait redire « mets-les
+    #  dans le dossier » — repeter une demande deja formulee, ce qu'on
+    #  reproche precisement a un assistant.
+    #
+    #  Creer est REVERSIBLE, deplacer est CONSEQUENT. On ne peut donc pas
+    #  tout faire d'un coup, et on ne va pas non plus baisser le second au
+    #  niveau du premier : le dossier se cree tout de suite, le deplacement
+    #  se DEMANDE. Le niveau suit le risque geste par geste, pas phrase par
+    #  phrase.
+    # ══════════════════════════════════════════════════════════════════════
+    if (
+        (aussi := creer.demande_de_dossier(demande.texte)) is not None
+        and ranger.aussi_y_mettre(demande.texte)
+        and _liste_annoncee()[0]
+    ):
+        return _creer_puis_ranger(demande, aussi)
+
     if (voulu := creer.demande_de_dossier(demande.texte)) is not None:
         nom = voulu.nom or _nom_du_projet_actif()
         if not nom:
@@ -686,3 +709,66 @@ def _question_de_retour() -> str:
     except Exception as exc:  # noqa: BLE001
         log.warning("Question de retour indisponible : %s", exc)
         return ""
+
+
+def _creer_puis_ranger(demande: DemandeAction, voulu) -> ReponseAction:
+    """Cree le dossier, puis DEMANDE avant d'y deplacer quoi que ce soit.
+
+    ⚠️ LE PREMIER GESTE NE SE CONFIRME PAS, LE SECOND SI.
+
+    Fabriquer un dossier vide se defait en le supprimant ; deplacer des
+    fichiers, non. Les traiter d'un bloc obligerait a confirmer les deux — et
+    l'on prendrait l'habitude de dire oui sans lire, ce qui use exactement le
+    garde-fou qu'on essaie de poser.
+
+    Le dossier apparait donc tout de suite : c'est visible, c'est annonce, et
+    si le nom est faux on le voit avant que le moindre fichier ne bouge.
+    """
+    from nova.outils import ConfirmationRequise, executer_outil
+
+    nom = voulu.nom or _nom_du_projet_actif()
+    if not nom:
+        return ReponseAction(
+            etat="echouee", message="Comment veux-tu appeler ce dossier ?",
+            outil=None, niveau=None, intention="creer_dossier", cible=None,
+        )
+
+    fait = orchestrator.executer_outil_propose(
+        "creer_dossier", {"dossier": nom, "ou": voulu.ou}
+    )
+    if fait.etat != "executee":
+        return ReponseAction(
+            etat=fait.etat, message=fait.message, outil=fait.outil,
+            niveau=fait.niveau, intention="creer_dossier", cible=nom,
+        )
+
+    try:
+        message = executer_outil(
+            "ranger_dans_le_projet",
+            confirme=demande.confirme,
+            dossier=nom,
+            ou=voulu.ou,
+        )
+    except ConfirmationRequise:
+        chemins = _liste_annoncee()[0]
+        quoi = "fichier" if len(chemins) == 1 else "fichiers"
+        log.info("« %s » → dossier cree, rangement a confirmer", demande.texte)
+        return ReponseAction(
+            etat="a_confirmer",
+            message=f"{fait.message} J'y déplace {len(chemins)} {quoi} ?",
+            outil="ranger_dans_le_projet", niveau=None,
+            intention="creer_puis_ranger", cible=nom,
+        )
+    except Exception as erreur:  # noqa: BLE001
+        log.warning("Rangement impossible : %s", erreur)
+        return ReponseAction(
+            etat="echouee", message=f"{fait.message} Mais {erreur}",
+            outil="ranger_dans_le_projet", niveau=None,
+            intention="creer_puis_ranger", cible=nom,
+        )
+
+    return ReponseAction(
+        etat="executee", message=str(message),
+        outil="ranger_dans_le_projet", niveau=None,
+        intention="creer_puis_ranger", cible=nom,
+    )
