@@ -502,3 +502,44 @@ def test_sans_liste_annoncee_on_cree_seulement(bureau, projet_ecrit):
     assert fait["etat"] == "executee", fait["message"]
     assert fait["intention"] == "creer_dossier"
     assert (bureau / "casquettes").is_dir()
+
+
+def test_le_nom_s_arrete_meme_sans_destination_dite():
+    """⚠️ LE BANC PRECEDENT NE PROTEGEAIT RIEN, ET VOICI POURQUOI.
+
+    « crée un dossier casquettes SUR MON BUREAU et mets-y les photos » : la
+    coupe devant la destination suffisait deja, et retirer la coupe devant
+    « et » laissait tout vert.
+
+    Sans destination prononcee, plus rien ne borne le nom : le dossier
+    s'appellerait « casquettes et mets-y les photos ». C'est la phrase qu'il
+    fallait ecrire.
+    """
+    voulu = creer.demande_de_dossier("crée un dossier casquettes et mets-y les photos")
+
+    assert voulu is not None
+    assert voulu.nom == "casquettes"
+
+
+@besoin_de_base
+def test_un_dossier_nomme_ne_sort_pas_de_la_racine(bureau, projet_ecrit, trois_photos):
+    """⚠️ LE RANGEMENT N'A PAS LE DROIT D'UNE BORNE PLUS LARGE QUE LA CREATION.
+
+    « evasion » ne contient ni « / » ni « .. » : le nettoyage du nom le laisse
+    passer. Si le Bureau porte un lien de ce nom vers ailleurs, ranger dedans
+    ecrirait hors de la zone autorisee — et les fichiers seraient introuvables.
+
+    Aucun banc ne couvrait ce chemin : retirer `borner_creation` du dossier
+    nomme laissait tout vert.
+    """
+    from nova.outils.fichiers import FichierRefuse, RangerDansLeProjet
+
+    dehors = bureau.parent / "dehors"
+    dehors.mkdir()
+    (bureau / "evasion").symlink_to(dehors)
+
+    with pytest.raises((FichierRefuse, Exception), match="sort|portée|valable"):
+        RangerDansLeProjet().executer(dossier="evasion", ou="bureau")
+
+    assert list(dehors.iterdir()) == [], "des fichiers ont été rangés hors de la racine"
+    assert all(photo.exists() for photo in trois_photos)
