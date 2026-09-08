@@ -72,10 +72,22 @@ const { analyser } = mod.exports;
   assert.strictEqual(tranquille.paused, false, 'le son a ete coupe sans que Core le demande');
   assert.strictEqual(annulee, false, 'la voix du systeme a ete annulee sans raison');
 
-  // ── Un DOM sans audio ne fait pas tomber le reveil ────────────────────
+  // ── Un DOM qui refuse ne doit pas emporter le reveil ──────────────────
+  //
+  // ⚠️ « NE DOIT PAS LEVER » NE PROTEGEAIT RIEN.
+  //
+  // `analyser` a son propre `catch` autour de tout : l'exception etait deja
+  // avalee, et le banc restait vert meme sans l'enveloppe. Ce qui se casse
+  // vraiment, c'est la SUITE — `res.wake` n'est jamais lu, et la phrase pour
+  // laquelle on a coupe est perdue.
+  let reveille = false;
+  globalThis.wakeToConversation = () => { reveille = true; };
   globalThis.document = { querySelectorAll: () => { throw new Error('pas de DOM'); } };
-  reponse = { wake: false, text: 'attends', commande: '', interrompre: true };
-  await analyser({}, 500);   // ne doit pas lever
+  reponse = { wake: true, text: 'attends, ouvre le deuxieme',
+              commande: 'ouvre le deuxieme', interrompre: true };
+  await analyser({}, 500);
+
+  assert.strictEqual(reveille, true, 'le reveil a ete perdu avec la coupure ratee');
 
   console.log('OK — interruption cote fenetre');
 })();
