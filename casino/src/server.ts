@@ -87,8 +87,10 @@ const server = Bun.serve({
     if (pathname.startsWith("/api/")) return Response.json({ error: "Introuvable" }, { status: 404 });
     const path = normalize(join(PUBLIC, pathname === "/" ? "index.html" : pathname));
     const file = Bun.file(path);
-    if (path.startsWith(PUBLIC) && (await file.exists())) return new Response(file);
-    return new Response(Bun.file(join(PUBLIC, "index.html")));
+    // Le navigateur revérifie les fichiers à chaque chargement : une mise à jour s'affiche tout de suite.
+    const headers = { "Cache-Control": "no-cache" };
+    if (path.startsWith(PUBLIC) && (await file.exists())) return new Response(file, { headers });
+    return new Response(Bun.file(join(PUBLIC, "index.html")), { headers });
   },
 });
 
