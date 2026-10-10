@@ -38,7 +38,6 @@ par mois : c'est à la limite. Pour plus de compétitions ou des cotes plus fra�
 | Crash | `src/games/crash.ts` | Multiplicateur qui monte, encaissement manuel ou auto ; point de crash tiré et gardé côté serveur (RTP ≈ 96,5 %) |
 | Blackjack | `src/games/blackjack.ts` | Sabot 6 jeux, croupier reste sur 17, BJ payé 3:2, double |
 | Paris sportifs | `src/sports/` | Simples et combinés (10 sélections max), cotes verrouillées à la prise, règlement automatique, remboursement des matchs annulés |
-
 | Interface | `public/` | Thème sombre façon appli de paris : lobby casino, ticket qui s'ouvre en volet sur mobile, roue de roulette animée (tapis vertical sur téléphone), rouleaux qui défilent, table de blackjack, courbe du crash, compte avec historique et classement |
 
 « NOVA » est un nom provisoire : il se change dans `public/index.html` (logo, titre de la page).
