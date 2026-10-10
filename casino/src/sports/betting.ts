@@ -67,6 +67,17 @@ export function listEvents() {
   return events.map((e) => ({ ...e, odds: byEvent.get(e.id) ?? {} }));
 }
 
+/** Matchs commencés mais pas encore terminés (paris fermés). */
+export function liveEvents() {
+  const now = Date.now();
+  return db
+    .query(
+      `SELECT id, sport, league, home, away, starts_at FROM events
+       WHERE status = 'scheduled' AND starts_at <= ? AND starts_at > ? ORDER BY starts_at DESC LIMIT 30`,
+    )
+    .all(now, now - 3 * 60 * 60_000);
+}
+
 export function recentResults() {
   return db
     .query(

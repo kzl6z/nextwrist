@@ -2,136 +2,97 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Casino</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#07090f" />
+  <title>NOVA — Paris sportifs & Casino</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
 </head>
-<body>
+<body data-page="sports">
+  <!-- ===== Connexion / inscription ===== -->
   <section id="auth" class="auth hidden">
-    <form id="auth-form" class="card">
-      <h1>🎰 Casino</h1>
-      <p class="muted">1 000 jetons offerts à l'inscription</p>
-      <input name="username" placeholder="Pseudo" autocomplete="username" required />
-      <input name="password" type="password" placeholder="Mot de passe" autocomplete="current-password" required />
-      <div class="row">
-        <button type="submit" data-mode="login">Connexion</button>
-        <button type="submit" data-mode="register" class="secondary">Inscription</button>
+    <div class="auth-art">
+      <div class="auth-glow"></div>
+      <a class="logo logo-lg"><span class="logo-mark">N</span>NOVA</a>
+      <h1>Le sport et le casino,<br /><span class="grad-text">en grand.</span></h1>
+      <ul class="auth-perks">
+        <li><span>🎁</span> 1 000 jetons offerts à l'inscription</li>
+        <li><span>⚽</span> Les vrais matchs, les vraies cotes</li>
+        <li><span>🚀</span> Crash, roulette, blackjack, machine à sous</li>
+      </ul>
+      <div class="auth-floaters" aria-hidden="true">
+        <div class="floater f1"><small>PSG – OM</small><b>1.72</b></div>
+        <div class="floater f2"><small>Crash</small><b>×12.40</b></div>
+        <div class="floater f3"><small>Combiné ×4</small><b>+1 284</b></div>
       </div>
-      <p id="auth-error" class="error"></p>
-    </form>
+    </div>
+    <div class="auth-panel">
+      <form id="auth-form" class="auth-card">
+        <div class="seg" role="tablist">
+          <button type="button" data-mode="login" class="active">Connexion</button>
+          <button type="button" data-mode="register">Inscription</button>
+        </div>
+        <h2 id="auth-title">Bon retour 👋</h2>
+        <label class="field"><span>Pseudo</span><input name="username" autocomplete="username" required placeholder="ton_pseudo" /></label>
+        <label class="field"><span>Mot de passe</span><input name="password" type="password" autocomplete="current-password" required placeholder="8 caractères minimum" /></label>
+        <button type="submit" class="btn btn-primary btn-lg btn-block" id="auth-submit">Se connecter</button>
+        <p id="auth-error" class="form-error"></p>
+        <p class="fine">Jetons virtuels sans valeur monétaire. Réservé aux 18 ans et plus.</p>
+      </form>
+    </div>
   </section>
 
+  <!-- ===== Application ===== -->
   <div id="app" class="hidden">
-    <header>
-      <strong class="logo">🎰 Casino</strong>
-      <nav id="tabs">
-        <button data-tab="sports" class="active">⚽ Paris</button>
-        <button data-tab="roulette">🎡 Roulette</button>
-        <button data-tab="slots">🍒 Machine</button>
-        <button data-tab="crash">🚀 Crash</button>
-        <button data-tab="blackjack">🃏 Blackjack</button>
-        <button data-tab="account">👤 Compte</button>
+    <header class="topbar">
+      <a class="logo" href="#/sports"><span class="logo-mark">N</span>NOVA</a>
+      <nav class="mainnav">
+        <a href="#/sports" data-nav="sports">Paris sportifs</a>
+        <a href="#/casino" data-nav="casino">Casino</a>
+        <a href="#/crash" data-nav="crash">Crash <span class="pill-new">HOT</span></a>
       </nav>
-      <div class="wallet">
-        <span id="balance" class="balance">0</span>
-        <button id="bonus" class="small">🎁 Bonus</button>
-        <button id="logout" class="small secondary">Quitter</button>
+      <div class="topbar-right">
+        <button id="bonus-btn" class="bonus-btn" title="Bonus quotidien"><span class="gift">🎁</span><span id="bonus-label">Bonus</span></button>
+        <div class="wallet"><span class="coin">🪙</span><span id="balance">0</span></div>
+        <a href="#/compte" class="avatar" id="avatar" title="Mon compte"></a>
       </div>
     </header>
 
-    <main>
-      <section data-view="sports" class="sports">
-        <div>
-          <p id="feed-note" class="muted"></p>
-          <div id="events"></div>
-          <h3>Derniers résultats</h3>
-          <div id="results" class="list"></div>
+    <div class="layout">
+      <aside class="sidebar" id="sidebar"></aside>
+      <main id="view"></main>
+      <aside class="betslip" id="betslip">
+        <div class="sheet-handle" id="sheet-close"></div>
+        <div class="slip-tabs">
+          <button data-slip-tab="slip" class="active">Ticket <span class="count" id="slip-count">0</span></button>
+          <button data-slip-tab="bets">Mes paris <span class="count muted-count" id="open-count">0</span></button>
         </div>
-        <aside class="card slip">
-          <h3>Ticket</h3>
-          <div id="slip-legs"><p class="muted">Clique sur une cote pour l'ajouter.</p></div>
-          <label>Mise <input id="slip-stake" type="number" min="1" value="10" /></label>
-          <p>Cote totale : <b id="slip-odds">–</b><br />Gain potentiel : <b id="slip-win">–</b></p>
-          <button id="slip-place">Valider le pari</button>
-          <h3>Mes paris</h3>
-          <div id="my-bets" class="list"></div>
-        </aside>
-      </section>
+        <div id="slip-body"></div>
+      </aside>
+    </div>
 
-      <section data-view="roulette" class="hidden">
-        <div class="card">
-          <div class="roulette-top">
-            <div id="wheel" class="wheel">?</div>
-            <div>
-              <label>Jeton <select id="chip"><option>1</option><option selected>10</option><option>50</option><option>100</option><option>500</option></select></label>
-              <p>Mise totale : <b id="rl-total">0</b></p>
-              <div class="row">
-                <button id="rl-spin">Lancer</button>
-                <button id="rl-clear" class="secondary">Effacer</button>
-              </div>
-              <p id="rl-msg"></p>
-            </div>
-          </div>
-          <div id="board" class="board"></div>
-          <div id="outside" class="outside"></div>
-        </div>
-      </section>
+    <footer class="footer">
+      <div class="footer-inner">
+        <a class="logo"><span class="logo-mark">N</span>NOVA</a>
+        <p>Jetons virtuels sans valeur monétaire — aucun dépôt ni retrait. Le jeu doit rester un plaisir. Réservé aux personnes majeures.</p>
+        <span class="badge-18">18+</span>
+      </div>
+    </footer>
 
-      <section data-view="slots" class="hidden">
-        <div class="card center">
-          <div id="reels" class="reels"><span>🍒</span><span>🍋</span><span>💎</span></div>
-          <label>Mise <input id="sl-bet" type="number" min="1" value="10" /></label>
-          <button id="sl-spin">Tourner</button>
-          <p id="sl-msg"></p>
-          <p class="muted small-text">3 identiques : 🍒×8 · 🍋×15 · 🍊×25 · 🍇×50 · 🔔×100 · 💎×500 — deux 🍒 : ×0,5</p>
-        </div>
-      </section>
+    <button class="slip-fab hidden" id="slip-fab"></button>
 
-      <section data-view="crash" class="hidden">
-        <div class="card crash">
-          <div id="cr-history" class="cr-history"></div>
-          <div class="cr-stage">
-            <canvas id="cr-canvas" width="900" height="360"></canvas>
-            <div id="cr-mult" class="cr-mult">1.00×</div>
-          </div>
-          <div class="row">
-            <label>Mise <input id="cr-bet" type="number" min="1" value="10" /></label>
-            <label>Encaissement auto <input id="cr-auto" type="number" min="1.01" step="0.01" placeholder="ex. 2.00" /></label>
-            <button id="cr-start">Lancer</button>
-            <button id="cr-cashout" class="hidden">Encaisser</button>
-          </div>
-          <p id="cr-msg"></p>
-        </div>
-      </section>
-
-      <section data-view="blackjack" class="hidden">
-        <div class="card center">
-          <h3>Croupier <span id="bj-dv"></span></h3>
-          <div id="bj-dealer" class="cards"></div>
-          <h3>Toi <span id="bj-pv"></span></h3>
-          <div id="bj-player" class="cards"></div>
-          <p id="bj-msg"></p>
-          <div id="bj-start" class="row">
-            <input id="bj-bet" type="number" min="1" value="10" />
-            <button id="bj-deal">Distribuer</button>
-          </div>
-          <div id="bj-actions" class="row hidden">
-            <button data-bj="hit">Carte</button>
-            <button data-bj="stand">Rester</button>
-            <button data-bj="double" class="secondary">Doubler</button>
-          </div>
-        </div>
-      </section>
-
-      <section data-view="account" class="hidden grid2">
-        <div class="card"><h3>Historique</h3><div id="history" class="list"></div></div>
-        <div class="card"><h3>Classement</h3><ol id="leaderboard"></ol></div>
-      </section>
-    </main>
-
-    <footer class="muted">Jetons virtuels sans valeur monétaire — aucun retrait possible. Jeu réservé aux 18 ans et plus.</footer>
+    <nav class="bottombar">
+      <a href="#/sports" data-nav="sports"><span>⚽</span>Sports</a>
+      <a href="#/casino" data-nav="casino"><span>🎰</span>Casino</a>
+      <button id="bb-slip"><span>🎫</span>Ticket<i class="bb-badge hidden" id="bb-badge">0</i></button>
+      <a href="#/compte" data-nav="compte"><span>👤</span>Compte</a>
+    </nav>
+    <div class="scrim" id="scrim"></div>
   </div>
-  <div id="toast" class="toast hidden"></div>
+
+  <div id="toasts" class="toasts"></div>
   <script src="/app.js" type="module"></script>
 </body>
 </html>

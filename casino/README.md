@@ -39,6 +39,10 @@ par mois : c'est à la limite. Pour plus de compétitions ou des cotes plus fra�
 | Blackjack | `src/games/blackjack.ts` | Sabot 6 jeux, croupier reste sur 17, BJ payé 3:2, double |
 | Paris sportifs | `src/sports/` | Simples et combinés (10 sélections max), cotes verrouillées à la prise, règlement automatique, remboursement des matchs annulés |
 
+| Interface | `public/` | Thème sombre façon appli de paris : lobby casino, ticket qui s'ouvre en volet sur mobile, roue de roulette animée (tapis vertical sur téléphone), rouleaux qui défilent, table de blackjack, courbe du crash, compte avec historique et classement |
+
+« NOVA » est un nom provisoire : il se change dans `public/index.html` (logo, titre de la page).
+
 Tout le calcul (tirages, cartes, gains) se fait côté serveur ; chaque mise et son gain sont
 écrits dans une même transaction SQL.
 

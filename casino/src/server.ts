@@ -12,7 +12,7 @@ import { cashoutCrash, getCrash, startCrash } from "./games/crash";
 import { spinRoulette } from "./games/roulette";
 import { spinSlots } from "./games/slots";
 import { HttpError } from "./http";
-import { listEvents, myBets, placeBet, recentResults } from "./sports/betting";
+import { listEvents, liveEvents, myBets, placeBet, recentResults } from "./sports/betting";
 import { feedMode, startSportsSync } from "./sports/sync";
 import { claimDailyBonus, DAILY_BONUS, leaderboard, listTransactions, nextBonusAt } from "./wallet";
 
@@ -76,7 +76,7 @@ const server = Bun.serve({
     "/api/crash/start": { POST: api(({ user, body }) => startCrash(user.id, body.bet, body.autoCashout)) },
     "/api/crash/cashout": { POST: api(({ user }) => cashoutCrash(user.id)) },
 
-    "/api/sports/events": { GET: api(() => ({ events: listEvents(), results: recentResults() })) },
+    "/api/sports/events": { GET: api(() => ({ events: listEvents(), live: liveEvents(), results: recentResults() })) },
     "/api/sports/bets": {
       GET: api(({ user }) => myBets(user.id)),
       POST: api(({ user, body }) => placeBet(user.id, body.legs, body.stake)),
