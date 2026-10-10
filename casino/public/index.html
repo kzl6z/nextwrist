@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Casino</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <section id="auth" class="auth hidden">
+    <form id="auth-form" class="card">
+      <h1>🎰 Casino</h1>
+      <p class="muted">1 000 jetons offerts à l'inscription</p>
+      <input name="username" placeholder="Pseudo" autocomplete="username" required />
+      <input name="password" type="password" placeholder="Mot de passe" autocomplete="current-password" required />
+      <div class="row">
+        <button type="submit" data-mode="login">Connexion</button>
+        <button type="submit" data-mode="register" class="secondary">Inscription</button>
+      </div>
+      <p id="auth-error" class="error"></p>
+    </form>
+  </section>
+
+  <div id="app" class="hidden">
+    <header>
+      <strong class="logo">🎰 Casino</strong>
+      <nav id="tabs">
+        <button data-tab="sports" class="active">⚽ Paris</button>
+        <button data-tab="roulette">🎡 Roulette</button>
+        <button data-tab="slots">🍒 Machine</button>
+        <button data-tab="blackjack">🃏 Blackjack</button>
+        <button data-tab="account">👤 Compte</button>
+      </nav>
+      <div class="wallet">
+        <span id="balance" class="balance">0</span>
+        <button id="bonus" class="small">🎁 Bonus</button>
+        <button id="logout" class="small secondary">Quitter</button>
+      </div>
+    </header>
+
+    <main>
+      <section data-view="sports" class="sports">
+        <div>
+          <p id="feed-note" class="muted"></p>
+          <div id="events"></div>
+          <h3>Derniers résultats</h3>
+          <div id="results" class="list"></div>
+        </div>
+        <aside class="card slip">
+          <h3>Ticket</h3>
+          <div id="slip-legs"><p class="muted">Clique sur une cote pour l'ajouter.</p></div>
+          <label>Mise <input id="slip-stake" type="number" min="1" value="10" /></label>
+          <p>Cote totale : <b id="slip-odds">–</b><br />Gain potentiel : <b id="slip-win">–</b></p>
+          <button id="slip-place">Valider le pari</button>
+          <h3>Mes paris</h3>
+          <div id="my-bets" class="list"></div>
+        </aside>
+      </section>
+
+      <section data-view="roulette" class="hidden">
+        <div class="card">
+          <div class="roulette-top">
+            <div id="wheel" class="wheel">?</div>
+            <div>
+              <label>Jeton <select id="chip"><option>1</option><option selected>10</option><option>50</option><option>100</option><option>500</option></select></label>
+              <p>Mise totale : <b id="rl-total">0</b></p>
+              <div class="row">
+                <button id="rl-spin">Lancer</button>
+                <button id="rl-clear" class="secondary">Effacer</button>
+              </div>
+              <p id="rl-msg"></p>
+            </div>
+          </div>
+          <div id="board" class="board"></div>
+          <div id="outside" class="outside"></div>
+        </div>
+      </section>
+
+      <section data-view="slots" class="hidden">
+        <div class="card center">
+          <div id="reels" class="reels"><span>🍒</span><span>🍋</span><span>💎</span></div>
+          <label>Mise <input id="sl-bet" type="number" min="1" value="10" /></label>
+          <button id="sl-spin">Tourner</button>
+          <p id="sl-msg"></p>
+          <p class="muted small-text">3 identiques : 🍒×8 · 🍋×15 · 🍊×25 · 🍇×50 · 🔔×100 · 💎×500 — deux 🍒 : ×0,5</p>
+        </div>
+      </section>
+
+      <section data-view="blackjack" class="hidden">
+        <div class="card center">
+          <h3>Croupier <span id="bj-dv"></span></h3>
+          <div id="bj-dealer" class="cards"></div>
+          <h3>Toi <span id="bj-pv"></span></h3>
+          <div id="bj-player" class="cards"></div>
+          <p id="bj-msg"></p>
+          <div id="bj-start" class="row">
+            <input id="bj-bet" type="number" min="1" value="10" />
+            <button id="bj-deal">Distribuer</button>
+          </div>
+          <div id="bj-actions" class="row hidden">
+            <button data-bj="hit">Carte</button>
+            <button data-bj="stand">Rester</button>
+            <button data-bj="double" class="secondary">Doubler</button>
+          </div>
+        </div>
+      </section>
+
+      <section data-view="account" class="hidden grid2">
+        <div class="card"><h3>Historique</h3><div id="history" class="list"></div></div>
+        <div class="card"><h3>Classement</h3><ol id="leaderboard"></ol></div>
+      </section>
+    </main>
+
+    <footer class="muted">Jetons virtuels sans valeur monétaire — aucun retrait possible. Jeu réservé aux 18 ans et plus.</footer>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
