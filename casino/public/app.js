@@ -63,11 +63,12 @@ $("#bonus").onclick = async () => {
 };
 
 /* ---------- Onglets ---------- */
-const loaders = { sports: loadSports, blackjack: loadBlackjack, account: loadAccount };
+const loaders = { sports: loadSports, crash: loadCrash, blackjack: loadBlackjack, account: loadAccount };
 $$("#tabs button").forEach((b) =>
   b.addEventListener("click", () => {
     $$("#tabs button").forEach((x) => x.classList.toggle("active", x === b));
     $$("[data-view]").forEach((v) => v.classList.toggle("hidden", v.dataset.view !== b.dataset.tab));
+    if (b.dataset.tab !== "crash" && crash) (clearInterval(crash.timer), clearInterval(crash.polling));
     loaders[b.dataset.tab]?.();
   }),
 );
@@ -271,6 +272,92 @@ $("#sl-spin").onclick = async () => {
   }
 };
 
+/* ---------- Crash ---------- */
+let crash = null; // { round, growth, startedLocal, timer, polling }
+
+function drawCrash(mult, elapsed, state) {
+  const c = $("#cr-canvas");
+  const ctx = c.getContext("2d");
+  const { width: w, height: h } = c;
+  ctx.clearRect(0, 0, w, h);
+  if (elapsed <= 0) return;
+  const growth = crash?.growth ?? 0.00006;
+  const span = Math.max(8000, elapsed * 1.15);
+  const top = Math.max(2, mult * 1.2);
+  ctx.beginPath();
+  for (let i = 0; i <= 120; i++) {
+    const t = (elapsed * i) / 120;
+    const x = 30 + (t / span) * (w - 60);
+    const y = h - 30 - ((Math.exp(growth * t) - 1) / (top - 1)) * (h - 60);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.strokeStyle = state === "lost" ? "#ff7b72" : state === "won" ? "#3fb950" : "#f5c542";
+  ctx.lineWidth = 5;
+  ctx.stroke();
+}
+
+function renderCrash(data) {
+  setBalance(data.balance);
+  crash = { ...crash, growth: data.growth, round: data.round };
+  $("#cr-history").innerHTML = data.history
+    .map((m) => `<span class="${m >= 2 ? "high" : ""}">${m.toFixed(2)}×</span>`)
+    .join("");
+  const r = data.round;
+  const playing = r?.status === "playing";
+  $("#cr-start").classList.toggle("hidden", playing);
+  $("#cr-cashout").classList.toggle("hidden", !playing || !!r.autoCashout);
+  clearInterval(crash.timer);
+  clearInterval(crash.polling);
+  const mult = $("#cr-mult");
+  if (playing) {
+    crash.startedLocal = performance.now() - r.elapsedMs;
+    mult.className = "cr-mult";
+    $("#cr-msg").textContent = r.autoCashout ? `Encaissement auto à ${r.autoCashout.toFixed(2)}×` : `Mise : ${fmt(r.bet)}`;
+    crash.timer = setInterval(() => {
+      const el = performance.now() - crash.startedLocal;
+      const m = Math.floor(Math.exp(crash.growth * el) * 100) / 100;
+      mult.textContent = `${m.toFixed(2)}×`;
+      drawCrash(m, el, "playing");
+      if (!r.autoCashout)
+        $("#cr-cashout").textContent = `Encaisser ${fmt(Math.floor(r.bet * m))}`;
+    }, 33);
+    // Seul le serveur connaît le point de crash : on lui demande régulièrement.
+    crash.polling = setInterval(async () => {
+      const d = await api("crash").catch(() => null);
+      if (d && d.round?.status !== "playing") renderCrash(d);
+    }, 300);
+  } else if (r) {
+    const end = r.status === "won" ? r.cashoutAt : r.crashPoint;
+    drawCrash(r.crashPoint, Math.log(r.crashPoint) / crash.growth, r.status);
+    mult.className = `cr-mult ${r.status === "won" ? "won" : "crashed"}`;
+    mult.textContent = r.status === "won" ? `${end.toFixed(2)}×` : `💥 ${r.crashPoint.toFixed(2)}×`;
+    $("#cr-msg").textContent =
+      r.status === "won"
+        ? `🎉 Encaissé à ${r.cashoutAt.toFixed(2)}× : +${fmt(r.payout)} (crash à ${r.crashPoint.toFixed(2)}×)`
+        : `Crash à ${r.crashPoint.toFixed(2)}×, perdu…`;
+  }
+}
+
+async function loadCrash() {
+  renderCrash(await api("crash"));
+}
+
+$("#cr-start").onclick = async () => {
+  try {
+    const auto = $("#cr-auto").value;
+    renderCrash(await api("crash/start", { bet: Number($("#cr-bet").value), autoCashout: auto ? Number(auto) : null }));
+  } catch (err) {
+    toast(err.message);
+  }
+};
+$("#cr-cashout").onclick = async () => {
+  try {
+    renderCrash(await api("crash/cashout", {}));
+  } catch (err) {
+    toast(err.message);
+  }
+};
+
 /* ---------- Blackjack ---------- */
 function cardHtml(c) {
   if (c === "??") return `<div class="playing-card back"></div>`;
@@ -324,6 +411,7 @@ const KIND = {
   welcome_bonus: "Bonus de bienvenue", daily_bonus: "Bonus quotidien",
   roulette_bet: "Roulette — mise", roulette_win: "Roulette — gain",
   slots_bet: "Machine — mise", slots_win: "Machine — gain",
+  crash_bet: "Crash — mise", crash_win: "Crash — gain",
   blackjack_bet: "Blackjack — mise", blackjack_win: "Blackjack — gain",
   sport_bet: "Pari sportif", sport_win: "Pari sportif — gain", sport_refund: "Pari sportif — remboursement",
 };

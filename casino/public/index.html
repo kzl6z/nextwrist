@@ -28,6 +28,7 @@
         <button data-tab="sports" class="active">⚽ Paris</button>
         <button data-tab="roulette">🎡 Roulette</button>
         <button data-tab="slots">🍒 Machine</button>
+        <button data-tab="crash">🚀 Crash</button>
         <button data-tab="blackjack">🃏 Blackjack</button>
         <button data-tab="account">👤 Compte</button>
       </nav>
@@ -83,6 +84,23 @@
           <button id="sl-spin">Tourner</button>
           <p id="sl-msg"></p>
           <p class="muted small-text">3 identiques : 🍒×8 · 🍋×15 · 🍊×25 · 🍇×50 · 🔔×100 · 💎×500 — deux 🍒 : ×0,5</p>
+        </div>
+      </section>
+
+      <section data-view="crash" class="hidden">
+        <div class="card crash">
+          <div id="cr-history" class="cr-history"></div>
+          <div class="cr-stage">
+            <canvas id="cr-canvas" width="900" height="360"></canvas>
+            <div id="cr-mult" class="cr-mult">1.00×</div>
+          </div>
+          <div class="row">
+            <label>Mise <input id="cr-bet" type="number" min="1" value="10" /></label>
+            <label>Encaissement auto <input id="cr-auto" type="number" min="1.01" step="0.01" placeholder="ex. 2.00" /></label>
+            <button id="cr-start">Lancer</button>
+            <button id="cr-cashout" class="hidden">Encaisser</button>
+          </div>
+          <p id="cr-msg"></p>
         </div>
       </section>
 

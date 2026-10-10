@@ -7,6 +7,8 @@ export interface FeedEvent {
   home: string;
   away: string;
   startsAt: number;
+  /** Clé de la compétition chez le fournisseur (ex. "soccer_epl"). */
+  feedKey?: string;
   odds: Partial<Record<Outcome, number>>;
 }
 

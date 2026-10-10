@@ -8,6 +8,7 @@ import {
   standBlackjack,
   startBlackjack,
 } from "./games/blackjack";
+import { cashoutCrash, getCrash, startCrash } from "./games/crash";
 import { spinRoulette } from "./games/roulette";
 import { spinSlots } from "./games/slots";
 import { HttpError } from "./http";
@@ -70,6 +71,10 @@ const server = Bun.serve({
     "/api/blackjack/hit": { POST: api(({ user }) => hitBlackjack(user.id)) },
     "/api/blackjack/stand": { POST: api(({ user }) => standBlackjack(user.id)) },
     "/api/blackjack/double": { POST: api(({ user }) => doubleBlackjack(user.id)) },
+
+    "/api/crash": { GET: api(({ user }) => getCrash(user.id)) },
+    "/api/crash/start": { POST: api(({ user, body }) => startCrash(user.id, body.bet, body.autoCashout)) },
+    "/api/crash/cashout": { POST: api(({ user }) => cashoutCrash(user.id)) },
 
     "/api/sports/events": { GET: api(() => ({ events: listEvents(), results: recentResults() })) },
     "/api/sports/bets": {

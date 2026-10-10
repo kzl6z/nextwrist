@@ -73,6 +73,16 @@ footer { text-align: center; padding: 20px 16px; font-size: 13px; }
 
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); padding: 10px 16px; border-radius: 10px; z-index: 10; max-width: calc(100% - 32px); }
 
+.crash { display: flex; flex-direction: column; gap: 12px; }
+.cr-history { display: flex; gap: 6px; flex-wrap: wrap; min-height: 26px; }
+.cr-history span { padding: 2px 8px; border-radius: 99px; font-size: 13px; font-weight: 600; background: var(--line); }
+.cr-history .high { background: var(--green); }
+.cr-stage { position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.cr-stage canvas { display: block; width: 100%; height: auto; aspect-ratio: 5 / 2; }
+.cr-mult { position: absolute; inset: 0; display: grid; place-items: center; font-size: clamp(40px, 9vw, 84px); font-weight: 800; pointer-events: none; }
+.cr-mult.crashed { color: #ff7b72; } .cr-mult.won { color: #3fb950; }
+.crash input[type=number] { width: 110px; }
+
 @media (max-width: 800px) {
   .sports, .grid2 { grid-template-columns: 1fr; }
   .slip { position: static; }

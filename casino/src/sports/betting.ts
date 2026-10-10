@@ -11,7 +11,7 @@ const STALE_MS = 3 * 86_400_000;
 export const upsertEvents = db.transaction((events: FeedEvent[]) => {
   const now = Date.now();
   const upsert = db.query(
-    `INSERT INTO events (id, sport, league, home, away, starts_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO events (id, sport, league, home, away, starts_at, feed_key, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET starts_at = excluded.starts_at, updated_at = excluded.updated_at
      WHERE events.status = 'scheduled'`,
   );
@@ -21,7 +21,7 @@ export const upsertEvents = db.transaction((events: FeedEvent[]) => {
   );
   for (const e of events) {
     if (e.startsAt <= now) continue;
-    upsert.run(e.id, e.sport, e.league, e.home, e.away, e.startsAt, now);
+    upsert.run(e.id, e.sport, e.league, e.home, e.away, e.startsAt, e.feedKey ?? null, now);
     for (const o of OUTCOMES) if (e.odds[o]) setOdds.run(e.id, o, e.odds[o]!);
   }
 });
@@ -36,6 +36,18 @@ export const applyResults = db.transaction((results: FeedResult[]) => {
     "UPDATE events SET status = 'cancelled', updated_at = ?1 WHERE status = 'scheduled' AND starts_at < ?2",
   ).run(Date.now(), Date.now() - STALE_MS);
 });
+
+/** Compétitions ayant au moins un match commencé depuis assez longtemps pour être fini. */
+export function feedKeysAwaitingResults(minAgeMs: number): string[] {
+  return (
+    db
+      .query(
+        `SELECT DISTINCT feed_key FROM events
+         WHERE status = 'scheduled' AND feed_key IS NOT NULL AND starts_at < ?`,
+      )
+      .all(Date.now() - minAgeMs) as { feed_key: string }[]
+  ).map((r) => r.feed_key);
+}
 
 export function listEvents() {
   const events = db

@@ -11,7 +11,20 @@ bun run dev        # http://localhost:3000
 
 Copie `.env.example` en `.env` pour configurer. Sans `ODDS_API_KEY`, des matchs de démo
 (vraies équipes, scores simulés) sont générés et joués automatiquement toutes les ~10 min.
-Avec une clé [The Odds API](https://the-odds-api.com), les cotes et résultats sont réels.
+
+## Vrais matchs
+
+1. Crée une clé gratuite sur [the-odds-api.com](https://the-odds-api.com).
+2. Mets-la dans `.env` : `ODDS_API_KEY=ta_cle`.
+3. Choisis les compétitions dans `ODDS_SPORTS` ([liste des clés](https://the-odds-api.com/sports-odds-data/sports-apis.html)).
+4. Relance `bun run dev` : le terminal affiche le nombre de matchs chargés et les crédits restants.
+
+Les cotes affichées sont la moyenne des bookmakers européens. Les résultats ne sont demandés
+que pour les compétitions qui ont un match commencé depuis plus de 2 h.
+
+**Quota :** le plan gratuit donne 500 crédits/mois. Avec les réglages par défaut (3 compétitions,
+cotes toutes les 6 h, résultats toutes les 2 h si besoin) on consomme environ 400 à 550 crédits
+par mois : c'est à la limite. Pour plus de compétitions ou des cotes plus fraîches, il faut un plan payant.
 
 ## Contenu
 
@@ -22,6 +35,7 @@ Avec une clé [The Odds API](https://the-odds-api.com), les cotes et résultats 
 | Hasard | `src/rng.ts` | `crypto.getRandomValues`, sans biais. Seule source de hasard du projet |
 | Roulette | `src/games/roulette.ts` | Européenne, mises pleines et simples/douzaines/colonnes (RTP 97,3 %) |
 | Machine à sous | `src/games/slots.ts` | 3 rouleaux pondérés (RTP 93,5 %, vérifiable via `bun run check:rtp`) |
+| Crash | `src/games/crash.ts` | Multiplicateur qui monte, encaissement manuel ou auto ; point de crash tiré et gardé côté serveur (RTP ≈ 96,5 %) |
 | Blackjack | `src/games/blackjack.ts` | Sabot 6 jeux, croupier reste sur 17, BJ payé 3:2, double |
 | Paris sportifs | `src/sports/` | Simples et combinés (10 sélections max), cotes verrouillées à la prise, règlement automatique, remboursement des matchs annulés |
 

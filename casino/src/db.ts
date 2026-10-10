@@ -80,3 +80,22 @@ CREATE TABLE IF NOT EXISTS blackjack_hands (
   state TEXT NOT NULL
 );
 `);
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS crash_rounds (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  bet INTEGER NOT NULL,
+  crash_point REAL NOT NULL,
+  auto_cashout REAL,
+  started_at INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'playing', -- playing | won | lost
+  cashout_at REAL,
+  payout INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS crash_rounds_user ON crash_rounds(user_id, id);
+`);
+
+// Migration : clé du flux (ex. "soccer_epl") pour savoir quels scores demander.
+if (!(db.query("SELECT 1 FROM pragma_table_info('events') WHERE name = 'feed_key'").get()))
+  db.exec("ALTER TABLE events ADD COLUMN feed_key TEXT");
