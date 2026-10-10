@@ -1,5 +1,5 @@
 /* =========================================================
-   NOVA — application cliente (aucune dépendance)
+   PilotCasino — application cliente (aucune dépendance)
    ========================================================= */
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -464,14 +464,14 @@ function renderResults() {
    ========================================================= */
 function saveSlip() {
   try {
-    localStorage.setItem("nova-slip", JSON.stringify([...state.slip.values()]));
+    localStorage.setItem("pilotcasino-slip", JSON.stringify([...state.slip.values()]));
   } catch {
     /* stockage indisponible : le ticket reste en mémoire */
   }
 }
 function loadSlip() {
   try {
-    const legs = JSON.parse(localStorage.getItem("nova-slip") ?? "[]");
+    const legs = JSON.parse(localStorage.getItem("pilotcasino-slip") ?? "[]");
     state.slip = new Map(legs.map((l) => [l.eventId, l]));
   } catch {
     state.slip = new Map();
@@ -1584,7 +1584,7 @@ async function renderAccount() {
   view.innerHTML = `
     <div class="profile">
       <span class="avatar" style="--h:${hue(me.username)}">${esc(initials(me.username))}</span>
-      <div><h1>${esc(me.username)}</h1><p>Membre NOVA · solde de <b>${fmt(state.balance)} 🪙</b></p></div>
+      <div><h1>${esc(me.username)}</h1><p>Membre PilotCasino · solde de <b>${fmt(state.balance)} 🪙</b></p></div>
       <button class="btn btn-ghost" data-action="logout">Se déconnecter</button>
     </div>
     <div class="kpis" id="kpis">${'<div class="kpi skeleton" style="height:84px;margin:0"></div>'.repeat(4)}</div>
@@ -1698,7 +1698,7 @@ $("#auth-form").addEventListener("submit", async (e) => {
     $("#auth-error").textContent = "";
     await boot();
     if (authMode === "register") {
-      toast("Bienvenue ! 1 000 jetons offerts", "win");
+      toast("Bienvenue sur PilotCasino ! 1 000 jetons offerts", "win");
       celebrate();
     }
   } catch (err) {
