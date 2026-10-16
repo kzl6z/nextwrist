@@ -2,6 +2,7 @@ import { db } from "../db";
 import { HttpError } from "../http";
 import { randomFloat } from "../rng";
 import { applyTx, getBalance, parseStake } from "../wallet";
+import { recordRound } from "./common";
 
 // Le multiplicateur part de 1.00 et croît en exp(GROWTH × ms) (×2 en ~11,5 s).
 // Le point de crash est tiré au lancement et reste secret jusqu'à la fin :
@@ -45,6 +46,7 @@ function finish(round: Round, status: "won" | "lost", at: number | null) {
     round.id,
   );
   if (round.payout > 0) applyTx(round.user_id, round.payout, "crash_win", `crash:${round.id}`);
+  recordRound(round.user_id, "crash", round.bet, round.payout);
 }
 
 /** Termine la manche si le crash ou l'encaissement auto est passé. */

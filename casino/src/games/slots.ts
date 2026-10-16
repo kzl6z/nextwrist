@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { weightedPick } from "../rng";
 import { applyTx, getBalance, parseStake } from "../wallet";
+import { recordRound } from "./common";
 
 // Rouleaux pondérés : [symbole, poids, gain pour 3 identiques (× mise)].
 export const SYMBOLS = [
@@ -30,5 +31,6 @@ export const spinSlots = db.transaction((userId: number, rawBet: unknown) => {
   const multiplier = slotMultiplier(reels);
   const win = Math.floor(bet * multiplier);
   const balance = win > 0 ? applyTx(userId, win, "slots_win") : getBalance(userId);
+  recordRound(userId, "slots", bet, win);
   return { reels, multiplier, bet, win, balance };
 });

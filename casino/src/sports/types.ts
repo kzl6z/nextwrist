@@ -9,7 +9,8 @@ export interface FeedEvent {
   startsAt: number;
   /** Clé de la compétition chez le fournisseur (ex. "soccer_epl"). */
   feedKey?: string;
-  odds: Partial<Record<Outcome, number>>;
+  /** Pronostics proposés : clé (voir markets.ts) → cote et probabilité estimée. */
+  selections: Record<string, { price: number; prob: number }>;
 }
 
 export interface FeedResult {

@@ -3,44 +3,40 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#07090f" />
-  <title>PilotCasino — Paris sportifs & Casino</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c5cff'/%3E%3Cstop offset='1' stop-color='%2300d1ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='url(%23g)'/%3E%3Ctext x='32' y='45' text-anchor='middle' font-family='Arial,sans-serif' font-size='38' font-weight='700' fill='white'%3EP%3C/text%3E%3C/svg%3E" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <meta name="theme-color" content="#070807" />
+  <title>PilotCasino — Paris sportifs et casino</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='31' fill='%23070807'/%3E%3Ccircle cx='32' cy='32' r='27' fill='none' stroke='%23c9a96a' stroke-width='2'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-family='Didot,Georgia,serif' font-size='34' fill='%23e2c88f'%3EP%3C/text%3E%3C/svg%3E" />
+  <link rel="preload" href="/fonts/bodoni-moda-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/sports.css" />
+  <link rel="stylesheet" href="/games.css" />
 </head>
 <body data-page="sports">
   <!-- ===== Connexion / inscription ===== -->
   <section id="auth" class="auth hidden">
     <div class="auth-art">
-      <div class="auth-glow"></div>
-      <a class="logo logo-lg"><span class="logo-mark">P</span><span class="logo-name">Pilot<span class="logo-accent">Casino</span></span></a>
-      <h1>Le sport et le casino,<br /><span class="grad-text">en grand.</span></h1>
-      <ul class="auth-perks">
-        <li><span>🎁</span> 1 000 jetons offerts à l'inscription</li>
-        <li><span>⚽</span> Les vrais matchs, les vraies cotes</li>
-        <li><span>🚀</span> Crash, roulette, blackjack, machine à sous</li>
-      </ul>
-      <div class="auth-floaters" aria-hidden="true">
-        <div class="floater f1"><small>PSG – OM</small><b>1.72</b></div>
-        <div class="floater f2"><small>Crash</small><b>×12.40</b></div>
-        <div class="floater f3"><small>Combiné ×4</small><b>+1 284</b></div>
+      <div class="auth-rosace" id="auth-rosace" aria-hidden="true"></div>
+      <a class="logo"><span class="logo-mark">P</span><span class="logo-name">PilotCasino</span></a>
+      <div>
+        <h1>Le salon de jeu, en jetons.</h1>
+        <p class="lede">Paris sportifs en direct sur six sports, quinze jeux de casino. Tout se joue avec des jetons virtuels, sans argent réel.</p>
       </div>
+      <ul class="auth-perks" id="auth-perks"></ul>
     </div>
     <div class="auth-panel">
-      <form id="auth-form" class="auth-card">
+      <form id="auth-form" class="auth-card" novalidate>
         <div class="seg" role="tablist">
-          <button type="button" data-mode="login" class="active">Connexion</button>
-          <button type="button" data-mode="register">Inscription</button>
+          <button type="button" data-mode="login" class="active" role="tab">Connexion</button>
+          <button type="button" data-mode="register" role="tab">Inscription</button>
         </div>
-        <h2 id="auth-title">Bon retour 👋</h2>
+        <h2 id="auth-title">Bon retour</h2>
+        <p class="sub" id="auth-sub">Connecte-toi pour retrouver ton solde et tes paris.</p>
         <label class="field"><span>Pseudo</span><input name="username" autocomplete="username" required placeholder="ton_pseudo" /></label>
         <label class="field"><span>Mot de passe</span><input name="password" type="password" autocomplete="current-password" required placeholder="8 caractères minimum" /></label>
-        <button type="submit" class="btn btn-primary btn-lg btn-block" id="auth-submit">Se connecter</button>
-        <p id="auth-error" class="form-error"></p>
-        <p class="fine">Jetons virtuels sans valeur monétaire. Réservé aux 18 ans et plus.</p>
+        <button type="submit" class="btn btn-gold btn-lg btn-block" id="auth-submit">Se connecter</button>
+        <p id="auth-error" class="form-error" role="alert"></p>
+        <p class="fine">Jetons virtuels sans valeur monétaire, aucun dépôt ni retrait. Réservé aux personnes majeures.</p>
       </form>
     </div>
   </section>
@@ -48,27 +44,27 @@
   <!-- ===== Application ===== -->
   <div id="app" class="hidden">
     <header class="topbar">
-      <a class="logo" href="#/sports"><span class="logo-mark">P</span><span class="logo-name">Pilot<span class="logo-accent">Casino</span></span></a>
-      <nav class="mainnav">
+      <a class="logo" href="#/sports"><span class="logo-mark">P</span><span class="logo-name">PilotCasino</span></a>
+      <nav class="mainnav" aria-label="Navigation principale">
         <a href="#/sports" data-nav="sports">Paris sportifs</a>
+        <a href="#/live" data-nav="live">En direct <span class="nav-count hidden" id="nav-live-count">0</span></a>
         <a href="#/casino" data-nav="casino">Casino</a>
-        <a href="#/crash" data-nav="crash">Crash <span class="pill-new">HOT</span></a>
       </nav>
       <div class="topbar-right">
-        <button id="bonus-btn" class="bonus-btn" title="Bonus quotidien"><span class="gift">🎁</span><span id="bonus-label">Bonus</span></button>
-        <div class="wallet"><span class="coin">🪙</span><span id="balance">0</span></div>
-        <a href="#/compte" class="avatar" id="avatar" title="Mon compte"></a>
+        <button id="bonus-btn" class="bonus-btn" title="Bonus quotidien"></button>
+        <div class="wallet" title="Ton solde"><span id="wallet-tok"></span><span id="balance">0</span></div>
+        <a href="#/compte" class="avatar" id="avatar" title="Mon compte" data-nav="compte"></a>
       </div>
     </header>
 
     <div class="layout">
       <aside class="sidebar" id="sidebar"></aside>
       <main id="view"></main>
-      <aside class="betslip" id="betslip">
-        <div class="sheet-handle" id="sheet-close"></div>
+      <aside class="betslip" id="betslip" aria-label="Ticket de paris">
+        <div class="sheet-handle" id="sheet-close" aria-label="Fermer le ticket"></div>
         <div class="slip-tabs">
           <button data-slip-tab="slip" class="active">Ticket <span class="count" id="slip-count">0</span></button>
-          <button data-slip-tab="bets">Mes paris <span class="count muted-count" id="open-count">0</span></button>
+          <button data-slip-tab="bets">Mes paris <span class="count" id="open-count">0</span></button>
         </div>
         <div id="slip-body"></div>
       </aside>
@@ -76,24 +72,18 @@
 
     <footer class="footer">
       <div class="footer-inner">
-        <a class="logo"><span class="logo-mark">P</span><span class="logo-name">Pilot<span class="logo-accent">Casino</span></span></a>
-        <p>Jetons virtuels sans valeur monétaire — aucun dépôt ni retrait. Le jeu doit rester un plaisir. Réservé aux personnes majeures.</p>
+        <a class="logo"><span class="logo-mark">P</span><span class="logo-name">PilotCasino</span></a>
+        <p>Jetons virtuels sans valeur monétaire : aucun dépôt, aucun retrait. Le jeu doit rester un plaisir. Si ce n'est plus le cas, Joueurs Info Service répond au 09 74 75 13 13.</p>
         <span class="badge-18">18+</span>
       </div>
     </footer>
 
     <button class="slip-fab hidden" id="slip-fab"></button>
-
-    <nav class="bottombar">
-      <a href="#/sports" data-nav="sports"><span>⚽</span>Sports</a>
-      <a href="#/casino" data-nav="casino"><span>🎰</span>Casino</a>
-      <button id="bb-slip"><span>🎫</span>Ticket<i class="bb-badge hidden" id="bb-badge">0</i></button>
-      <a href="#/compte" data-nav="compte"><span>👤</span>Compte</a>
-    </nav>
+    <nav class="bottombar" id="bottombar" aria-label="Navigation"></nav>
     <div class="scrim" id="scrim"></div>
   </div>
 
-  <div id="toasts" class="toasts"></div>
-  <script src="/app.js" type="module"></script>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script src="/js/main.js" type="module"></script>
 </body>
 </html>

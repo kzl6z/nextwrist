@@ -96,6 +96,62 @@ CREATE TABLE IF NOT EXISTS crash_rounds (
 CREATE INDEX IF NOT EXISTS crash_rounds_user ON crash_rounds(user_id, id);
 `);
 
+const hasColumn = (table: string, column: string) =>
+  !!db.query(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = ?`).get(column);
+const addColumn = (table: string, column: string, def: string) => {
+  if (!hasColumn(table, column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
+};
+
 // Migration : clé du flux (ex. "soccer_epl") pour savoir quels scores demander.
-if (!(db.query("SELECT 1 FROM pragma_table_info('events') WHERE name = 'feed_key'").get()))
-  db.exec("ALTER TABLE events ADD COLUMN feed_key TEXT");
+addColumn("events", "feed_key", "TEXT");
+// Direct et sports virtuels : horloge, détails (frise, sets…), état de simulation.
+addColumn("events", "clock", "TEXT");
+addColumn("events", "detail", "TEXT");
+addColumn("events", "sim", "TEXT");
+addColumn("events", "virtual", "INTEGER NOT NULL DEFAULT 0");
+addColumn("events", "suspended_until", "INTEGER");
+
+db.exec(`
+-- Tous les pronostics d'un match (clé décrite dans sports/markets.ts).
+-- price NULL = pronostic fermé ; prob = probabilité actuelle (sert au cash out).
+CREATE TABLE IF NOT EXISTS selections (
+  event_id TEXT NOT NULL REFERENCES events(id),
+  key TEXT NOT NULL,
+  price REAL,
+  prob REAL NOT NULL,
+  PRIMARY KEY (event_id, key)
+);
+
+-- Parties de casino (historique et fil des gains).
+CREATE TABLE IF NOT EXISTS game_rounds (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  game TEXT NOT NULL,
+  bet INTEGER NOT NULL,
+  payout INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS game_rounds_user ON game_rounds(user_id, id);
+CREATE INDEX IF NOT EXISTS game_rounds_recent ON game_rounds(id, payout);
+
+-- Parties en plusieurs étapes (Mines, Hi-Lo, Tower, Pile ou face, Video poker).
+CREATE TABLE IF NOT EXISTS game_sessions (
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  game TEXT NOT NULL,
+  state TEXT NOT NULL,
+  PRIMARY KEY (user_id, game)
+);
+`);
+
+// Migration des anciennes cotes 1N2 vers la table des pronostics.
+if (!db.query("SELECT 1 FROM selections LIMIT 1").get() && db.query("SELECT 1 FROM odds LIMIT 1").get()) {
+  db.exec(`
+    INSERT INTO selections (event_id, key, price, prob)
+    SELECT o.event_id, o.outcome, o.price,
+      (1.0 / o.price) / (SELECT SUM(1.0 / o2.price) FROM odds o2 WHERE o2.event_id = o.event_id)
+    FROM odds o`);
+}
+// Les anciens matchs de démo n'ont pas d'état de simulation : annulés (paris remboursés).
+db.query(
+  "UPDATE events SET status = 'cancelled', updated_at = ? WHERE id LIKE 'demo-%' AND status = 'scheduled' AND sim IS NULL",
+).run(Date.now());

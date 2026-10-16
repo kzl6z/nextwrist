@@ -2,6 +2,7 @@ import { db } from "../db";
 import { HttpError } from "../http";
 import { randomInt } from "../rng";
 import { applyTx, getBalance, MAX_STAKE, parseStake } from "../wallet";
+import { recordRound } from "./common";
 
 // Roulette européenne (un seul zéro).
 const RED = new Set([1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]);
@@ -63,6 +64,7 @@ export const spinRoulette = db.transaction((userId: number, rawBets: unknown) =>
   const results = bets.map((b) => ({ ...b, win: b.amount * payout(b, number) }));
   const totalWin = results.reduce((s, b) => s + b.win, 0);
   const balance = totalWin > 0 ? applyTx(userId, totalWin, "roulette_win") : getBalance(userId);
+  recordRound(userId, "roulette", totalBet, totalWin);
 
   return {
     number,

@@ -2,6 +2,7 @@ import { db } from "../db";
 import { HttpError } from "../http";
 import { shuffle } from "../rng";
 import { applyTx, getBalance, parseStake } from "../wallet";
+import { recordRound } from "./common";
 
 // Sabot de 6 jeux remélangé à chaque main. Croupier reste sur tous les 17.
 // Blackjack payé 3:2. Pas de split ni d'assurance pour l'instant.
@@ -76,6 +77,7 @@ function settle(userId: number, hand: Hand, status: Exclude<Status, "playing">) 
   hand.status = status;
   hand.payout = { blackjack: hand.bet + Math.floor(hand.bet * 1.5), won: hand.bet * 2, push: hand.bet, lost: 0 }[status];
   if (hand.payout > 0) applyTx(userId, hand.payout, "blackjack_win");
+  recordRound(userId, "blackjack", hand.bet, hand.payout);
 }
 
 function dealerPlays(userId: number, hand: Hand) {
