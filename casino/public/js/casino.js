@@ -15,18 +15,32 @@ export const GAMES = [
   { id: "keno", name: "Keno", cat: "originals", blurb: "Choisis jusqu'à dix numéros sur quarante", meta: "RTP 97,5 à 98,6 %" },
   { id: "wheel", name: "Roue", cat: "originals", blurb: "Trente cases, trois niveaux de risque", meta: "RTP 98,3 à 98,7 %" },
   { id: "coinflip", name: "Pile ou face", cat: "originals", blurb: "Double ta mise à chaque bon choix", meta: "RTP 98 %" },
+  { id: "diamonds", name: "Diamonds", cat: "originals", blurb: "Cinq gemmes, compose la meilleure main", meta: "RTP 98,3 %" },
+  { id: "crossing", name: "Traversée", cat: "arcade", blurb: "Traverse voie après voie sans te faire faucher", meta: "RTP 98 %" },
+  { id: "balloon", name: "Ballon", cat: "arcade", blurb: "Gonfle, encaisse avant qu'il n'éclate", meta: "RTP 98 %" },
+  { id: "penalty", name: "Penalty", cat: "arcade", blurb: "Choisis ton coin, le gardien plonge", meta: "RTP 97 %" },
+  { id: "rps", name: "Pierre-feuille-ciseaux", cat: "arcade", blurb: "Chaque victoire double ton gain", meta: "RTP 98 %" },
+  { id: "darts", name: "Fléchettes", cat: "arcade", blurb: "Plus près du centre, plus gros le gain", meta: "RTP 98 à 98,3 %" },
+  { id: "chest", name: "Coffres", cat: "arcade", blurb: "Ouvre un coffre, jusqu'à ×500", meta: "RTP 97,9 à 98 %" },
+  { id: "race", name: "Course hippique", cat: "arcade", blurb: "Six chevaux, gagnant ou placé", meta: "RTP 94 %" },
   { id: "roulette", name: "Roulette", cat: "tables", blurb: "Européenne, un seul zéro", meta: "RTP 97,3 %" },
   { id: "blackjack", name: "Blackjack", cat: "tables", blurb: "Bats le croupier sans dépasser 21", meta: "Blackjack payé 3:2" },
   { id: "baccarat", name: "Baccarat", cat: "tables", blurb: "Joueur, banquier ou égalité", meta: "RTP 98,9 % sur le banquier" },
   { id: "videopoker", name: "Video poker", cat: "tables", blurb: "Jacks or Better, table 9/6", meta: "RTP 99,5 % en jeu optimal" },
+  { id: "dragontiger", name: "Dragon Tiger", cat: "tables", blurb: "Une carte chacun, la plus haute gagne", meta: "RTP 96,3 %" },
+  { id: "sicbo", name: "Sic Bo", cat: "tables", blurb: "Trois dés, des dizaines de paris", meta: "RTP 97,2 % sur petit / grand" },
+  { id: "threecard", name: "Three Card Poker", cat: "tables", blurb: "Trois cartes contre le croupier", meta: "RTP 97,7 à 98,1 %" },
   { id: "slots", name: "Fruit Frenzy", cat: "machines", blurb: "Trois rouleaux, jusqu'à ×500", meta: "RTP 93,5 %" },
+  { id: "slot5", name: "Nuit dorée", cat: "machines", blurb: "Cinq rouleaux, dix lignes, jokers et lunes", meta: "RTP 96,4 %" },
+  { id: "scratch", name: "Ticket à gratter", cat: "machines", blurb: "Trois symboles identiques, jusqu'à ×1 000", meta: "RTP 95,5 %" },
 ];
 export const gameName = (id) => GAMES.find((g) => g.id === id)?.name ?? id;
 const CATS = [
   ["all", "Tous les jeux"],
   ["originals", "Originaux"],
+  ["arcade", "Arcade"],
   ["tables", "Jeux de table"],
-  ["machines", "Machines"],
+  ["machines", "Machines et tickets"],
 ];
 let lobbyCat = "all";
 
@@ -49,7 +63,7 @@ export function casinoSidebar() {
 /* ---------- Lobby ---------- */
 function renderLobby() {
   view().innerHTML = `
-    <div class="page-head"><div><h1>Casino</h1><p>Quinze jeux à parties instantanées. Le taux de redistribution de chaque jeu est affiché et vérifiable.</p></div></div>
+    <div class="page-head"><div><h1>Casino</h1><p>${GAMES.length} jeux à parties instantanées. Le taux de redistribution de chaque jeu est affiché et vérifiable.</p></div></div>
     <div class="chips lobby-cats" id="lobby-cats"></div>
     <div class="games" id="games"></div>
     <section class="section">

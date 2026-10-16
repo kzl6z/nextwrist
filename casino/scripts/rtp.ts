@@ -6,9 +6,39 @@ import { SYMBOLS, slotMultiplier } from "../src/games/slots";
 import { minesMultiplier, TOWER, towerMultiplier } from "../src/games/steps";
 import { BACCARAT_PAYS, dealBaccarat } from "../src/games/tables";
 import { newDeck } from "../src/games/common";
+import {
+  CHESTS,
+  DARTS,
+  DIAMOND_COLORS,
+  DIAMOND_PAYS,
+  diamondHand,
+  DT_PAYS,
+  newRace,
+  placeProb,
+  SCRATCH_PRIZES,
+  SICBO_TOTALS,
+  sicboPay,
+  SLOT5_SCATTER,
+  SLOT5_WEIGHTS,
+  slot5LinePay,
+} from "../src/games/more";
+import {
+  ANTE_BONUS,
+  BALLOON,
+  balloonMultiplier,
+  CROSSING,
+  crossMultiplier,
+  PAIR_PLUS,
+  PENALTY,
+  penaltyMultiplier,
+  rpsMultiplier,
+  tcpCompare,
+  tcpEvaluate,
+  tcpQualifies,
+} from "../src/games/more-steps";
 
 const pct = (x: number) => `${(x * 100).toFixed(2).replace(".", ",")} %`;
-const line = (name: string, value: string) => console.log(`${name.padEnd(34)} ${value}`);
+const line = (name: string, value: string) => console.log(`${name.padEnd(46)} ${value}`);
 const comb = (n: number, k: number) => {
   let r = 1;
   for (let i = 1; i <= k; i++) r = (r * (n - k + i)) / i;
@@ -72,3 +102,122 @@ line("Baccarat joueur (simulation)", pct(ret.player / B));
 line("Baccarat banquier (simulation)", pct(ret.banker / B));
 line("Baccarat égalité (simulation)", pct(ret.tie / B));
 line("Video poker 9/6 (jeu optimal, théorique)", pct(0.9954));
+
+/* ---------- Deuxième série de jeux ---------- */
+console.log("");
+
+// Dragon Tiger (exact, sabot de 8 jeux)
+const pTie = 31 / 415;
+for (const k of ["dragon", "tie"] as const) {
+  const rtp = ((1 - pTie) / 2) * (DT_PAYS[k].dragon + DT_PAYS[k].tiger) + pTie * DT_PAYS[k].tie;
+  line(`Dragon Tiger, ${k === "dragon" ? "dragon ou tigre" : "égalité"}`, pct(rtp));
+}
+
+// Sic Bo (exact, 216 combinaisons)
+const sicbo = (type: string, value?: number) => {
+  let s = 0;
+  for (let a = 1; a <= 6; a++) for (let b = 1; b <= 6; b++) for (let c = 1; c <= 6; c++) s += sicboPay(type, value, [a, b, c]);
+  return s / 216;
+};
+line("Sic Bo, petit / grand / pair / impair", pct(sicbo("small")));
+const totals = Object.keys(SICBO_TOTALS).map((t) => sicbo("total", Number(t)));
+line("Sic Bo, total précis", `${pct(Math.min(...totals))} à ${pct(Math.max(...totals))}`);
+line("Sic Bo, double / triple précis / tout triple", `${pct(sicbo("double", 1))} / ${pct(sicbo("triple", 1))} / ${pct(sicbo("anytriple"))}`);
+line("Sic Bo, numéro simple", pct(sicbo("single", 1)));
+
+// Diamonds (exact)
+let diamonds = 0;
+const nd = DIAMOND_COLORS ** 5;
+for (let i = 0; i < nd; i++) {
+  const gems = Array.from({ length: 5 }, (_, k) => Math.floor(i / DIAMOND_COLORS ** k) % DIAMOND_COLORS);
+  diamonds += DIAMOND_PAYS.find(([h]) => h === diamondHand(gems))![2];
+}
+line("Diamonds", pct(diamonds / nd));
+
+// Ticket à gratter (exact)
+line("Ticket à gratter", pct(SCRATCH_PRIZES.reduce((s, [, m, p]) => s + m * p, 0)));
+
+// Fléchettes et Coffres (exact)
+const weighted = (t: [number, number][]) => t.reduce((s, [m, w]) => s + m * w, 0) / t.reduce((s, [, w]) => s + w, 0);
+for (const [risk, t] of Object.entries(DARTS)) line(`Fléchettes, risque ${risk}`, pct(weighted(t)));
+for (const [risk, t] of Object.entries(CHESTS)) line(`Coffres, risque ${risk}`, pct(weighted(t)));
+
+// Course hippique (exact sur 2 000 courses tirées au hasard)
+let win = 0;
+let place = 0;
+let bets = 0;
+for (let i = 0; i < 2000; i++) {
+  const card = newRace();
+  const p = card.horses.map((h) => h.p);
+  card.horses.forEach((h, k) => {
+    win += h.p * h.win;
+    place += placeProb(p, k) * h.place;
+    bets++;
+  });
+}
+line("Course hippique, gagnant", pct(win / bets));
+line("Course hippique, placé", pct(place / bets));
+
+// Nuit dorée, 5 rouleaux (exact)
+const tw = SLOT5_WEIGHTS.reduce((s, [, w]) => s + w, 0);
+const ns = SLOT5_WEIGHTS.length;
+let lines5 = 0;
+for (let a = 0; a < ns ** 5; a++) {
+  let x = a;
+  let prob = 1;
+  const symbols: string[] = [];
+  for (let r = 0; r < 5; r++) {
+    const [sym, w] = SLOT5_WEIGHTS[x % ns]!;
+    x = Math.floor(x / ns);
+    symbols.push(sym);
+    prob *= w / tw;
+  }
+  lines5 += prob * slot5LinePay(symbols).pay;
+}
+const ps = SLOT5_WEIGHTS.find(([sym]) => sym === "S")![1] / tw;
+let scatter = 0;
+for (let k = 3; k <= 15; k++) scatter += comb(15, k) * ps ** k * (1 - ps) ** (15 - k) * (SLOT5_SCATTER[Math.min(5, k)] ?? 0);
+line("Machine à sous Nuit dorée", pct(lines5 + scatter));
+
+// Three Card Poker : Pair Plus exact, Ante/Play par simulation (stratégie Dame-6-4)
+const deck52 = newDeck().sort();
+let pp = 0;
+let hands = 0;
+for (let i = 0; i < 52; i++)
+  for (let j = i + 1; j < 52; j++)
+    for (let k = j + 1; k < 52; k++) {
+      const h = tcpEvaluate([deck52[i]!, deck52[j]!, deck52[k]!]).hand;
+      pp += PAIR_PLUS[h] ? PAIR_PLUS[h]! + 1 : 0;
+      hands++;
+    }
+line("Three Card Poker, Pair Plus", pct(pp / hands));
+const T = 400_000;
+let staked = 0;
+let returned = 0;
+const Q64 = [0, 12, 6, 4];
+for (let i = 0; i < T; i++) {
+  const d = newDeck();
+  const p = tcpEvaluate([d.pop()!, d.pop()!, d.pop()!]);
+  const q = tcpEvaluate([d.pop()!, d.pop()!, d.pop()!]);
+  staked += 1;
+  if (tcpCompare(p.score, Q64) < 0) continue; // se coucher
+  staked += 1;
+  returned += ANTE_BONUS[p.hand] ?? 0;
+  if (!tcpQualifies(q.score)) returned += 3;
+  else {
+    const c = tcpCompare(p.score, q.score);
+    returned += c > 0 ? 4 : c === 0 ? 2 : 0;
+  }
+}
+line("Three Card Poker, Ante + Play (simulation)", pct(returned / staked));
+
+// Jeux « avance ou encaisse » : encaisser après 3 étapes (exact)
+for (const [mode, { p }] of Object.entries(CROSSING)) line(`Traversée ${mode}, 3 voies`, pct(p ** 3 * crossMultiplier(mode, 3)));
+for (const [mode, m] of Object.entries(BALLOON)) {
+  let survive = 1;
+  for (let i = 0; i < 3; i++) survive *= (25 - m - i) / (25 - i);
+  line(`Ballon ${mode}, 3 coups de pompe`, pct(survive * balloonMultiplier(mode, 3)));
+}
+for (const [mode, { keepers }] of Object.entries(PENALTY))
+  line(`Penalty ${mode}, 3 buts`, pct(((5 - keepers) / 5) ** 3 * penaltyMultiplier(mode, 3)));
+line("Pierre-feuille-ciseaux, 3 victoires", pct(0.5 ** 3 * rpsMultiplier(3)));

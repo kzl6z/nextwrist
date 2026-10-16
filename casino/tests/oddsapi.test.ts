@@ -48,3 +48,46 @@ test("cotes moyennes, marchés dérivés et ligne la plus proposée", async () =
   expect(p["ah:-1.5:home"]!.price).toBe(1.9);
   expect(p["ah:-1.5:away"]!.price).toBe(1.9);
 });
+
+test("lignes alternatives, totaux par équipe, quarts de point ignorés", async () => {
+  const { parseMarkets } = await import("../src/sports/oddsapi");
+  const ev = {
+    home_team: "Chiefs",
+    away_team: "Bills",
+    bookmakers: [
+      {
+        markets: [
+          { key: "h2h", outcomes: [{ name: "Chiefs", price: 1.7 }, { name: "Bills", price: 2.2 }] },
+          {
+            key: "alternate_spreads",
+            outcomes: [
+              { name: "Chiefs", price: 2.6, point: -7.5 },
+              { name: "Bills", price: 1.5, point: 7.5 },
+              { name: "Chiefs", price: 1.9, point: -3 },
+              { name: "Bills", price: 1.9, point: 3 },
+              { name: "Chiefs", price: 1.8, point: -2.25 },
+              { name: "Bills", price: 2, point: 2.25 },
+            ],
+          },
+          {
+            key: "team_totals",
+            outcomes: [
+              { name: "Over", description: "Chiefs", price: 1.9, point: 24.5 },
+              { name: "Under", description: "Chiefs", price: 1.9, point: 24.5 },
+              { name: "Over", description: "Bills", price: 1.85, point: 21.5 },
+              { name: "Under", description: "Bills", price: 1.95, point: 21.5 },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const s = parseMarkets(ev);
+  expect(s["ah:-7.5:home"]!.price).toBe(2.6);
+  expect(s["ah:-7.5:away"]!.price).toBe(1.5);
+  expect(s["ah:-3:home"]!.price).toBe(1.9); // ligne entière : remboursée en cas d'égalité
+  expect(s["ah:-2.25:home"]).toBeUndefined();
+  expect(s["th:24.5:over"]!.price).toBe(1.9);
+  expect(s["ta:21.5:under"]!.price).toBe(1.95);
+  expect(s.draw).toBeUndefined();
+});

@@ -72,7 +72,11 @@ describe("paris sportifs", () => {
     const c = await newPlayer();
     const { data } = await c.call("sports/events");
     const sports = new Set([...data.events, ...data.live].map((e: any) => e.sport));
-    expect([...sports].sort()).toEqual(["basketball", "football", "hockey", "mma", "rugby", "tennis"]);
+    expect([...sports].sort()).toEqual([
+      "americanfootball", "badminton", "baseball", "basketball", "boxing", "darts", "esports", "football",
+      "handball", "hockey", "mma", "rugby", "snooker", "tabletennis", "tennis", "volleyball",
+    ]);
+    expect(data.counts.length).toBeGreaterThan(16);
     expect(data.live.length).toBeGreaterThan(0);
     const foot = data.events.find((e: any) => e.sport === "football");
     expect(foot.markets).toBeGreaterThan(40);
@@ -213,5 +217,92 @@ describe("jeux de casino", () => {
     expect(ledgerMatches()).toBe(true);
     const feed = await c.call("casino/history/videopoker");
     expect(feed.data).toHaveLength(1);
+  });
+  test("deuxième série : jeux à tirage unique", async () => {
+    const c = await newPlayer();
+    const calls: [string, object][] = [
+      ["dragontiger", { bets: { dragon: 10, tie: 5 } }],
+      ["sicbo", { bets: [{ type: "small", amount: 10 }, { type: "total", value: 9, amount: 5 }, { type: "single", value: 6, amount: 5 }] }],
+      ["diamonds", { bet: 10 }],
+      ["scratch", { bet: 10 }],
+      ["darts", { bet: 10, risk: "high" }],
+      ["chest", { bet: 10, risk: "medium" }],
+      ["slot5", { bet: 50 }],
+    ];
+    for (const [path, body] of calls) {
+      const r = await c.call(path, body);
+      expect([path, r.status]).toEqual([path, 200]);
+      expect(typeof r.data.balance).toBe("number");
+      expect(r.data.payout).toBeGreaterThanOrEqual(0);
+    }
+    // Ticket : un seul triplé au plus, et c'est celui du gain.
+    for (let i = 0; i < 20; i++) {
+      const { data } = await c.call("scratch", { bet: 1 });
+      const triples = [...new Set(data.grid)].filter((s) => data.grid.filter((x: string) => x === s).length >= 3);
+      expect(triples).toEqual(data.symbol ? [data.symbol] : []);
+    }
+    // Course : la carte est fixée avant la mise, le résultat est un ordre complet.
+    const card = await c.call("race");
+    expect(card.data.horses).toHaveLength(6);
+    const race = await c.call("race/bet", { bet: 10, horse: 2, type: "place" });
+    expect(race.data.horses).toEqual(card.data.horses);
+    expect([...race.data.order].sort()).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(race.data.won).toBe(race.data.order.indexOf(2) <= 1);
+    expect((await c.call("race")).data.horses).toEqual(race.data.next);
+    const bad: [string, object][] = [
+      ["dragontiger", { bets: {} }],
+      ["sicbo", { bets: [{ type: "total", value: 3, amount: 10 }] }],
+      ["sicbo", { bets: [{ type: "triple", value: 7, amount: 10 }] }],
+      ["darts", { bet: 10, risk: "extreme" }],
+      ["chest", { bet: 10 }],
+      ["slot5", { bet: 15 }],
+      ["race/bet", { bet: 10, horse: 6, type: "win" }],
+      ["race/bet", { bet: 10, horse: 1, type: "show" }],
+    ];
+    for (const [path, body] of bad) expect([path, (await c.call(path, body)).status]).toEqual([path, 400]);
+    expect(ledgerMatches()).toBe(true);
+  });
+
+  test("deuxième série : jeux en plusieurs étapes", async () => {
+    const c = await newPlayer();
+    // Three Card Poker : se coucher perd l'Ante, le Pair Plus est réglé quand même.
+    const tcp = await c.call("threecard/deal", { ante: 10, pairPlus: 5 });
+    expect(tcp.data.game.player).toHaveLength(3);
+    expect(tcp.data.game.dealer).toBeUndefined();
+    expect((await c.call("threecard/deal", { ante: 10 })).status).toBe(409);
+    const fold = await c.call("threecard/decide", { action: "fold" });
+    expect(fold.data.game.dealer).toHaveLength(3);
+    expect(fold.data.game.result.anteWin + fold.data.game.result.playWin).toBe(0);
+    await c.call("threecard/deal", { ante: 10 });
+    const play = await c.call("threecard/decide", { action: "play" });
+    expect(play.data.game.play).toBe(10);
+    // Traversée
+    expect((await c.call("crossing/start", { bet: 10, mode: "nope" })).status).toBe(400);
+    await c.call("crossing/start", { bet: 10, mode: "easy" });
+    expect((await c.call("crossing/cashout", {})).status).toBe(400);
+    const step = await c.call("crossing/step", {});
+    if (step.data.game.status === "playing") {
+      const cash = await c.call("crossing/cashout", {});
+      expect(cash.data.game.payout).toBe(Math.floor(10 * cash.data.game.multiplier));
+    } else expect(step.data.game.hitAt).toBe(0);
+    // Ballon : l'éclatement reste secret pendant la partie.
+    const b = await c.call("balloon/start", { bet: 10, mode: "expert" });
+    expect(b.data.game.burstAt).toBeUndefined();
+    let pump;
+    do pump = await c.call("balloon/pump", {});
+    while (pump.data.game.status === "playing");
+    expect(pump.data.game.status === "lost" ? pump.data.game.burstAt : 1).toBeGreaterThan(0);
+    // Penalty
+    await c.call("penalty/start", { bet: 10, mode: "hard" });
+    expect((await c.call("penalty/shoot", { zone: 5 })).status).toBe(400);
+    const kick = await c.call("penalty/shoot", { zone: 2 });
+    expect(kick.data.game.kicks[0].dive).toHaveLength(2);
+    expect(kick.data.game.kicks[0].goal).toBe(!kick.data.game.kicks[0].dive.includes(2));
+    // Pierre-feuille-ciseaux
+    const r = await c.call("rps/start", { bet: 10, move: "paper" });
+    expect(r.data.game.rounds[0].you).toBe("paper");
+    const again = r.data.game.status === "playing" ? c.call("rps/play", { move: "lizard" }) : c.call("rps/start", { bet: 10, move: "lizard" });
+    expect((await again).status).toBe(400);
+    expect(ledgerMatches()).toBe(true);
   });
 });

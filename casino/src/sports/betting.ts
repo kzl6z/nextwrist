@@ -15,36 +15,92 @@ const MAIN = ["home", "draw", "away"];
 /* =========================================================
    Flux réel
    ========================================================= */
-export const upsertEvents = db.transaction((events: FeedEvent[]) => {
-  const now = Date.now();
-  const upsert = db.query(
-    `INSERT INTO events (id, sport, league, home, away, starts_at, feed_key, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET starts_at = excluded.starts_at, updated_at = excluded.updated_at
-     WHERE events.status = 'scheduled'`,
-  );
-  const close = db.query("UPDATE selections SET price = NULL WHERE event_id = ?");
-  const setSel = db.query(
+/** Réglages du flux réel, fixés au démarrage par sync.ts. */
+export const feedConfig = {
+  /** Paris en direct sur les vrais matchs (cotes en cours de match). */
+  live: false,
+  /** Au-delà de cet âge, les cotes en direct d'un vrai match sont considérées périmées. */
+  liveMaxAgeMs: 120_000,
+  /** Durée de validité des marchés supplémentaires mis en cache. */
+  deepMaxAgeMs: 30 * 60_000,
+};
+
+/** Appelé quand un joueur ouvre la fiche d'un vrai match (chargement des marchés supplémentaires). */
+export const feedHooks: { onEventViewed?: (e: { id: string; feed_key: string | null; live: boolean; deep_at: number | null }) => void } = {};
+
+const setSelQuery = () =>
+  db.query(
     `INSERT INTO selections (event_id, key, price, prob) VALUES (?, ?, ?, ?)
      ON CONFLICT(event_id, key) DO UPDATE SET price = excluded.price, prob = excluded.prob`,
   );
+
+export const upsertEvents = db.transaction((events: FeedEvent[]) => {
+  const now = Date.now();
+  const upsert = db.query(
+    `INSERT INTO events (id, sport, league, home, away, starts_at, feed_key, odds_at, updated_at, status)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, CASE WHEN ?6 <= ?8 THEN 'live' ELSE 'scheduled' END)
+     ON CONFLICT(id) DO UPDATE SET starts_at = excluded.starts_at, odds_at = excluded.odds_at, updated_at = excluded.updated_at,
+       status = excluded.status
+     WHERE events.status IN ('scheduled', 'live')`,
+  );
+  const close = db.query("UPDATE selections SET price = NULL WHERE event_id = ?");
+  const deepOf = db.query("SELECT deep, deep_at, status FROM events WHERE id = ?");
+  const setSel = setSelQuery();
   for (const e of events) {
-    if (e.startsAt <= now) continue;
+    const started = e.startsAt <= now;
+    // Match commencé : on ne garde ses cotes que si le direct est activé.
+    if (started && !feedConfig.live) continue;
     upsert.run(e.id, e.sport, e.league, e.home, e.away, e.startsAt, e.feedKey ?? null, now);
+    const row = deepOf.get(e.id) as { deep: string | null; deep_at: number | null; status: string } | null;
+    if (!row || !["scheduled", "live"].includes(row.status)) continue;
     close.run(e.id);
-    for (const [key, s] of Object.entries(e.selections)) setSel.run(e.id, key, s.price, s.prob);
+    for (const [key, sel] of Object.entries(e.selections)) setSel.run(e.id, key, sel.price, sel.prob);
+    // Les marchés supplémentaires encore frais sont conservés par-dessus.
+    if (row.deep && row.deep_at && now - row.deep_at < (started ? feedConfig.liveMaxAgeMs : feedConfig.deepMaxAgeMs))
+      for (const [key, sel] of Object.entries(JSON.parse(row.deep) as FeedEvent["selections"]))
+        if (!e.selections[key]) setSel.run(e.id, key, sel.price, sel.prob);
   }
 });
 
-export const applyResults = db.transaction((results: FeedResult[]) => {
+/** Marchés supplémentaires d'un match, chargés à l'ouverture de sa fiche. */
+export const storeDeepMarkets = db.transaction((eventId: string, selections: FeedEvent["selections"]) => {
+  const now = Date.now();
+  db.query("UPDATE events SET deep = ?, deep_at = ?, odds_at = ? WHERE id = ? AND status IN ('scheduled', 'live')").run(
+    JSON.stringify(selections),
+    now,
+    now,
+    eventId,
+  );
+  const setSel = setSelQuery();
+  for (const [key, sel] of Object.entries(selections)) setSel.run(eventId, key, sel.price, sel.prob);
+});
+
+/** Scores en direct et résultats des vrais matchs. */
+export const applyScores = db.transaction((scores: { id: string; homeScore: number; awayScore: number; completed: boolean }[]) => {
+  const now = Date.now();
+  const live = db.query(
+    `UPDATE events SET status = 'live', home_score = ?, away_score = ?, clock = 'En cours', updated_at = ?
+     WHERE id = ? AND virtual = 0 AND status IN ('scheduled', 'live') AND starts_at <= ?`,
+  );
   const finish = db.query(
     `UPDATE events SET status = 'finished', home_score = ?, away_score = ?, clock = 'Terminé', updated_at = ?
-     WHERE id = ? AND status = 'scheduled' AND virtual = 0`,
+     WHERE id = ? AND virtual = 0 AND status IN ('scheduled', 'live')`,
   );
-  for (const r of results) finish.run(r.homeScore, r.awayScore, Date.now(), r.id);
-  db.query(
-    "UPDATE events SET status = 'cancelled', updated_at = ?1 WHERE status = 'scheduled' AND virtual = 0 AND starts_at < ?2",
-  ).run(Date.now(), Date.now() - STALE_MS);
+  const close = db.query("UPDATE selections SET price = NULL WHERE event_id = ?");
+  for (const r of scores) {
+    if (r.completed) {
+      finish.run(r.homeScore, r.awayScore, now, r.id);
+      close.run(r.id);
+    } else live.run(r.homeScore, r.awayScore, now, r.id, now);
+  }
 });
+
+export const applyResults = (results: FeedResult[]) => {
+  applyScores(results.map((r) => ({ ...r, completed: true })));
+  db.query(
+    "UPDATE events SET status = 'cancelled', updated_at = ?1 WHERE status IN ('scheduled', 'live') AND virtual = 0 AND starts_at < ?2",
+  ).run(Date.now(), Date.now() - STALE_MS);
+};
 
 /** Compétitions ayant au moins un match commencé depuis assez longtemps pour être fini. */
 export function feedKeysAwaitingResults(minAgeMs: number): string[] {
@@ -52,9 +108,22 @@ export function feedKeysAwaitingResults(minAgeMs: number): string[] {
     db
       .query(
         `SELECT DISTINCT feed_key FROM events
-         WHERE status = 'scheduled' AND virtual = 0 AND feed_key IS NOT NULL AND starts_at < ?`,
+         WHERE status IN ('scheduled', 'live') AND virtual = 0 AND feed_key IS NOT NULL AND starts_at < ?`,
       )
       .all(Date.now() - minAgeMs) as { feed_key: string }[]
+  ).map((r) => r.feed_key);
+}
+
+/** Compétitions ayant un vrai match en cours (pour le direct). */
+export function feedKeysLive(): string[] {
+  const now = Date.now();
+  return (
+    db
+      .query(
+        `SELECT DISTINCT feed_key FROM events
+         WHERE status IN ('scheduled', 'live') AND virtual = 0 AND feed_key IS NOT NULL AND starts_at <= ? AND starts_at > ?`,
+      )
+      .all(now, now - 5 * 3_600_000) as { feed_key: string }[]
   ).map((r) => r.feed_key);
 }
 
@@ -75,14 +144,22 @@ interface EventRow {
   away_score: number | null;
   detail: string | null;
   suspended_until: number | null;
+  odds_at: number | null;
+  feed_key: string | null;
+  deep_at: number | null;
 }
 
 const EVENT_COLS = `e.id, e.sport, e.league, e.home, e.away, e.starts_at, e.status, e.virtual, e.clock,
-  e.home_score, e.away_score, e.detail, e.suspended_until`;
+  e.home_score, e.away_score, e.detail, e.suspended_until, e.odds_at, e.feed_key, e.deep_at`;
 
-/** Un match est-il ouvert aux paris (avant le coup d'envoi, ou en direct pour les virtuels) ? */
+/**
+ * Un match est-il ouvert aux paris ? Avant le coup d'envoi, ou en direct : toujours pour les
+ * virtuels, et pour les vrais matchs seulement si le direct est activé et les cotes fraîches.
+ */
 const isOpen = (e: EventRow, now: number) =>
-  (e.status === "scheduled" && e.starts_at > now) || (e.status === "live" && e.virtual === 1);
+  (e.status === "scheduled" && e.starts_at > now) ||
+  (e.status === "live" &&
+    (e.virtual === 1 || (feedConfig.live && e.odds_at !== null && now - e.odds_at < feedConfig.liveMaxAgeMs)));
 
 function present(e: EventRow, now: number, full = false) {
   const live = e.status === "live" || (e.status === "scheduled" && e.starts_at <= now);
@@ -124,12 +201,35 @@ function withMainOdds(rows: EventRow[], now: number) {
   return rows.map((e) => ({ ...present(e, now), odds: main.get(e.id) ?? {}, markets: count.get(e.id) ?? 0 }));
 }
 
-export function listEvents() {
+/** Matchs à venir, éventuellement filtrés par sport et compétition. */
+export function listEvents(sport?: string | null, league?: string | null) {
   const now = Date.now();
+  const where = ["e.status = 'scheduled'", "e.starts_at > ?"];
+  const args: (string | number)[] = [now];
+  if (sport) {
+    where.push("e.sport = ?");
+    args.push(sport);
+  }
+  if (league) {
+    where.push("e.league = ?");
+    args.push(league);
+  }
   const rows = db
-    .query(`SELECT ${EVENT_COLS} FROM events e WHERE e.status = 'scheduled' AND e.starts_at > ? ORDER BY e.starts_at LIMIT 250`)
-    .all(now) as EventRow[];
+    .query(`SELECT ${EVENT_COLS} FROM events e WHERE ${where.join(" AND ")} ORDER BY e.starts_at LIMIT ${sport || league ? 400 : 160}`)
+    .all(...args) as EventRow[];
   return withMainOdds(rows, now);
+}
+
+/** Nombre de matchs à venir ou en direct par sport et par compétition (barre latérale). */
+export function eventCounts() {
+  const now = Date.now();
+  return db
+    .query(
+      `SELECT sport, league, COUNT(*) AS n FROM events
+       WHERE (status = 'scheduled' AND starts_at > ?1) OR status = 'live'
+       GROUP BY sport, league ORDER BY sport, n DESC`,
+    )
+    .all(now) as { sport: string; league: string; n: number }[];
 }
 
 /** Matchs en cours : virtuels en direct (cotes ouvertes) et réels commencés (paris fermés). */
@@ -139,7 +239,7 @@ export function liveEvents() {
     .query(
       `SELECT ${EVENT_COLS} FROM events e
        WHERE e.status = 'live' OR (e.status = 'scheduled' AND e.virtual = 0 AND e.starts_at <= ? AND e.starts_at > ?)
-       ORDER BY e.starts_at LIMIT 60`,
+       ORDER BY e.virtual DESC, e.starts_at LIMIT 120`,
     )
     .all(now, now - 3 * 60 * 60_000) as EventRow[];
   return withMainOdds(rows, now);
@@ -161,6 +261,9 @@ export function eventDetail(id: string) {
   const rows = db.query("SELECT key, price FROM selections WHERE event_id = ?").all(id) as { key: string; price: number | null }[];
   const selections: Record<string, number | null> = {};
   for (const r of rows) selections[r.key] = r.price;
+  // Vrai match : charge les marchés supplémentaires en arrière-plan (ils apparaissent au rafraîchissement).
+  if (!e.virtual && ["scheduled", "live"].includes(e.status) && isOpen(e, now))
+    feedHooks.onEventViewed?.({ id: e.id, feed_key: e.feed_key, live: e.status === "live", deep_at: e.deep_at });
   return { ...present(e, now, true), selections };
 }
 
@@ -269,6 +372,7 @@ interface LegState {
   virtual: number;
   starts_at: number;
   suspended_until: number | null;
+  odds_at: number | null;
   prob: number | null;
 }
 
@@ -276,7 +380,7 @@ interface LegState {
 function cashoutValue(bet: { id: number; stake: number; potential_win: number }, now: number): number | null {
   const legs = db
     .query(
-      `SELECT l.outcome, l.price, l.result, e.status, e.virtual, e.starts_at, e.suspended_until, s.prob
+      `SELECT l.outcome, l.price, l.result, e.status, e.virtual, e.starts_at, e.suspended_until, e.odds_at, s.prob
        FROM bet_legs l JOIN events e ON e.id = l.event_id
        LEFT JOIN selections s ON s.event_id = l.event_id AND s.key = l.outcome
        WHERE l.bet_id = ?`,
@@ -287,7 +391,10 @@ function cashoutValue(bet: { id: number; stake: number; potential_win: number },
     if (l.result === "lost") return null;
     if (l.result === "won") value *= l.price;
     else if (l.result === "pending") {
-      const open = (l.status === "scheduled" && l.starts_at > now) || (l.status === "live" && l.virtual === 1);
+      const open =
+        (l.status === "scheduled" && l.starts_at > now) ||
+        (l.status === "live" &&
+          (l.virtual === 1 || (feedConfig.live && l.odds_at !== null && now - l.odds_at < feedConfig.liveMaxAgeMs)));
       if (!open || l.prob === null || (l.suspended_until ?? 0) > now) return null;
       value *= l.price * l.prob;
     }

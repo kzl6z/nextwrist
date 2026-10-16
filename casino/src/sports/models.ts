@@ -1,130 +1,13 @@
 // Modèles des sports virtuels : chaque sport sait se coter (probabilités de tous
 // ses pronostics, à n'importe quel moment du match) et se jouer pas à pas.
 import { randomFloat, randomInt } from "../rng";
-import { scorePredicate, type Detail } from "./markets";
-import { chance, poisson, rugbyPoints, samplePoisson, shift, type Dist } from "./prob";
+import { decided, half, lineKeys, minute, result3, resultProbs, scoreProbs, type Model, type Sim, type SportId } from "./kit";
+import type { Detail } from "./markets";
+import { chance, poisson, rugbyPoints, samplePoisson, shift } from "./prob";
+import { EXTRA_MODELS } from "./models-extra";
 
-export type SportId = "football" | "basketball" | "tennis" | "rugby" | "hockey" | "mma";
-
-export interface Sim {
-  sport: SportId;
-  /** Temps de jeu écoulé (minutes de jeu ; jeux disputés pour le tennis). */
-  t: number;
-  /** Fin prévue (minutes de jeu), repoussée par les prolongations au basket. */
-  end: number;
-  h: number;
-  a: number;
-  p: Record<string, number>;
-  lines: Record<string, number[]>;
-  timeline: NonNullable<Detail["timeline"]>;
-  ht?: [number, number];
-  q?: [number, number][];
-  sets?: [number, number][];
-  cur?: [number, number];
-  games?: number;
-  acc?: number;
-  method?: "fin" | "dec";
-  round?: number;
-  done?: boolean;
-}
-
-export interface Model {
-  /** Durée nominale, en unités de jeu, calée sur la durée réelle d'un match virtuel. */
-  len: number;
-  create(d: number): Sim;
-  advance(s: Sim, dt: number): boolean;
-  probs(s: Sim): Map<string, number>;
-  clock(s: Sim): string;
-}
-
-const half = (x: number) => Math.round(x - 0.5) + 0.5;
-const minute = (t: number) => `${Math.max(1, Math.ceil(t))}'`;
-const result3 = (prefix: string) => [`${prefix}home`, `${prefix}draw`, `${prefix}away`];
-
-/* ---------- Cotation générique à partir de deux lois de score indépendantes ---------- */
-
-type KeyClass = "diff" | "sum" | "h" | "a" | "joint";
-function classOf(key: string): KeyClass {
-  const m = key.split(":")[0]!;
-  if (["home", "draw", "away", "dc", "ah", "mg"].includes(m)) return "diff";
-  if (m === "ou" || m === "oe") return "sum";
-  if (m === "th") return "h";
-  if (m === "ta") return "a";
-  return "joint";
-}
-
-/** Probabilités des pronostics qui ne dépendent que du score final. */
-export function scoreProbs(H: Dist, A: Dist, keys: string[], tieShare?: number): Map<string, number> {
-  const dMin = H.lo - (A.lo + A.p.length - 1);
-  const diff = new Float64Array(H.p.length + A.p.length - 1);
-  const sum = new Float64Array(H.p.length + A.p.length - 1);
-  const joint = keys.filter((k) => classOf(k) === "joint").map((k) => [k, scorePredicate(k)!] as const);
-  const jointAcc = new Float64Array(joint.length);
-  for (let i = 0; i < H.p.length; i++) {
-    const ph = H.p[i]!;
-    if (ph < 1e-13) continue;
-    const h = H.lo + i;
-    for (let j = 0; j < A.p.length; j++) {
-      const w = ph * A.p[j]!;
-      if (w < 1e-15) continue;
-      const a = A.lo + j;
-      diff[h - a - dMin]! += w;
-      sum[i + j]! += w;
-      for (let k = 0; k < joint.length; k++) if (joint[k]![1](h, a)) jointAcc[k]! += w;
-    }
-  }
-  const out = new Map<string, number>();
-  joint.forEach(([k], i) => out.set(k, jointAcc[i]!));
-  const over = (dist: Float64Array, lo: number, pred: (v: number) => boolean) => {
-    let s = 0;
-    for (let i = 0; i < dist.length; i++) if (dist[i]! > 0 && pred(lo + i)) s += dist[i]!;
-    return s;
-  };
-  const tie = diff[-dMin] ?? 0;
-  for (const k of keys) {
-    const cls = classOf(k);
-    if (cls === "joint") continue;
-    const pred = scorePredicate(k)!;
-    let p =
-      cls === "diff"
-        ? over(diff, dMin, (d) => pred(d, 0))
-        : cls === "sum"
-          ? over(sum, H.lo + A.lo, (s) => pred(s, 0))
-          : cls === "h"
-            ? over(H.p, H.lo, (v) => pred(v, 0))
-            : over(A.p, A.lo, (v) => pred(0, v));
-    // Sans match nul possible (prolongation), l'égalité est répartie entre les deux.
-    if (tieShare !== undefined && (k === "home" || k === "away")) p += tie * (k === "home" ? tieShare : 1 - tieShare);
-    if (tieShare !== undefined && k.startsWith("mg:") && Number(k.split(":")[2]) <= 1)
-      p += tie * (k.startsWith("mg:h") ? tieShare : 1 - tieShare);
-    out.set(k, p);
-  }
-  // Remboursé si nul : probabilité conditionnelle à l'absence de nul.
-  if (out.has("draw")) {
-    const ph = out.get("home")!;
-    const pa = out.get("away")!;
-    if (ph + pa > 1e-9) {
-      out.set("dnb:home", ph / (ph + pa));
-      out.set("dnb:away", pa / (ph + pa));
-    }
-  }
-  return out;
-}
-
-function resultProbs(H: Dist, A: Dist, prefix: string, out: Map<string, number>) {
-  const r = scoreProbs(H, A, ["home", "draw", "away"]);
-  for (const k of ["home", "draw", "away"]) out.set(prefix + k, r.get(k)!);
-}
-
-/** Résultat déjà connu (période terminée) : 1 pour l'issue réalisée, 0 sinon. */
-function decided(out: Map<string, number>, prefix: string, h: number, a: number, draw = true) {
-  out.set(`${prefix}home`, h > a ? 1 : 0);
-  out.set(`${prefix}away`, a > h ? 1 : 0);
-  if (draw) out.set(`${prefix}draw`, h === a ? 1 : 0);
-}
-
-const lineKeys = (m: string, lines: number[] = [], sides = ["over", "under"]) =>
-  lines.flatMap((L) => sides.map((s) => `${m}:${L}:${s}`));
+export type { Model, Sim, SportId } from "./kit";
+export { scoreProbs } from "./kit";
 
 /* ---------- Football ---------- */
 const football: Model = {
@@ -553,92 +436,132 @@ const tennis: Model = {
   clock: (s) => (s.done ? "Terminé" : `Set ${s.sets!.length + 1}`),
 };
 
-/* ---------- MMA (3 rounds de 5 minutes) ---------- */
-const mma: Model = {
-  len: 15,
-  create(d) {
-    return {
-      sport: "mma",
-      t: 0,
-      end: 15,
-      h: 0,
-      a: 0,
-      p: {
-        fh: 0.032 * Math.exp(0.55 * d),
-        fa: 0.032 * Math.exp(-0.55 * d),
-        dec: Math.min(0.9, Math.max(0.1, 0.5 + 0.32 * d)),
-      },
-      lines: {},
-      timeline: [],
-    };
-  },
-  advance(s, dt) {
-    if (s.done) return false;
-    const step = Math.min(dt, s.end - s.t);
-    const H = s.p.fh! + s.p.fa!;
-    if (chance(1 - Math.exp(-H * step))) {
-      const at = s.t + randomFloat() * step;
-      const homeWins = chance(s.p.fh! / H);
-      s.t = at;
-      s.round = Math.min(3, Math.floor(at / 5) + 1);
-      s.method = "fin";
-      s.done = true;
-      if (homeWins) s.h = 1;
-      else s.a = 1;
-      const kinds = ["KO", "TKO", "Soumission"];
-      s.timeline.push({ t: `R${s.round} ${mmss(at % 5)}`, side: homeWins ? "home" : "away", kind: kinds[randomInt(3)]! });
-      return true;
-    }
-    s.t += step;
-    if (s.t >= s.end) {
-      const homeWins = chance(s.p.dec!);
-      s.round = 3;
-      s.method = "dec";
-      s.done = true;
-      if (homeWins) s.h = 1;
-      else s.a = 1;
-      s.timeline.push({ t: "Décision", side: homeWins ? "home" : "away", kind: "Décision" });
-      return true;
-    }
-    return false;
-  },
-  probs(s) {
-    const out = new Map<string, number>();
-    if (s.done) {
-      out.set("home", s.h);
-      out.set("away", s.a);
+/* ---------- Sports de combat : MMA (3 × 5 min), boxe (12 × 3 min) ---------- */
+interface FightRules {
+  sport: SportId;
+  rounds: number;
+  roundLen: number;
+  /** Probabilité d'arrêt par minute, pour deux combattants de même niveau. */
+  hazard: number;
+  kinds: string[];
+  /** Regroupement des rounds pour le marché « round de la fin ». */
+  groups: [number, number][];
+}
+
+function fightModel(r: FightRules): Model {
+  const total = r.rounds * r.roundLen;
+  return {
+    len: total,
+    create(d) {
+      return {
+        sport: r.sport,
+        t: 0,
+        end: total,
+        h: 0,
+        a: 0,
+        p: {
+          fh: r.hazard * Math.exp(0.55 * d),
+          fa: r.hazard * Math.exp(-0.55 * d),
+          dec: Math.min(0.9, Math.max(0.1, 0.5 + 0.32 * d)),
+        },
+        lines: {},
+        timeline: [],
+      };
+    },
+    advance(s, dt) {
+      if (s.done) return false;
+      const step = Math.min(dt, s.end - s.t);
+      const H = s.p.fh! + s.p.fa!;
+      if (chance(1 - Math.exp(-H * step))) {
+        const at = s.t + randomFloat() * step;
+        const homeWins = chance(s.p.fh! / H);
+        s.t = at;
+        s.round = Math.min(r.rounds, Math.floor(at / r.roundLen) + 1);
+        s.method = "fin";
+        s.done = true;
+        if (homeWins) s.h = 1;
+        else s.a = 1;
+        s.timeline.push({ t: `R${s.round} ${mmss(at % r.roundLen)}`, side: homeWins ? "home" : "away", kind: r.kinds[randomInt(r.kinds.length)]! });
+        return true;
+      }
+      s.t += step;
+      if (s.t >= s.end) {
+        const homeWins = chance(s.p.dec!);
+        s.round = r.rounds;
+        s.method = "dec";
+        s.done = true;
+        if (homeWins) s.h = 1;
+        else s.a = 1;
+        s.timeline.push({ t: "Décision", side: homeWins ? "home" : "away", kind: "Décision" });
+        return true;
+      }
+      return false;
+    },
+    probs(s) {
+      const out = new Map<string, number>();
+      if (s.done) {
+        out.set("home", s.h);
+        out.set("away", s.a);
+        return out;
+      }
+      const H = s.p.fh! + s.p.fa!;
+      const surv = (t: number) => Math.exp(-H * Math.max(0, t - s.t));
+      const pFin = 1 - surv(total);
+      const hf = (s.p.fh! / H) * pFin;
+      const af = (s.p.fa! / H) * pFin;
+      const dec = 1 - pFin;
+      out.set("home", hf + dec * s.p.dec!);
+      out.set("away", af + dec * (1 - s.p.dec!));
+      out.set("fin:yes", pFin);
+      out.set("fin:no", dec);
+      out.set("mt:home:fin", hf);
+      out.set("mt:home:dec", dec * s.p.dec!);
+      out.set("mt:away:fin", af);
+      out.set("mt:away:dec", dec * (1 - s.p.dec!));
+      for (const [a, b] of r.groups)
+        out.set(a === b ? `rd:${a}` : `rd:${a}:${b}`, surv((a - 1) * r.roundLen) - surv(b * r.roundLen));
       return out;
-    }
-    const H = s.p.fh! + s.p.fa!;
-    const surv = (t: number) => Math.exp(-H * Math.max(0, t - s.t));
-    const pFin = 1 - surv(15);
-    const hf = (s.p.fh! / H) * pFin;
-    const af = (s.p.fa! / H) * pFin;
-    const dec = 1 - pFin;
-    out.set("home", hf + dec * s.p.dec!);
-    out.set("away", af + dec * (1 - s.p.dec!));
-    out.set("fin:yes", pFin);
-    out.set("fin:no", dec);
-    out.set("mt:home:fin", hf);
-    out.set("mt:home:dec", dec * s.p.dec!);
-    out.set("mt:away:fin", af);
-    out.set("mt:away:dec", dec * (1 - s.p.dec!));
-    for (const r of [1, 2, 3]) out.set(`rd:${r}`, surv((r - 1) * 5) - surv(r * 5));
-    return out;
-  },
-  clock(s) {
-    if (s.done) return "Terminé";
-    const round = Math.min(3, Math.floor(s.t / 5) + 1);
-    return `R${round} ${mmss(s.t - (round - 1) * 5)}`;
-  },
-};
+    },
+    clock(s) {
+      if (s.done) return "Terminé";
+      const round = Math.min(r.rounds, Math.floor(s.t / r.roundLen) + 1);
+      return `R${round} ${mmss(s.t - (round - 1) * r.roundLen)}`;
+    },
+  };
+}
+
+const mma = fightModel({
+  sport: "mma",
+  rounds: 3,
+  roundLen: 5,
+  hazard: 0.032,
+  kinds: ["KO", "TKO", "Soumission"],
+  groups: [
+    [1, 1],
+    [2, 2],
+    [3, 3],
+  ],
+});
+const boxing = fightModel({
+  sport: "boxing",
+  rounds: 12,
+  roundLen: 3,
+  hazard: 0.014,
+  kinds: ["KO", "TKO", "Arrêt de l'arbitre"],
+  groups: [
+    [1, 3],
+    [4, 6],
+    [7, 9],
+    [10, 12],
+  ],
+});
 
 function mmss(minutes: number) {
   const sec = Math.floor(minutes * 60);
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 }
 
-export const MODELS: Record<SportId, Model> = { football, basketball, tennis, rugby, hockey, mma };
+export const MODELS: Record<SportId, Model> = { football, basketball, tennis, rugby, hockey, mma, boxing, ...EXTRA_MODELS };
 
 /** Détails publics d'un match (frise, mi-temps, sets…) pour l'affichage et le règlement. */
 export function detailOf(s: Sim): Detail {
@@ -647,7 +570,7 @@ export function detailOf(s: Sim): Detail {
     ht: s.ht,
     q: s.q,
     sets: s.sets,
-    cur: s.sport === "tennis" && !s.done ? s.cur : undefined,
+    cur: s.sets && !s.done ? s.cur : undefined,
     games: s.sport === "tennis" ? s.games : undefined,
     method: s.method,
     round: s.round,

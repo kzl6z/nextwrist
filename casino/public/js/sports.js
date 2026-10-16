@@ -47,12 +47,28 @@ const allEvents = () => [...sp.live, ...sp.events];
 const findEvent = (id) => allEvents().find((e) => e.id === id) ?? (sp.match?.id === id ? sp.match : null);
 
 /* ---------- Chargement ---------- */
+/** Nombre de matchs ouverts par sport, et par compétition (venant du serveur). */
+const SPORT_ORDER = ["football", "basketball", "tennis", "rugby", "hockey", "handball", "volleyball", "americanfootball", "baseball", "mma", "boxing", "darts", "snooker", "tabletennis", "badminton", "esports", "cricket"];
+const sportRank = (s) => (SPORT_ORDER.includes(s) ? SPORT_ORDER.indexOf(s) : 99);
+function sportCounts() {
+  const bySportMap = new Map();
+  for (const c of sp.counts ?? []) bySportMap.set(c.sport, (bySportMap.get(c.sport) ?? 0) + c.n);
+  return new Map([...bySportMap].sort((a, b) => sportRank(a[0]) - sportRank(b[0]) || a[0].localeCompare(b[0])));
+}
+function leagueCounts(sport) {
+  return new Map((sp.counts ?? []).filter((c) => sport === "all" || c.sport === sport).map((c) => [c.league, c.n]));
+}
+
 export async function loadEvents() {
   try {
-    const d = await api("sports/events");
+    const q = new URLSearchParams();
+    if (sp.filter.sport !== "all") q.set("sport", sp.filter.sport);
+    if (sp.filter.league) q.set("league", sp.filter.league);
+    const d = await api(`sports/events${q.size ? `?${q}` : ""}`);
     sp.events = d.events;
     sp.live = d.live;
     sp.results = d.results;
+    sp.counts = d.counts;
     sp.loadedAt = Date.now();
     paintLiveCount();
     syncSlip();
@@ -89,7 +105,7 @@ function oddBtn(ev, key, price, label) {
     ${label ? `<span class="odd-label">${esc(label)}</span>` : ""}<span class="odd-price">${price.toFixed(2)}</span></button>`;
 }
 
-const mainKeys = (ev) => (ev.odds?.draw !== undefined || ["football", "hockey", "rugby"].includes(ev.sport) ? MAIN : ["home", "away"]);
+const mainKeys = (ev) => (ev.odds?.draw !== undefined || ["football", "hockey", "rugby", "handball"].includes(ev.sport) ? MAIN : ["home", "away"]);
 const mainOdds = (ev, labels = true) =>
   `<div class="odds-row" style="--cols:${mainKeys(ev).length}">${mainKeys(ev)
     .map((k) => oddBtn(ev, k, ev.odds?.[k], labels ? (k === "draw" ? "N" : k === "home" ? "1" : "2") : ""))
@@ -109,7 +125,7 @@ function clockHtml(ev) {
 function scoreNote(ev) {
   const d = ev.detail;
   if (!d) return "";
-  if (ev.sport === "tennis" && (d.sets?.length || d.cur))
+  if (d.sets?.length || d.cur)
     return [...(d.sets ?? []).map(([a, b]) => `${a}-${b}`), d.cur ? `<b>${d.cur[0]}-${d.cur[1]}</b>` : ""].filter(Boolean).join(" ");
   return "";
 }
@@ -122,6 +138,7 @@ function renderSports() {
   view().innerHTML = `
     <section class="feature" id="feature"></section>
     <div class="sport-tabs chips" id="sport-tabs"></div>
+    <div class="chips league-chips" id="league-chips"></div>
     <section class="section" id="live-section"></section>
     <section class="section" id="upcoming">
       <div class="section-head"><h2>Prochains matchs</h2><span class="note" id="match-count"></span></div>
@@ -184,21 +201,32 @@ function paintFeature() {
 
 function eventLabel(ev, t) {
   const team = t.side === "home" ? ev.home : ev.away;
-  const kinds = { goal: "But", try: "Essai", pen: "Pénalité", set: "Set gagné" };
+  if (t.kind === "set") return `pour ${team}`;
+  if (t.kind === "run") return `${t.pts > 1 ? `${t.pts} points` : "1 point"}, ${team}`;
+  const kinds = { goal: "But", try: "Essai", pen: "Pénalité", td: "Touchdown", fg: "Field goal" };
   const k = kinds[t.kind] ?? t.kind;
-  return `${k}${t.pts && t.kind !== "set" ? ` (${t.pts} pts)` : ""}, ${team}`;
+  return `${k}${t.pts && !["goal"].includes(t.kind) ? ` (${t.pts} pts)` : ""}, ${team}`;
 }
 
 function paintSportTabs() {
   const el = $("#sport-tabs");
   if (!el) return;
-  const counts = countBy(allEvents().filter((e) => e.open), (e) => e.sport);
+  const counts = sportCounts();
   const s = sp.filter.sport;
   el.innerHTML =
     `<button class="chip ${s === "all" ? "active" : ""}" data-filter-sport="all">Tous les sports <span class="n">${[...counts.values()].reduce((a, b) => a + b, 0)}</span></button>` +
     [...counts]
       .map(([k, n]) => `<button class="chip ${s === k ? "active" : ""}" data-filter-sport="${esc(k)}">${sportIcon(k, { size: 16 })}${esc(sportName(k))} <span class="n">${n}</span></button>`)
       .join("");
+  // Compétitions du sport choisi (utile sur téléphone, sans barre latérale).
+  const leagues = $("#league-chips");
+  if (leagues)
+    leagues.innerHTML =
+      s === "all"
+        ? ""
+        : [...leagueCounts(s)]
+            .map(([l, n]) => `<button class="chip ${sp.filter.league === l ? "active" : ""}" data-filter-league="${esc(l)}">${esc(l)} <span class="n">${n}</span></button>`)
+            .join("");
 }
 
 const bySport = (list) => list.filter((e) => sp.filter.sport === "all" || e.sport === sp.filter.sport);
@@ -310,12 +338,10 @@ function resultCard(r) {
 export function sportsSidebar() {
   const el = $("#sidebar");
   if (!el) return;
-  const open = allEvents().filter((e) => e.open);
-  const counts = countBy(open, (e) => e.sport);
-  const leagues = countBy(
-    open.filter((e) => sp.filter.sport === "all" || e.sport === sp.filter.sport),
-    (e) => e.league,
-  );
+  const counts = sportCounts();
+  const total = [...counts.values()].reduce((a, b) => a + b, 0);
+  // Avec tous les sports réels, la liste des compétitions n'est montrée que pour le sport choisi.
+  const leagues = sp.filter.sport === "all" && (sp.counts?.length ?? 0) > 40 ? new Map() : leagueCounts(sp.filter.sport);
   const liveN = sp.live.filter((e) => e.open).length;
   const link = (attr, value, ico, label, n, active) =>
     `<button class="side-link ${active ? "active" : ""}" ${attr}="${esc(value)}">${ico}<span class="lbl">${esc(label)}</span><span class="n">${n}</span></button>`;
@@ -324,7 +350,7 @@ export function sportsSidebar() {
       <a class="side-link ${state.page === "live" ? "active" : ""}" href="#/live"><span class="live-dot"></span><span class="lbl">En direct</span><span class="n">${liveN}</span></a>
     </div>
     <div class="side-group"><h4>Sports</h4>
-      ${link("data-filter-sport", "all", icon("star", { size: 18 }), "Tous les sports", open.length, sp.filter.sport === "all" && !sp.filter.league && state.page === "sports")}
+      ${link("data-filter-sport", "all", icon("star", { size: 18 }), "Tous les sports", total, sp.filter.sport === "all" && !sp.filter.league && state.page === "sports")}
       ${[...counts].map(([s, n]) => link("data-filter-sport", s, sportIcon(s, { size: 18 }), sportName(s), n, sp.filter.sport === s && !sp.filter.league && state.page === "sports")).join("")}
     </div>
     <div class="side-group"><h4>Compétitions</h4>
@@ -811,6 +837,7 @@ export function sportsClick(e) {
     else if (state.page !== "sports") location.hash = "#/sports";
     else paintSports();
     sportsSidebar();
+    if (state.page !== "live") loadEvents();
     return true;
   }
   const league = t.closest("[data-filter-league]");
@@ -820,6 +847,7 @@ export function sportsClick(e) {
     if (state.page !== "sports") location.hash = "#/sports";
     else paintSports();
     sportsSidebar();
+    loadEvents();
     $("#upcoming")?.scrollIntoView({ behavior: "smooth", block: "start" });
     return true;
   }
@@ -866,6 +894,7 @@ export function sportsClick(e) {
     sp.filter = { sport: "all", league: null, day: "all" };
     paintSports();
     sportsSidebar();
+    loadEvents();
     return true;
   }
   if (action === "clear-slip") {

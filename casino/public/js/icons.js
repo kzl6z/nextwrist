@@ -18,6 +18,19 @@ const PATHS = {
   americanfootball:
     '<ellipse cx="12" cy="12" rx="10" ry="6" transform="rotate(-35 12 12)"/><path d="M9 15l6-6M10.4 11.6l2 2M12 10l2 2"/>',
   baseball: '<circle cx="12" cy="12" r="9"/><path d="M6.5 5c2 2 2 12 0 14M17.5 5c-2 2-2 12 0 14"/>',
+  handball: '<path d="M3 20V6h18v14"/><path d="M3 10h18M7 6v14M11 6v14M15 6v14M19 6v14" opacity=".35"/><circle cx="12" cy="15" r="3.6" fill="#0e100f"/><path d="M9.6 13.6c1.5.5 3.3.5 4.8 0"/>',
+  volleyball:
+    '<circle cx="12" cy="12" r="9"/><path d="M12 3c2.6 2.3 3.6 5.4 3 9M4.2 7.6c3.4-.6 6.4.4 7.8 4.4M7 19.5c-.4-3.4 1.4-6 5-7.5M12 12c3 1.6 5.6 1.8 8.6.6"/>',
+  tabletennis: '<circle cx="9.5" cy="9.5" r="6"/><path d="M13.7 13.7l5.8 5.8"/><circle cx="18.5" cy="5.5" r="1.8"/>',
+  badminton: '<path d="M5.5 18.5l2-2 3 3-2 2a2.1 2.1 0 01-3-3z"/><path d="M7.5 16.5L14 4M10.5 19.5L20 10M9 18l8.5-11.5M14 4l6 6"/>',
+  darts: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><path d="M12 12l6.5-6.5M16.5 3.5l.6 3.4 3.4.6"/>',
+  snooker: '<circle cx="8" cy="15" r="3"/><circle cx="14" cy="15" r="3"/><circle cx="11" cy="9.8" r="3"/><path d="M3 21l7-5" opacity=".6"/>',
+  esports:
+    '<path d="M7 8h10a4 4 0 014 4v2.5a2.5 2.5 0 01-4.5 1.5L15 14H9l-1.5 2A2.5 2.5 0 013 14.5V12a4 4 0 014-4z"/><path d="M8 11v3M6.5 12.5h3"/><circle cx="15.5" cy="11.5" r=".8" fill="currentColor"/><circle cx="17.5" cy="13" r=".8" fill="currentColor"/>',
+  boxing: '<path d="M6 12V8.5A4.5 4.5 0 0110.5 4H13a5 5 0 015 5v4.5a5.5 5.5 0 01-5.5 5.5H11a5 5 0 01-5-5z"/><path d="M6 12a2.5 2.5 0 002.5 2.5H12M10 19v2h6v-2.5"/>',
+  cricket: '<path d="M4.5 19.5l9.5-9.5 2.5 2.5L7 22z"/><path d="M14 10l4.5-4.5"/><circle cx="18" cy="17" r="2.2"/>',
+  aussierules: '<ellipse cx="12" cy="12" rx="10" ry="6" transform="rotate(-35 12 12)"/><path d="M8.6 15.4l6.8-6.8"/>',
+  golf: '<path d="M8 21V3l10 4-10 4"/><ellipse cx="9" cy="21" rx="5" ry="1"/>',
   trophy: '<path d="M8 4h8v5a4 4 0 01-8 0zM8 6H5a3 3 0 003 4M16 6h3a3 3 0 01-3 4M12 13v4M8.5 20h7M10 17h4"/>',
   live: '<circle cx="12" cy="12" r="2.4"/><path d="M8.2 8.2a5.4 5.4 0 000 7.6M15.8 8.2a5.4 5.4 0 010 7.6M5.4 5.4a9.3 9.3 0 000 13.2M18.6 5.4a9.3 9.3 0 010 13.2"/>',
   casino: '<path d="M12 3.5c3.5 3.2 7 5.6 7 9a3.6 3.6 0 01-6 2.6L14 20h-4l1-4.9a3.6 3.6 0 01-6-2.6c0-3.4 3.5-5.8 7-9z"/>',
@@ -206,3 +219,120 @@ export const SLOT_SYMBOLS = {
 };
 
 export const SUIT_RED = new Set(["♥", "♦"]);
+
+/* =========================================================
+   Deuxième série de jeux : illustrations du lobby
+   ========================================================= */
+function die(x, y, s, face, rot = 0, opacity = 1) {
+  const P = { 1: [[0.5, 0.5]], 2: [[0.27, 0.27], [0.73, 0.73]], 3: [[0.27, 0.27], [0.5, 0.5], [0.73, 0.73]], 4: [[0.27, 0.27], [0.73, 0.27], [0.27, 0.73], [0.73, 0.73]], 5: [[0.27, 0.27], [0.73, 0.27], [0.5, 0.5], [0.27, 0.73], [0.73, 0.73]], 6: [[0.27, 0.25], [0.73, 0.25], [0.27, 0.5], [0.73, 0.5], [0.27, 0.75], [0.73, 0.75]] };
+  return `<g transform="rotate(${rot} ${x + s / 2} ${y + s / 2})" opacity="${opacity}"><rect x="${x}" y="${y}" width="${s}" height="${s}" rx="${s * 0.18}" fill="#0e100f"/>${P[face].map(([a, b]) => `<circle cx="${x + a * s}" cy="${y + b * s}" r="${s * 0.075}" fill="currentColor" stroke="none"/>`).join("")}</g>`;
+}
+
+Object.assign(GAME_ART, {
+  dragontiger: art(`
+    ${card(26, 56, "D", "♦", -12, true)}
+    ${card(114, 56, "T", "♣", 12)}
+    <path d="M100 82l12 16-12 16-12-16z" fill="#0e100f"/>
+    <path d="M94 98h12" opacity=".6"/>`),
+  sicbo: art(`
+    <ellipse cx="100" cy="112" rx="78" ry="56" opacity=".25"/>
+    ${die(46, 84, 52, 5, -14)}${die(104, 90, 50, 3, 10)}${die(76, 36, 48, 6, 4, 0.8)}`),
+  diamonds: art(`
+    <g transform="translate(18 92) scale(1.25)" opacity=".5"><path d="M4 8h22l6 8-17 20L-2 16z"/><path d="M-2 16h34M11 8l-3 8 7 20 7-20-3-8"/></g>
+    <g transform="translate(140 92) scale(1.25)" opacity=".5"><path d="M4 8h22l6 8-17 20L-2 16z"/><path d="M-2 16h34M11 8l-3 8 7 20 7-20-3-8"/></g>
+    <g transform="translate(62 46) scale(2.4)" stroke-width=".9"><path d="M4 8h22l6 8-17 20L-2 16z" fill="currentColor" fill-opacity=".14"/><path d="M-2 16h34M11 8l-3 8 7 20 7-20-3-8"/></g>
+    <path d="M100 26v-10M124 34l7-7M76 34l-7-7" opacity=".6"/>
+    <path d="M40 162h120" opacity=".3"/>`),
+  scratch: art(`
+    <rect x="30" y="44" width="140" height="112" rx="10"/>
+    ${Array.from({ length: 9 }, (_, k) => {
+      const x = 58 + (k % 3) * 42;
+      const y = 72 + Math.floor(k / 3) * 30;
+      return k < 5 ? `<circle cx="${x}" cy="${y}" r="10" ${k % 2 === 0 ? 'fill="currentColor" fill-opacity=".25"' : ""}/>` : `<rect x="${x - 15}" y="${y - 11}" width="30" height="22" rx="4" fill="currentColor" fill-opacity=".55" stroke="none"/>`;
+    }).join("")}
+    <path d="M128 150l26-44 10 6-26 44z" fill="#0e100f"/><path d="M134 140l14 8" opacity=".6"/>`),
+  darts: art(`
+    <circle cx="96" cy="108" r="64"/><circle cx="96" cy="108" r="46" opacity=".55"/><circle cx="96" cy="108" r="28" opacity=".75"/><circle cx="96" cy="108" r="9" fill="currentColor"/>
+    ${Array.from({ length: 10 }, (_, i) => {
+      const a = (i / 10) * Math.PI * 2;
+      return `<path d="M${(96 + 28 * Math.cos(a)).toFixed(1)} ${(108 + 28 * Math.sin(a)).toFixed(1)}L${(96 + 64 * Math.cos(a)).toFixed(1)} ${(108 + 64 * Math.sin(a)).toFixed(1)}" opacity=".25"/>`;
+    }).join("")}
+    <path d="M100 104l58-58"/><path d="M150 40l14-2-2 14M156 46l12-2-2 12" opacity=".8"/>`),
+  chest: art(`
+    <path d="M44 104h112v54a6 6 0 01-6 6H50a6 6 0 01-6-6z"/>
+    <path d="M44 104c0-26 20-40 56-40s56 14 56 40" opacity=".5" transform="rotate(-14 44 104)"/>
+    <path d="M44 124h112M92 104v26h16v-26" opacity=".6"/>
+    <path d="M100 58V34M70 66L58 46M130 66l12-20M80 92l-26-8M120 92l26-8" opacity=".55"/>
+    <circle cx="100" cy="88" r="7" fill="currentColor"/>`),
+  race: art(`
+    <path d="M60 46c-14 10-22 28-22 50 0 30 16 54 30 64l14-8C70 142 60 122 60 96c0-20 8-34 18-42zM140 46c14 10 22 28 22 50 0 30-16 54-30 64l-14-8c12-10 22-30 22-56 0-20-8-34-18-42z"/>
+    ${[[52, 78], [47, 100], [52, 124], [148, 78], [153, 100], [148, 124]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="2.6" fill="currentColor" stroke="none"/>`).join("")}
+    <path d="M86 40h28" opacity=".5"/>
+    <text x="100" y="114" text-anchor="middle" font-family="Bodoni Moda Variable, serif" font-size="34" font-weight="600" fill="currentColor" stroke="none">1</text>`),
+  slot5: art(`
+    <rect x="20" y="50" width="160" height="100" rx="12"/>
+    ${[0, 1, 2, 3, 4].map((i) => `<rect x="${30 + i * 29}" y="60" width="24" height="80" rx="5" opacity=".35"/>`).join("")}
+    <path d="M42 120L71 82l29 38 29-38 29 38" opacity=".9"/>
+    ${[[42, 120], [71, 82], [100, 120], [129, 82], [158, 120]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="5" fill="currentColor" stroke="none"/>`).join("")}
+    <path d="M150 34a14 14 0 1010 24 11 11 0 01-10-24z" fill="currentColor" stroke="none" opacity=".9"/>`),
+  threecard: art(`${card(26, 62, "A", "♥", -14, true)}${card(70, 52, "K", "♥", 0, true)}${card(114, 62, "Q", "♥", 14, true)}`),
+  crossing: art(`
+    <path d="M30 40v124M170 40v124" opacity=".5"/>
+    <path d="M65 40v124M100 40v124M135 40v124" stroke-dasharray="10 9" opacity=".35"/>
+    <path d="M110 60h18a6 6 0 016 6v26a6 6 0 01-6 6h-18a6 6 0 01-6-6V66a6 6 0 016-6z" opacity=".75"/><path d="M108 72h22M108 86h22" opacity=".5"/>
+    <circle cx="48" cy="128" r="11" fill="currentColor" fill-opacity=".2"/><path d="M48 117v-8M44 109h8"/>
+    <path d="M62 128h24M80 122l6 6-6 6" opacity=".8"/>`),
+  balloon: art(`
+    <path d="M100 30c-30 0-48 24-48 52 0 32 26 54 44 62l-4 8h16l-4-8c18-8 44-30 44-62 0-28-18-52-48-52z"/>
+    <path d="M78 58c-8 8-10 18-9 28" opacity=".55"/>
+    <path d="M100 152c-6 10 6 16 0 26" opacity=".7"/>
+    <text x="100" y="98" text-anchor="middle" font-family="Bodoni Moda Variable, serif" font-size="28" font-weight="600" fill="currentColor" stroke="none">×</text>`),
+  penalty: art(`
+    <path d="M26 150V58h148v92"/>
+    <path d="M26 82h148M26 106h148M26 130h148M54 58v92M82 58v92M110 58v92M138 58v92M166 58v92" opacity=".18"/>
+    <path d="M14 150h172" opacity=".5"/>
+    <circle cx="140" cy="80" r="13" fill="#0e100f"/><path d="M140 70l6 5-2 7h-8l-2-7z" fill="currentColor" stroke="none"/>
+    <path d="M100 176c10-30 22-60 34-86" stroke-dasharray="3 6" opacity=".6"/>`),
+  rps: art(`
+    <circle cx="100" cy="58" r="26"/><circle cx="56" cy="134" r="26"/><circle cx="144" cy="134" r="26"/>
+    <path d="M90 64c-2-8 4-16 12-15 7 1 10 8 8 14-2 5-8 7-13 6-4-1-6-2-7-5z" fill="currentColor" fill-opacity=".25"/>
+    <path d="M46 122h16l6 6v18H46z"/><path d="M62 122v6h6" opacity=".6"/>
+    <circle cx="136" cy="144" r="5"/><circle cx="152" cy="144" r="5"/><path d="M139 140l14-18M149 140l-14-18"/>
+    <path d="M122 70l12 34M78 70l-12 34M76 148h44" opacity=".35" stroke-dasharray="4 5"/>`),
+});
+
+/* ---------- Nuit dorée : symboles des 5 rouleaux ---------- */
+const letter = (t) => sym(`<text x="32" y="45" text-anchor="middle" font-family="Bodoni Moda Variable, serif" font-size="${t.length > 1 ? 30 : 36}" font-weight="600" fill="currentColor" stroke="none">${t}</text><path d="M14 52h36" opacity=".35"/>`);
+export const SLOT5_SYMBOLS = {
+  10: letter("10"),
+  J: letter("V"),
+  Q: letter("D"),
+  K: letter("R"),
+  A: letter("A"),
+  bell: SLOT_SYMBOLS["🔔"],
+  crown: sym('<path d="M10 46l-2-26 13 11 11-17 11 17 13-11-2 26z"/><path d="M10 52h44"/><circle cx="32" cy="36" r="3" fill="currentColor"/>'),
+  gem: SLOT_SYMBOLS["💎"],
+  W: sym('<circle cx="32" cy="32" r="20"/><path d="M32 4v6M32 54v6M4 32h6M54 32h6M12 12l4 4M48 48l4 4M12 52l4-4M48 16l4-4" opacity=".7"/><text x="32" y="40" text-anchor="middle" font-family="Bodoni Moda Variable, serif" font-size="22" font-weight="700" fill="currentColor" stroke="none">W</text>'),
+  S: sym('<path d="M38 10a22 22 0 1016 34A18 18 0 0138 10z" fill="currentColor" fill-opacity=".2"/><path d="M48 14l2 5 5 1-4 3 1 5-4-3-5 3 1-5-4-3 5-1z" fill="currentColor" stroke="none"/>'),
+};
+
+/* ---------- Diamonds : sept gemmes, une forme par couleur ---------- */
+const GEM_SHAPES = [
+  '<path d="M16 12h32l10 14-26 28L6 26z"/><path d="M6 26h52M24 12l-5 14 13 28 13-28-5-14" opacity=".55"/>',
+  '<rect x="12" y="12" width="40" height="40" rx="4"/><rect x="21" y="21" width="22" height="22" rx="2" opacity=".55"/><path d="M12 12l9 9M52 12l-9 9M12 52l9-9M52 52l-9-9" opacity=".55"/>',
+  '<path d="M32 8l26 46H6z"/><path d="M32 22l12 24H20z" opacity=".55"/><path d="M32 8v14M6 54l14-8M58 54l-14-8" opacity=".55"/>',
+  '<path d="M32 6l23 13v26L32 58 9 45V19z"/><path d="M32 18l12 7v14l-12 7-12-7V25z" opacity=".55"/>',
+  '<path d="M32 4c14 12 20 20 20 28s-6 16-20 28C18 48 12 40 12 32s6-16 20-28z"/><path d="M32 4v56M12 32h40" opacity=".55"/>',
+  '<path d="M32 56L10 32c-6-7-3-20 8-21 6 0 10 3 14 9 4-6 8-9 14-9 11 1 14 14 8 21z"/><path d="M32 20v36M18 22l14 34 14-34" opacity=".5"/>',
+  '<path d="M22 6h20l14 14v24L42 58H22L8 44V20z"/><path d="M26 18h12l8 8v12l-8 8H26l-8-8V26z" opacity=".55"/>',
+];
+export const GEM_COLORS = ["#4f9a78", "#c0544a", "#5a7fbc", "#9a74b8", "#d1b06c", "#5fb0ae", "#e3dccb"];
+export const gemSvg = (i, size = 56) =>
+  `<svg class="gem-art" width="${size}" height="${size}" viewBox="0 0 64 64" fill="none" stroke="${GEM_COLORS[i]}" stroke-width="2.4" stroke-linejoin="round" aria-hidden="true" style="--gc:${GEM_COLORS[i]}"><g fill="${GEM_COLORS[i]}" fill-opacity=".16">${GEM_SHAPES[i]}</g></svg>`;
+
+/* ---------- Pierre-feuille-ciseaux ---------- */
+export const RPS_ART = {
+  rock: svg('<path d="M10 42l5-15 12-11 16 1 11 12-2 15-13 7H21z"/><path d="M27 16l5 13-17-2M32 29h22M32 29l-7 20" opacity=".45"/>', { size: 56, vb: 64, sw: 2.4, cls: "rps-art" }),
+  paper: svg('<path d="M16 8h24l10 10v38H16z"/><path d="M40 8v10h10"/><path d="M22 28h20M22 36h20M22 44h14" opacity=".55"/>', { size: 56, vb: 64, sw: 2.4, cls: "rps-art" }),
+  scissors: svg('<circle cx="18" cy="46" r="7"/><circle cx="46" cy="46" r="7"/><path d="M23 41L46 8M41 41L18 8"/><circle cx="32" cy="26" r="1.6" fill="currentColor"/>', { size: 56, vb: 64, sw: 2.4, cls: "rps-art" }),
+};

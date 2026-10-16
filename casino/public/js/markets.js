@@ -6,14 +6,26 @@ import { fmtDec } from "./core.js";
 const UNIT = {
   football: ["but", "buts"],
   hockey: ["but", "buts"],
+  handball: ["but", "buts"],
   basketball: ["point", "points"],
   rugby: ["point", "points"],
+  baseball: ["point", "points"],
+  americanfootball: ["point", "points"],
   tennis: ["set", "sets"],
+  volleyball: ["set", "sets"],
+  badminton: ["set", "sets"],
+  tabletennis: ["manche", "manches"],
+  esports: ["carte", "cartes"],
+  darts: ["leg", "legs"],
+  snooker: ["frame", "frames"],
 };
+/** Sports dont le score compte des sets, manches, cartes, legs ou frames. */
+const SET_SPORTS = new Set(["tennis", "volleyball", "badminton", "tabletennis", "esports", "darts", "snooker"]);
+const FIRST = { tabletennis: "1re manche", esports: "1re carte" };
 const unit = (sport) => (UNIT[sport] ?? ["point", "points"])[1];
 const line = (L) => fmtDec(Math.abs(Number(L)), Number(L) % 1 ? 1 : 0);
 const signed = (L) => (Number(L) > 0 ? "+" : Number(L) < 0 ? "−" : "") + line(L);
-const hasDraw = (sport) => ["football", "hockey", "rugby"].includes(sport);
+const hasDraw = (sport) => ["football", "hockey", "rugby", "handball"].includes(sport);
 
 /** { group, market, pick, short } pour une clé et un match. */
 export function describe(key, ev) {
@@ -43,7 +55,7 @@ export function describe(key, ev) {
     case "ou":
       return {
         group: "ou",
-        market: sport === "tennis" ? "Nombre de sets" : `Total de ${unit(sport)}`,
+        market: SET_SPORTS.has(sport) ? `Nombre de ${unit(sport)}` : `Total de ${unit(sport)}`,
         pick: `${y === "over" ? "Plus" : "Moins"} de ${line(x)}`,
         short: y === "over" ? "Plus" : "Moins",
         line: line(x),
@@ -61,7 +73,7 @@ export function describe(key, ev) {
       const L = Number(x);
       return {
         group: "ah",
-        market: sport === "tennis" ? "Handicap en sets" : "Handicap",
+        market: SET_SPORTS.has(sport) ? `Handicap en ${unit(sport)}` : "Handicap",
         pick: y === "home" ? `${home} ${signed(L)}` : `${away} ${signed(-L)}`,
         short: y === "home" ? signed(L) : signed(-L),
         line: signed(L),
@@ -72,7 +84,7 @@ export function describe(key, ev) {
     case "cs":
       return {
         group: "cs",
-        market: sport === "tennis" ? "Score en sets" : "Score exact",
+        market: SET_SPORTS.has(sport) ? `Score en ${unit(sport)}` : "Score exact",
         pick: x === "other" ? "Autre score" : x,
         short: x === "other" ? "Autre" : x,
       };
@@ -90,7 +102,7 @@ export function describe(key, ev) {
     case "q1":
       return { group: "q1", market: "1er quart-temps", pick: team(x), short: short(x) };
     case "s1":
-      return { group: "s1", market: "1er set", pick: team(x), short: short(x) };
+      return { group: "s1", market: FIRST[sport] ?? "1er set", pick: team(x), short: short(x) };
     case "games":
       return { group: "games", market: "Nombre de jeux", pick: `${y === "over" ? "Plus" : "Moins"} de ${line(x)} jeux`, short: y === "over" ? "Plus" : "Moins", line: line(x) };
     case "fin":
@@ -98,7 +110,7 @@ export function describe(key, ev) {
     case "mt":
       return { group: "mt", market: "Vainqueur et méthode", pick: `${team(x)} ${y === "fin" ? "avant la limite" : "aux points"}`, short: y === "fin" ? "Avant la limite" : "Aux points", side: x };
     case "rd":
-      return { group: "rd", market: "Round de la fin", pick: `Round ${x}`, short: `Round ${x}` };
+      return { group: "rd", market: "Round de la fin", pick: y ? `Rounds ${x} à ${y}` : `Round ${x}`, short: y ? `Rounds ${x} à ${y}` : `Round ${x}` };
     default:
       return { group: "other", market: "Autre", pick: key, short: key };
   }

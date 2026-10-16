@@ -111,6 +111,18 @@ export const SPORTS = {
   mma: "MMA",
   americanfootball: "Football américain",
   baseball: "Baseball",
+  boxing: "Boxe",
+  handball: "Handball",
+  volleyball: "Volley-ball",
+  tabletennis: "Tennis de table",
+  badminton: "Badminton",
+  darts: "Fléchettes",
+  snooker: "Snooker",
+  esports: "E-sport",
+  cricket: "Cricket",
+  aussierules: "Football australien",
+  golf: "Golf",
+  icehockey: "Hockey sur glace",
 };
 export const sportName = (s) => SPORTS[s] ?? s;
 

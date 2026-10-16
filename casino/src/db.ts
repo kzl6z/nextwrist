@@ -110,6 +110,10 @@ addColumn("events", "detail", "TEXT");
 addColumn("events", "sim", "TEXT");
 addColumn("events", "virtual", "INTEGER NOT NULL DEFAULT 0");
 addColumn("events", "suspended_until", "INTEGER");
+// Flux réel : fraîcheur des cotes (direct) et marchés supplémentaires mis en cache.
+addColumn("events", "odds_at", "INTEGER");
+addColumn("events", "deep", "TEXT");
+addColumn("events", "deep_at", "INTEGER");
 
 db.exec(`
 -- Tous les pronostics d'un match (clé décrite dans sports/markets.ts).

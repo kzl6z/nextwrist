@@ -32,8 +32,42 @@ import {
   startTower,
 } from "./games/steps";
 import { dealPoker, drawPoker, getPoker, playBaccarat, POKER_PAYS } from "./games/tables";
+import {
+  getRace,
+  moreConfig,
+  playChest,
+  playDarts,
+  playDiamonds,
+  playDragonTiger,
+  playRace,
+  playScratch,
+  playSicbo,
+  playSlot5,
+} from "./games/more";
+import {
+  cashoutBalloon,
+  cashoutCrossing,
+  cashoutPenalty,
+  cashoutRps,
+  dealThreeCard,
+  decideThreeCard,
+  getBalloon,
+  getCrossing,
+  getPenalty,
+  getRps,
+  getThreeCard,
+  moreStepsConfig,
+  playRps,
+  pumpBalloon,
+  shootPenalty,
+  startBalloon,
+  startCrossing,
+  startPenalty,
+  startRps,
+  stepCrossing,
+} from "./games/more-steps";
 import { HttpError } from "./http";
-import { cashOut, eventDetail, listEvents, liveEvents, myBets, placeBet, recentResults } from "./sports/betting";
+import { cashOut, eventCounts, eventDetail, listEvents, liveEvents, myBets, placeBet, recentResults } from "./sports/betting";
 import { feedMode, startSportsSync, virtualOn } from "./sports/sync";
 import { claimDailyBonus, DAILY_BONUS, leaderboard, listTransactions, nextBonusAt } from "./wallet";
 
@@ -69,6 +103,8 @@ const withSession = (token: string | null) =>
 const GAMES = new Set([
   "crash", "roulette", "slots", "blackjack", "dice", "limbo", "plinko", "wheel", "keno",
   "mines", "hilo", "tower", "coinflip", "baccarat", "videopoker",
+  "dragontiger", "sicbo", "diamonds", "scratch", "darts", "chest", "race", "slot5",
+  "threecard", "crossing", "balloon", "penalty", "rps",
 ]);
 
 const server = Bun.serve({
@@ -92,7 +128,7 @@ const server = Bun.serve({
     "/api/leaderboard": { GET: api(() => leaderboard()) },
 
     /* ---------- Casino ---------- */
-    "/api/casino/config": { GET: api(() => ({ ...casinoConfig(), poker: POKER_PAYS })) },
+    "/api/casino/config": { GET: api(() => ({ ...casinoConfig(), poker: POKER_PAYS, ...moreConfig(), ...moreStepsConfig() })) },
     "/api/casino/feed": { GET: api(() => bigWins()) },
     "/api/casino/history/:game": {
       GET: api(({ req, user }) => {
@@ -136,6 +172,40 @@ const server = Bun.serve({
     "/api/tower/pick": { POST: api(({ user, body }) => pickTower(user.id, body.col)) },
     "/api/tower/cashout": { POST: api(({ user }) => cashoutTower(user.id)) },
 
+    "/api/dragontiger": { POST: api(({ user, body }) => playDragonTiger(user.id, body.bets)) },
+    "/api/sicbo": { POST: api(({ user, body }) => playSicbo(user.id, body.bets)) },
+    "/api/diamonds": { POST: api(({ user, body }) => playDiamonds(user.id, body.bet)) },
+    "/api/scratch": { POST: api(({ user, body }) => playScratch(user.id, body.bet)) },
+    "/api/darts": { POST: api(({ user, body }) => playDarts(user.id, body.bet, body.risk)) },
+    "/api/chest": { POST: api(({ user, body }) => playChest(user.id, body.bet, body.risk)) },
+    "/api/slot5": { POST: api(({ user, body }) => playSlot5(user.id, body.bet)) },
+    "/api/race": { GET: api(({ user }) => getRace(user.id)) },
+    "/api/race/bet": { POST: api(({ user, body }) => playRace(user.id, body.bet, body.horse, body.type)) },
+
+    "/api/threecard": { GET: api(({ user }) => getThreeCard(user.id)) },
+    "/api/threecard/deal": { POST: api(({ user, body }) => dealThreeCard(user.id, body.ante, body.pairPlus)) },
+    "/api/threecard/decide": { POST: api(({ user, body }) => decideThreeCard(user.id, body.action)) },
+
+    "/api/crossing": { GET: api(({ user }) => getCrossing(user.id)) },
+    "/api/crossing/start": { POST: api(({ user, body }) => startCrossing(user.id, body.bet, body.mode)) },
+    "/api/crossing/step": { POST: api(({ user }) => stepCrossing(user.id)) },
+    "/api/crossing/cashout": { POST: api(({ user }) => cashoutCrossing(user.id)) },
+
+    "/api/balloon": { GET: api(({ user }) => getBalloon(user.id)) },
+    "/api/balloon/start": { POST: api(({ user, body }) => startBalloon(user.id, body.bet, body.mode)) },
+    "/api/balloon/pump": { POST: api(({ user }) => pumpBalloon(user.id)) },
+    "/api/balloon/cashout": { POST: api(({ user }) => cashoutBalloon(user.id)) },
+
+    "/api/penalty": { GET: api(({ user }) => getPenalty(user.id)) },
+    "/api/penalty/start": { POST: api(({ user, body }) => startPenalty(user.id, body.bet, body.mode)) },
+    "/api/penalty/shoot": { POST: api(({ user, body }) => shootPenalty(user.id, body.zone)) },
+    "/api/penalty/cashout": { POST: api(({ user }) => cashoutPenalty(user.id)) },
+
+    "/api/rps": { GET: api(({ user }) => getRps(user.id)) },
+    "/api/rps/start": { POST: api(({ user, body }) => startRps(user.id, body.bet, body.move)) },
+    "/api/rps/play": { POST: api(({ user, body }) => playRps(user.id, body.move)) },
+    "/api/rps/cashout": { POST: api(({ user }) => cashoutRps(user.id)) },
+
     "/api/coinflip": { GET: api(({ user }) => getCoin(user.id)) },
     "/api/coinflip/start": { POST: api(({ user, body }) => startCoin(user.id, body.bet, body.side)) },
     "/api/coinflip/flip": { POST: api(({ user, body }) => flipCoin(user.id, body.side)) },
@@ -146,7 +216,17 @@ const server = Bun.serve({
     "/api/videopoker/draw": { POST: api(({ user, body }) => drawPoker(user.id, body.holds)) },
 
     /* ---------- Paris sportifs ---------- */
-    "/api/sports/events": { GET: api(() => ({ events: listEvents(), live: liveEvents(), results: recentResults() })) },
+    "/api/sports/events": {
+      GET: api(({ req }) => {
+        const q = new URL(req.url).searchParams;
+        return {
+          events: listEvents(q.get("sport"), q.get("league")),
+          live: liveEvents(),
+          results: recentResults(),
+          counts: eventCounts(),
+        };
+      }),
+    },
     "/api/sports/live": { GET: api(() => ({ live: liveEvents() })) },
     "/api/sports/event/:id": { GET: api(({ req }) => eventDetail((req as any).params.id)) },
     "/api/sports/bets": {

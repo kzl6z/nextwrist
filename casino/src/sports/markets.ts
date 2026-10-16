@@ -17,7 +17,7 @@
 //   games:L:over|under            Nombre total de jeux (tennis)     (detail.games)
 //   fin:yes | fin:no              Combat terminé avant la limite    (detail.method)
 //   mt:home:fin|dec  mt:away:…    Vainqueur + méthode               (detail.method)
-//   rd:N                          Fin du combat au round N          (detail.round)
+//   rd:N | rd:A:B                 Fin du combat au round N, ou entre A et B (detail.round)
 
 export type Result = "won" | "lost" | "void";
 
@@ -135,9 +135,12 @@ export function grade(
     case "mt":
       if (!d.method) return "void";
       return cmp(h, a, x!) && d.method === y ? "won" : "lost";
-    case "rd":
+    case "rd": {
       if (!d.method) return "void";
-      return d.method === "fin" && d.round === Number(x) ? "won" : "lost";
+      const lo = Number(x);
+      const hi = y === undefined ? lo : Number(y);
+      return d.method === "fin" && d.round! >= lo && d.round! <= hi ? "won" : "lost";
+    }
   }
   return "void";
 }

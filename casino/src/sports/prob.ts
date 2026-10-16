@@ -62,13 +62,15 @@ export function scale(d: Dist, k: number): Dist {
 }
 
 /**
- * Points marqués au rugby sur la durée restante : essais (5 pts, transformés
- * à 2 pts avec la probabilité `conv`) et pénalités (3 pts), chacun poissonnien.
+ * Points d'un sport « à actions » sur la durée restante : des actions principales
+ * (essai, touchdown) valant `mainPts`, chacune suivie d'une transformation de `convPts`
+ * réussie avec la probabilité `conv`, et des actions secondaires (pénalité, field goal)
+ * valant `sidePts`. Chaque type d'action suit une loi de Poisson.
  */
-export function rugbyPoints(tries: number, pens: number, conv: number): Dist {
-  const T = poisson(tries);
+export function compoundPoints(main: number, mainPts: number, conv: number, convPts: number, side: number, sidePts: number): Dist {
+  const T = poisson(main);
   const maxT = T.lo + T.p.length - 1;
-  const p = new Float64Array(maxT * 7 + 1);
+  const p = new Float64Array(maxT * (mainPts + convPts) + 1);
   for (let i = 0; i < T.p.length; i++) {
     const t = T.lo + i;
     const pt = T.p[i]!;
@@ -76,12 +78,15 @@ export function rugbyPoints(tries: number, pens: number, conv: number): Dist {
     // Binomiale(t, conv) pour les transformations.
     let c = Math.pow(1 - conv, t);
     for (let k = 0; k <= t; k++) {
-      p[5 * t + 2 * k]! += pt * c;
+      p[mainPts * t + convPts * k]! += pt * c;
       c = k < t ? (c * (t - k) * conv) / ((k + 1) * (1 - conv)) : 0;
     }
   }
-  return convolve(trim({ lo: 0, p }), scale(poisson(pens), 3));
+  return convolve(trim({ lo: 0, p }), scale(poisson(side), sidePts));
 }
+
+/** Rugby : essais (5 pts, transformés à 2 pts) et pénalités (3 pts). */
+export const rugbyPoints = (tries: number, pens: number, conv: number) => compoundPoints(tries, 5, conv, 2, pens, 3);
 
 /** Tirage poissonnien (pour de petites espérances, comme un pas de simulation). */
 export function samplePoisson(lambda: number): number {

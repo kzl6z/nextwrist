@@ -24,10 +24,40 @@ const LEAGUES: League[] = [
   { name: "Top 14", sport: "rugby", teams: ["Toulouse", "La Rochelle", "Bordeaux-Bègles", "Toulon", "Racing 92", "Stade Français", "Clermont", "Castres", "Pau", "Bayonne", "Montpellier", "Lyon OU"] },
   { name: "NHL", sport: "hockey", teams: ["Panthers", "Oilers", "Rangers", "Stars", "Avalanche", "Golden Knights", "Maple Leafs", "Bruins", "Hurricanes", "Jets", "Canadiens", "Lightning"] },
   { name: "UFC", sport: "mma", teams: ["C. Gane", "T. Aspinall", "B. Saint-Denis", "I. Makhachev", "A. Pereira", "M. Dvalishvili", "I. Topuria", "A. Pantoja", "D. du Plessis", "K. Chimaev", "J. Della Maddalena", "N. Imavov", "M. Nicolau", "F. Lapilus"] },
-];
+
+  { name: "Boxe, poids lourds", sport: "boxing", teams: ["O. Usyk", "D. Dubois", "J. Parker", "A. Joshua", "T. Fury", "F. Hrgovic", "Z. Zhang", "M. Bakole", "T. Yoka", "J. Joyce"] },
+  { name: "Boxe, mi-lourds", sport: "boxing", teams: ["D. Bivol", "A. Beterbiev", "J. Benavidez", "C. Smith", "J. Bivol", "M. Lenin", "C. Eubank Jr", "S. Alvarez", "J. Munguia", "W. Scull"] },
+  { name: "Starligue", sport: "handball", teams: ["PSG Handball", "Montpellier", "Nantes", "Aix", "Chambéry", "Nîmes", "Toulouse", "Dunkerque", "Limoges", "Chartres"] },
+  { name: "Ligue des champions EHF", sport: "handball", teams: ["Barcelone", "Kiel", "Veszprém", "Magdebourg", "Aalborg", "Kielce", "Füchse Berlin", "Szeged"] },
+  { name: "Ligue A", sport: "volleyball", teams: ["Tours", "Montpellier", "Chaumont", "Poitiers", "Plessis-Robinson", "Narbonne", "Cannes", "Toulouse", "Sète", "Nantes Rezé"] },
+  { name: "Superlega", sport: "volleyball", teams: ["Pérouse", "Trentin", "Civitanova", "Monza", "Milan", "Modène", "Vérone", "Plaisance"] },
+  { name: "WTT Champions", sport: "tabletennis", teams: ["F. Lebrun", "A. Lebrun", "T. Harimoto", "Wang Chuqin", "Fan Zhendong", "Lin Shidong", "H. Calderano", "T. Moregard", "D. Ovtcharov", "Lin Yun-Ju", "Liang Jingkun", "S. Gauzy"] },
+  { name: "BWF World Tour", sport: "badminton", teams: ["V. Axelsen", "Shi Yuqi", "A. Antonsen", "C. Popov", "T. Popov", "K. Vitidsarn", "Loh Kean Yew", "A. Ginting", "L. Sen", "Li Shifeng", "K. Naraoka", "J. Christie"] },
+  { name: "Premier League Darts", sport: "darts", teams: ["L. Littler", "L. Humphries", "M. van Gerwen", "G. Price", "M. Smith", "R. Cross", "N. Aspinall", "S. Bunting", "J. Clayton", "D. Chisnall", "P. Wright", "G. Anderson"] },
+  { name: "World Snooker Tour", sport: "snooker", teams: ["R. O'Sullivan", "J. Trump", "M. Selby", "K. Wilson", "Zhao Xintong", "N. Robertson", "M. Allen", "L. Brecel", "S. Murphy", "J. Higgins", "M. Williams", "Ding Junhui"] },
+  { name: "MLB", sport: "baseball", teams: ["Dodgers", "Yankees", "Braves", "Astros", "Phillies", "Orioles", "Mets", "Padres", "Guardians", "Mariners", "Blue Jays", "Red Sox"] },
+  { name: "NFL", sport: "americanfootball", teams: ["Chiefs", "Eagles", "Bills", "Ravens", "49ers", "Lions", "Cowboys", "Packers", "Bengals", "Dolphins", "Jets", "Steelers"] },
+  { name: "Counter-Strike 2", sport: "esports", teams: ["Vitality", "Spirit", "MOUZ", "FaZe", "NAVI", "G2", "Falcons", "The MongolZ", "Aurora", "Liquid", "FURIA", "Eternal Fire"] },];
 
 /** Nombre de matchs à venir maintenus par sport. */
-const TARGET: Record<SportId, number> = { football: 22, basketball: 8, tennis: 8, rugby: 5, hockey: 5, mma: 4 };
+const TARGET: Record<SportId, number> = {
+  football: 22,
+  basketball: 8,
+  tennis: 8,
+  rugby: 5,
+  hockey: 5,
+  mma: 4,
+  boxing: 3,
+  handball: 5,
+  volleyball: 5,
+  tabletennis: 6,
+  badminton: 4,
+  darts: 5,
+  snooker: 4,
+  baseball: 5,
+  americanfootball: 4,
+  esports: 5,
+};
 /** Fenêtre des coups d'envoi (minutes). */
 const HORIZON_MIN = 120;
 /** Marchés suspendus quelques secondes après un but / un essai. */
