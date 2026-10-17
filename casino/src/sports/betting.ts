@@ -114,7 +114,7 @@ export function feedKeysAwaitingResults(minAgeMs: number): string[] {
     db
       .query(
         `SELECT DISTINCT feed_key FROM events
-         WHERE status IN ('scheduled', 'live') AND virtual = 0 AND feed_key IS NOT NULL AND starts_at < ?`,
+         WHERE status IN ('scheduled', 'live') AND virtual = 0 AND feed_key IS NOT NULL AND feed_key NOT LIKE 'af:%' AND starts_at < ?`,
       )
       .all(Date.now() - minAgeMs) as { feed_key: string }[]
   ).map((r) => r.feed_key);
@@ -127,7 +127,8 @@ export function feedKeysLive(): string[] {
     db
       .query(
         `SELECT DISTINCT feed_key FROM events
-         WHERE status IN ('scheduled', 'live') AND virtual = 0 AND feed_key IS NOT NULL AND starts_at <= ? AND starts_at > ?`,
+         WHERE status IN ('scheduled', 'live') AND virtual = 0 AND feed_key IS NOT NULL AND feed_key NOT LIKE 'af:%'
+           AND starts_at <= ? AND starts_at > ?`,
       )
       .all(now, now - 5 * 3_600_000) as { feed_key: string }[]
   ).map((r) => r.feed_key);
@@ -155,15 +156,19 @@ interface EventRow {
   deep_at: number | null;
   /** Vrai match coté par le moteur maison. */
   engine: number;
+  /** Durée de validité de la dernière mise à jour de la source de direct (ms). */
+  live_ttl: number | null;
 }
 
 const EVENT_COLS = `e.id, e.sport, e.league, e.home, e.away, e.starts_at, e.status, e.virtual, e.clock,
   e.home_score, e.away_score, e.detail, e.suspended_until, e.odds_at, e.feed_key, e.deep_at,
-  (e.virtual = 0 AND e.sim IS NOT NULL) AS engine`;
+  (e.virtual = 0 AND e.sim IS NOT NULL) AS engine, e.live_ttl`;
 
 /** Un vrai match commencé est-il ouvert ? Seulement avec des cotes en direct fraîches. */
-const realLiveOpen = (engine: number, oddsAt: number | null, now: number) =>
-  (feedConfig.live || (feedConfig.engine && engine === 1)) && oddsAt !== null && now - oddsAt < feedConfig.liveMaxAgeMs;
+const realLiveOpen = (engine: number, oddsAt: number | null, now: number, ttl: number | null = null) =>
+  (feedConfig.live || (feedConfig.engine && engine === 1)) && oddsAt !== null && now - oddsAt < (ttl ?? feedConfig.liveMaxAgeMs);
+/** Cash out d'un vrai match en cours : seulement juste après une mise à jour de la source. */
+const CASHOUT_FRESH_MS = 60_000;
 
 /**
  * Un match est-il ouvert aux paris ? Avant le coup d'envoi, ou en direct : toujours pour les
@@ -171,7 +176,7 @@ const realLiveOpen = (engine: number, oddsAt: number | null, now: number) =>
  */
 const isOpen = (e: EventRow, now: number) =>
   (e.status === "scheduled" && e.starts_at > now) ||
-  (e.status === "live" && (e.virtual === 1 || realLiveOpen(e.engine, e.odds_at, now)));
+  (e.status === "live" && (e.virtual === 1 || realLiveOpen(e.engine, e.odds_at, now, e.live_ttl)));
 
 function present(e: EventRow, now: number, full = false) {
   const live = e.status === "live" || (e.status === "scheduled" && e.starts_at <= now);
@@ -316,7 +321,9 @@ export const placeBet = db.transaction((userId: number, rawLegs: unknown, rawSta
       if (acceptChanges !== true) throw new HttpError(409, `La cote de ${name} a changé, vérifie ton ticket`);
       changed = true;
     }
-    return { eventId, key, price: row.price };
+    // Vrai match en cours : on retient la mise à jour de la source sur laquelle repose la cote.
+    const seenAt = row.status === "live" && !row.virtual ? row.odds_at : null;
+    return { eventId, key, price: row.price, seenAt };
   });
 
   const totalOdds = Math.round(legs.reduce((p, l) => p * l.price, 1) * 100) / 100;
@@ -327,8 +334,8 @@ export const placeBet = db.transaction((userId: number, rawLegs: unknown, rawSta
       "INSERT INTO bets (user_id, stake, total_odds, potential_win, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id",
     )
     .get(userId, stake, totalOdds, potentialWin, now) as { id: number };
-  const insertLeg = db.query("INSERT INTO bet_legs (bet_id, event_id, outcome, price) VALUES (?, ?, ?, ?)");
-  for (const l of legs) insertLeg.run(id, l.eventId, l.key, l.price);
+  const insertLeg = db.query("INSERT INTO bet_legs (bet_id, event_id, outcome, price, seen_at) VALUES (?, ?, ?, ?, ?)");
+  for (const l of legs) insertLeg.run(id, l.eventId, l.key, l.price, l.seenAt);
   const balance = applyTx(userId, -stake, "sport_bet", `bet:${id}`);
   return { betId: id, totalOdds, potentialWin, balance, changed };
 });
@@ -392,6 +399,7 @@ interface LegState {
   suspended_until: number | null;
   odds_at: number | null;
   engine: number;
+  live_ttl: number | null;
   prob: number | null;
 }
 
@@ -400,7 +408,7 @@ function cashoutValue(bet: { id: number; stake: number; potential_win: number },
   const legs = db
     .query(
       `SELECT l.outcome, l.price, l.result, e.status, e.virtual, e.starts_at, e.suspended_until, e.odds_at, s.prob,
-         (e.virtual = 0 AND e.sim IS NOT NULL) AS engine
+         (e.virtual = 0 AND e.sim IS NOT NULL) AS engine, e.live_ttl
        FROM bet_legs l JOIN events e ON e.id = l.event_id
        LEFT JOIN selections s ON s.event_id = l.event_id AND s.key = l.outcome
        WHERE l.bet_id = ?`,
@@ -413,7 +421,8 @@ function cashoutValue(bet: { id: number; stake: number; potential_win: number },
     else if (l.result === "pending") {
       const open =
         (l.status === "scheduled" && l.starts_at > now) ||
-        (l.status === "live" && (l.virtual === 1 || realLiveOpen(l.engine, l.odds_at, now)));
+        (l.status === "live" &&
+          (l.virtual === 1 || (realLiveOpen(l.engine, l.odds_at, now, l.live_ttl) && now - l.odds_at! < CASHOUT_FRESH_MS)));
       if (!open || l.prob === null || (l.suspended_until ?? 0) > now) return null;
       value *= l.price * l.prob;
     }

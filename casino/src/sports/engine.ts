@@ -33,9 +33,15 @@ export interface LiveState {
   clock?: string;
   /** Cartons rouges (football), si la source les fournit. */
   red?: [number, number];
+  /** Football : minute de jeu donnée par la source, période (1 ou 2) et mi-temps en cours. */
+  minute?: number;
+  period?: 1 | 2;
+  paused?: boolean;
+  /** Durée de validité de cette mise à jour (ms) quand la source passe moins souvent que d'habitude. */
+  ttl?: number;
 }
 
-interface EngineSim extends Sim {
+export interface EngineSim extends Sim {
   /** Pas de match nul sur le marché réel (prolongation comprise) : hockey, basket… */
   twoWay: boolean;
   /** Date des cotes bookmakers ayant servi au calage. */
@@ -45,9 +51,15 @@ interface EngineSim extends Sim {
   red?: [number, number];
   /** Le match a commencé : le calage d'avant-match est figé. */
   live?: boolean;
+  /** Cotes d'avant-match tirées de notre classement des équipes (pas de calage sur des bookmakers). */
+  rated?: boolean;
   /** Avancement et horloge fournis par la source, quand elle en donne. */
   srcProgress?: number;
   srcClock?: string;
+  srcMinute?: number;
+  srcPeriod?: 1 | 2;
+  srcPaused?: boolean;
+  srcAt?: number;
 }
 
 /* =========================================================
@@ -227,12 +239,28 @@ export function estimateProgress(sport: SportId, feedKey: string | null, elapsed
 /** Avancement maximum tant que la source n'a pas annoncé la fin (temps additionnel, prolongations). */
 const MAX_PROGRESS = 0.975;
 
-function clockLabel(sim: EngineSim, est: { progress: number; pause: string | null }): string {
-  if (sim.srcClock) return sim.srcClock;
-  if (est.pause) return est.pause;
+/** Avancement du match et horloge affichée, d'après la source si elle donne la minute, sinon estimés. */
+export function liveClock(sim: EngineSim, startsAt: number, feedKey: string | null, now: number): { progress: number; label: string } {
+  // Minute fournie par la source : elle continue de tourner entre deux mises à jour.
+  if (sim.sport === "football" && sim.srcMinute !== undefined && sim.srcAt !== undefined) {
+    if (sim.srcPaused) return { progress: 0.5, label: "Mi-temps" };
+    const drift = (now - sim.srcAt) / 60_000;
+    const m = sim.srcMinute + drift;
+    const period = sim.srcPeriod ?? (sim.srcMinute > 45 ? 2 : 1);
+    const progress = period === 1 ? Math.min(0.5, m / 90) : Math.min(MAX_PROGRESS, Math.max(0.5, m / 90));
+    const approx = drift > 1.5 ? "≈ " : "";
+    if (period === 1 && m > 45) return { progress, label: "45'+" };
+    if (period === 2 && m > 90) return { progress, label: "90'+" };
+    return { progress, label: `${approx}${Math.max(1, Math.floor(m))}'` };
+  }
+  const est = estimateProgress(sim.sport, feedKey, (now - startsAt) / 60_000);
+  const progress = Math.min(MAX_PROGRESS, sim.srcProgress ?? est.progress);
+  if (sim.srcClock) return { progress, label: sim.srcClock };
+  if (est.pause) return { progress, label: est.pause };
   // Au-delà de la durée habituelle : temps additionnel ou prolongation, la source dira quand c'est fini.
-  if (est.progress >= 1) return sim.sport === "football" ? "≈ 90'+" : sim.sport === "rugby" ? "≈ 80'+" : "Dernières minutes";
-  return `≈ ${MODELS[sim.sport].clock({ ...sim, done: false })}`;
+  if (est.progress >= 1) return { progress, label: sim.sport === "football" ? "≈ 90'+" : sim.sport === "rugby" ? "≈ 80'+" : "Dernières minutes" };
+  const t = Math.max(sim.t, progress * MODELS[sim.sport].len);
+  return { progress, label: `≈ ${MODELS[sim.sport].clock({ ...sim, t, done: false })}` };
 }
 
 /* =========================================================
@@ -299,10 +327,16 @@ export const enginePrematch = db.transaction((eventId: string) => {
   db.query("UPDATE events SET sim = ? WHERE id = ?").run(JSON.stringify(sim), row.id);
 });
 
-/** Reçoit l'état des vrais matchs depuis la source de direct (score, horloge, cartons). */
+/**
+ * Reçoit l'état des vrais matchs depuis la source de direct (score, horloge, cartons).
+ *
+ * La source a toujours un peu de retard. Quand elle annonce un nouveau score, les paris pris
+ * depuis sa mise à jour précédente l'ont été sur une information peut-être dépassée (le but avait
+ * peut-être déjà eu lieu) : ces sélections sont remboursées.
+ */
 export const applyLiveStates = db.transaction((states: LiveState[], now = Date.now()) => {
   const fresh = db.query(
-    `UPDATE events SET odds_at = ?, home_score = ?, away_score = ?, status = 'live', updated_at = ?
+    `UPDATE events SET odds_at = ?, home_score = ?, away_score = ?, status = 'live', live_ttl = ?, updated_at = ?
      WHERE id = ? AND virtual = 0 AND status IN ('scheduled', 'live') AND starts_at <= ?`,
   );
   const finish = db.query(
@@ -310,23 +344,48 @@ export const applyLiveStates = db.transaction((states: LiveState[], now = Date.n
      WHERE id = ? AND virtual = 0 AND status IN ('scheduled', 'live')`,
   );
   const close = db.query("UPDATE selections SET price = NULL WHERE event_id = ?");
-  const getSim = db.query("SELECT sim, sport FROM events WHERE id = ?");
+  const getRow = db.query("SELECT sim, sport, home_score, away_score, odds_at, status FROM events WHERE id = ? AND virtual = 0");
   const setSim = db.query("UPDATE events SET sim = ? WHERE id = ?");
+  const voidSince = db.query(
+    "UPDATE bet_legs SET result = 'void' WHERE event_id = ? AND result = 'pending' AND seen_at IS NOT NULL AND seen_at >= ?",
+  );
   for (const s of states) {
     if (s.completed) {
       finish.run(s.homeScore, s.awayScore, now, s.id);
       close.run(s.id);
       continue;
     }
-    const row = getSim.get(s.id) as { sim: string | null; sport: SportId } | null;
-    if (!row || !ENGINE_SPORTS.has(row.sport)) continue;
-    fresh.run(now, s.homeScore, s.awayScore, now, s.id, now);
+    const row = getRow.get(s.id) as {
+      sim: string | null;
+      sport: SportId;
+      home_score: number | null;
+      away_score: number | null;
+      odds_at: number | null;
+      status: string;
+    } | null;
+    if (!row || !ENGINE_SPORTS.has(row.sport) || !["scheduled", "live"].includes(row.status)) continue;
+    let h = s.homeScore;
+    let a = s.awayScore;
+    const known = row.status === "live" && row.home_score !== null && row.away_score !== null;
+    // Deux sources peuvent se croiser : un score ne recule pas (sauf fin de match, réglée à part).
+    if (known && h + a < row.home_score! + row.away_score!) {
+      h = row.home_score!;
+      a = row.away_score!;
+    }
+    if (known && (h !== row.home_score || a !== row.away_score) && row.odds_at !== null) voidSince.run(s.id, row.odds_at);
+    fresh.run(now, h, a, s.ttl ?? null, now, s.id, now);
     // Informations facultatives de la source, gardées pour le prochain pas du moteur.
-    if (row.sim && (s.progress !== undefined || s.clock || s.red)) {
-      const sim = JSON.parse(row.sim) as EngineSim;
-      sim.srcProgress = s.progress;
-      sim.srcClock = s.clock;
-      sim.red = s.red;
+    const sim = row.sim ? (JSON.parse(row.sim) as EngineSim) : fit(s.id, row.sport, row.odds_at ?? 0, null);
+    if (sim) {
+      if (s.progress !== undefined) sim.srcProgress = s.progress;
+      if (s.clock) sim.srcClock = s.clock;
+      if (s.red) sim.red = s.red;
+      if (s.minute !== undefined) {
+        sim.srcMinute = s.minute;
+        sim.srcPeriod = s.period;
+        sim.srcPaused = !!s.paused;
+        sim.srcAt = now;
+      }
       setSim.run(JSON.stringify(sim), s.id);
     }
   }
@@ -349,29 +408,34 @@ export const tickEngine = db.transaction((now = Date.now()): number => {
   for (const row of rows) {
     if (!ENGINE_SPORTS.has(row.sport)) continue;
     let sim = row.sim ? (JSON.parse(row.sim) as EngineSim) : null;
-    if (!sim || (!sim.live && sim.fitAt < (row.odds_at ?? 0))) {
-      // Coup d'envoi : dernier calage sur les cotes d'avant-match.
+    if (!sim || (!sim.live && !sim.rated && sim.fitAt < (row.odds_at ?? 0))) {
+      // Coup d'envoi : dernier calage sur les cotes d'avant-match (on garde ce que la source a déjà dit).
+      const prev = sim;
       sim = fit(row.id, row.sport, row.odds_at ?? row.starts_at, sim);
       if (!sim) continue;
+      if (prev)
+        for (const k of ["red", "srcProgress", "srcClock", "srcMinute", "srcPeriod", "srcPaused", "srcAt"] as const)
+          (sim as any)[k] = prev[k];
     }
+    // Première mise à jour du match : les buts déjà marqués ont eu lieu à une minute inconnue.
+    const firstTick = !sim.live;
     sim.live = true;
     const model = MODELS[row.sport];
-    const est = estimateProgress(row.sport, row.feed_key, (now - row.starts_at) / 60_000);
-    const progress = Math.min(MAX_PROGRESS, sim.srcProgress ?? est.progress);
-    sim.t = Math.max(sim.t, progress * model.len);
+    const clock = liveClock(sim, row.starts_at, row.feed_key, now);
+    sim.t = Math.max(sim.t, clock.progress * model.len);
     const h = row.home_score ?? 0;
     const a = row.away_score ?? 0;
     const detail = row.detail ? JSON.parse(row.detail) : { timeline: [] };
-    const scored = h !== sim.h || a !== sim.a;
+    const scored = !firstTick && (h !== sim.h || a !== sim.a);
     if (scored && TIMELINE_SPORTS.has(row.sport)) {
-      const label = MODELS[row.sport].clock({ ...sim, done: false });
-      for (let i = sim.h; i < h; i++) detail.timeline.push({ t: `≈ ${label}`, side: "home", kind: "goal" });
-      for (let i = sim.a; i < a; i++) detail.timeline.push({ t: `≈ ${label}`, side: "away", kind: "goal" });
+      const label = clock.label.startsWith("≈") || /^\d/.test(clock.label) ? clock.label : `≈ ${clock.label}`;
+      for (let i = sim.h; i < h; i++) detail.timeline.push({ t: label, side: "home", kind: "goal" });
+      for (let i = sim.a; i < a; i++) detail.timeline.push({ t: label, side: "away", kind: "goal" });
     }
     sim.h = h;
     sim.a = a;
     const suspended = scored ? now + SUSPEND_MS : row.suspended_until;
-    update.run(clockLabel(sim, est), JSON.stringify(sim), JSON.stringify(detail), suspended, now, row.id);
+    update.run(clock.label, JSON.stringify(sim), JSON.stringify(detail), suspended, now, row.id);
     // Toutes les cotes du match sont désormais celles du moteur.
     const probs = engineProbs(sim);
     const keep = new Set(probs.keys());
@@ -393,9 +457,32 @@ export function engineFeedKeys(now = Date.now()): string[] {
     db
       .query(
         `SELECT DISTINCT feed_key FROM events
-         WHERE virtual = 0 AND feed_key IS NOT NULL AND status IN ('scheduled', 'live') AND starts_at <= ? AND starts_at > ?
+         WHERE virtual = 0 AND feed_key IS NOT NULL AND feed_key NOT LIKE 'af:%'
+         AND status IN ('scheduled', 'live') AND starts_at <= ? AND starts_at > ?
          AND sport IN (${sports.map(() => "?").join(",")})`,
       )
       .all(now, now - 6 * 3_600_000, ...sports) as { feed_key: string }[]
   ).map((r) => r.feed_key);
 }
+
+/* =========================================================
+   Cotes maison d'avant-match (notre classement des équipes)
+   ========================================================= */
+/** Marge des cotes calculées sans bookmaker : un peu plus large, notre classement est moins sûr. */
+const RATED_MARGIN = 1.04;
+
+/** Modèle de football réglé directement sur des buts attendus. */
+export function ratedSim(lh: number, la: number, now = Date.now()): EngineSim {
+  const sim = MODELS.football.create(0);
+  sim.p.lh = lh;
+  sim.p.la = la;
+  return { ...sim, twoWay: false, fitAt: now, own: [], rated: true };
+}
+
+/** Écrit les cotes d'avant-match d'un match coté par notre classement (tous les marchés du modèle). */
+export const writeRatedOdds = db.transaction((eventId: string, sim: EngineSim) => {
+  const set = upsertSel();
+  db.query("UPDATE selections SET price = NULL WHERE event_id = ?").run(eventId);
+  for (const [key, p] of engineProbs(sim)) set.run(eventId, key, priceOf(key, Math.min(0.999, p * RATED_MARGIN)), p);
+  db.query("UPDATE events SET sim = ? WHERE id = ?").run(JSON.stringify(sim), eventId);
+});

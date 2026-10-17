@@ -12,6 +12,7 @@ import {
 import { applyLiveStates, engineFeedKeys, enginePrematch, tickEngine } from "./engine";
 import { extraMarketsFor, fetchEventOdds, fetchOdds, fetchResults, fetchScores, listSports, quota, REGIONS } from "./oddsapi";
 import { tickVirtual } from "./sim";
+import { startWorldFeed, worldConfig } from "./worldfeed";
 
 const env = process.env;
 const KEY = env.ODDS_API_KEY;
@@ -48,9 +49,12 @@ const VIRTUAL_TICK_MS = 3_000;
 const MATCH_MIN_MS = 2 * 60 * 60_000;
 const regions = REGIONS.split(",").length;
 
-export const feedMode = KEY ? "the-odds-api" : "demo";
+/** Football du monde entier : clé gratuite API-Football (100 requêtes par jour). */
+const AF_KEY = env.APIFOOTBALL_KEY;
+
+export const feedMode = KEY ? "the-odds-api" : AF_KEY ? "api-football" : "demo";
 /** Matchs virtuels (direct et cash out en cours de match) : toujours actifs sans clé, désactivables avec. */
-export const virtualOn = !KEY || env.VIRTUAL_SPORTS !== "off";
+export const virtualOn = (!KEY && !AF_KEY) || env.VIRTUAL_SPORTS !== "off";
 
 /* ---------- Budget de crédits : un réservoir qui se remplit au fil du mois ---------- */
 class Bucket {
@@ -220,15 +224,33 @@ function every(ms: number, task: () => Promise<void> | void, label: string) {
 }
 
 export function startSportsSync() {
+  // Moteur de cotes maison : direct des vrais matchs (scores The Odds API et/ou API-Football).
+  if ((KEY && ENGINE) || AF_KEY) {
+    feedConfig.engine = true;
+    feedHooks.beforeDetail = (id) => enginePrematch(id);
+    every(
+      ENGINE_TICK_MS,
+      () => {
+        tickEngine();
+        settle();
+      },
+      "moteur de cotes",
+    );
+  }
+  if (AF_KEY) {
+    const cfg = worldConfig();
+    const world = startWorldFeed(AF_KEY, cfg, (m) => console.log(m));
+    every(20_000, async () => {
+      await world.step();
+      settle();
+    }, "football du monde");
+    console.log(
+      `[monde] API-Football : calendrier mondial, cotes maison (équipes ayant joué ${cfg.minGames} matchs de championnat), direct réparti sur ${cfg.daily} requêtes par jour`,
+    );
+  }
   if (KEY) {
     feedConfig.live = LIVE;
-    feedConfig.engine = ENGINE;
     feedConfig.liveMaxAgeMs = Math.max(2 * (ENGINE ? ENGINE_EVERY_MS : LIVE_EVERY_MS) + 30_000, 90_000);
-    if (ENGINE) {
-      // Avant-match : le moteur complète la fiche de chaque vrai match avec tous ses marchés.
-      feedHooks.beforeDetail = (id) => enginePrematch(id);
-      every(ENGINE_TICK_MS, () => void tickEngine(), "moteur de cotes");
-    }
     feedConfig.deepMaxAgeMs = EXTRA_EVERY_MS * 2;
     if (EXTRA)
       feedHooks.onEventViewed = (e) => {
@@ -256,7 +278,7 @@ export function startSportsSync() {
   }
   if (virtualOn) {
     // Avec un flux réel, les compétitions virtuelles sont signalées comme telles.
-    const label = KEY ? (l: string) => `${l} (virtuel)` : (l: string) => l;
+    const label = KEY || AF_KEY ? (l: string) => `${l} (virtuel)` : (l: string) => l;
     every(
       VIRTUAL_TICK_MS,
       () => {

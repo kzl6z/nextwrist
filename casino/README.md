@@ -53,6 +53,33 @@ Marchés des vrais matchs :
 Seuls les marchés qui se règlent avec le score final sont proposés : le fournisseur ne donne ni les
 buteurs, ni les corners, ni le score par période, donc ces paris-là restent réservés aux matchs virtuels.
 
+### Football du monde entier, gratuit (API-Football)
+
+`src/sports/worldfeed.ts`, `src/sports/ratings.ts`, `src/sports/apifootball.ts`. Il suffit d'une clé
+gratuite [API-Football](https://dashboard.api-football.com/register) dans `APIFOOTBALL_KEY`
+(100 requêtes par jour, aucune carte bancaire). Fonctionne seul ou avec The Odds API.
+
+| Étape | Requêtes par jour | Ce que ça fait |
+|---|---|---|
+| Amorçage (premier lancement) | 20 à 28, une seule fois | Charge les résultats des 4 dernières semaines, partout dans le monde, pour apprendre notre classement |
+| Calendrier | environ 14 | Matchs du jour (toutes les 2 h), du lendemain et de la veille : nouveaux matchs, résultats, annulations |
+| Direct | tout le reste | Score et minute de tous les matchs en cours, en une requête ; le quota est réparti sur les heures de jeu de la journée (en pratique, une mise à jour toutes les 6 à 12 minutes) |
+
+**Nos propres cotes.** Chaque équipe a une force offensive et défensive, apprise sur ses résultats
+(modèle de Poisson). Un match n'est mis en ligne que si les deux équipes ont joué au moins
+`APIFOOTBALL_MIN_GAMES` matchs de ce championnat ; les coupes (deux divisions différentes) ne sont pas
+cotées. Le classement s'améliore tout seul avec chaque résultat. Les matchs déjà couverts par les
+bookmakers de The Odds API gardent leurs cotes : API-Football leur apporte la minute exacte.
+
+**Direct.** Entre deux mises à jour, l'horloge continue de tourner et les cotes bougent avec le temps.
+Comme la source passe moins souvent, une règle protège le site : **un pari pris depuis la dernière
+mise à jour est remboursé si la suivante annonce un but** (le but avait peut-être déjà eu lieu).
+Le cash out n'est proposé que dans la minute qui suit une mise à jour. Prolongations et tirs au but :
+les paris se règlent sur le score à la fin du temps réglementaire.
+
+Si l'offre gratuite refuse une requête (clé, quota, saison non couverte), le terminal affiche
+`[monde] API-Football refuse la requête : …` et le site réessaie une heure plus tard.
+
 ### Moteur de cotes maison (direct des vrais matchs)
 
 `src/sports/engine.ts`, activé par `ODDS_LIVE_ENGINE=on`. Au lieu d'acheter les cotes en direct des

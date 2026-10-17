@@ -455,7 +455,7 @@ function paintMatch() {
       </div>
       ${scoreNote(ev) ? `<div class="ft-note">${scoreNote(ev)}</div>` : ""}
       ${ev.suspended ? `<div class="susp-banner">${icon("lock", { size: 15 })}Marchés suspendus quelques secondes</div>` : ""}
-      ${ev.engine ? `<div class="engine-note">${icon("bolt", { size: 14 })}Cotes en direct calculées par PilotCasino à partir du score${String(ev.clock ?? "").startsWith("≈") ? " · minute estimée" : ""}</div>` : ""}
+      ${ev.engine ? `<div class="engine-note">${icon("bolt", { size: 14 })}<span>Cotes en direct calculées par PilotCasino${String(ev.clock ?? "").startsWith("≈") ? ", minute estimée" : ""}. Un pari est remboursé si un but tombe avant la mise à jour suivante du score.</span></div>` : ""}
       ${tl.length ? `<ul class="ft-timeline full">${tl.map((t) => `<li><b>${esc(t.t)}</b><span>${esc(eventLabel(ev, t))}</span></li>`).join("")}</ul>` : ""}
     </div>`;
 

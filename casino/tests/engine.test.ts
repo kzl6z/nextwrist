@@ -110,24 +110,26 @@ describe("direct piloté par le score", () => {
     expect(Object.values(d.selections).filter(Boolean).length).toBeGreaterThan(40);
   });
 
-  test("but, suspension, nouvelles cotes, cash out et règlement", () => {
-    const t0 = Date.now() - 30 * 60_000;
-    b.upsertEvents([event("e2", Date.now() + 3_600_000)]);
-    db.query("UPDATE events SET starts_at = ? WHERE id = 'e2'").run(t0);
+  test("but, suspension, nouvelles cotes, pari remboursé, cash out et règlement", () => {
+    const now = Date.now();
+    b.upsertEvents([event("e2", now + 3_600_000)]);
+    db.query("UPDATE events SET starts_at = ? WHERE id = 'e2'").run(now - 30 * 60_000);
     // Coup d'envoi : le moteur prend la main, horloge estimée.
-    en.applyLiveStates([{ id: "e2", homeScore: 0, awayScore: 0, completed: false }]);
-    en.tickEngine();
+    en.applyLiveStates([{ id: "e2", homeScore: 0, awayScore: 0, completed: false }], now - 4000);
+    en.tickEngine(now - 4000);
     let d = b.eventDetail("e2");
     expect(d.live).toBe(true);
     expect(d.engine).toBe(true);
     expect(d.open).toBe(true);
     expect(d.clock).toBe("≈ 29'");
     const homeBefore = d.selections.home!;
-    const bet = b.placeBet(userId, [{ eventId: "e2", key: "home", price: homeBefore }], 100, false);
+    const early = b.placeBet(userId, [{ eventId: "e2", key: "home", price: homeBefore }], 100, false);
 
-    // Arsenal marque : marchés suspendus, cote en baisse, but inscrit dans le fil du match.
-    en.applyLiveStates([{ id: "e2", homeScore: 1, awayScore: 0, completed: false }]);
-    en.tickEngine();
+    // Nouvelle mise à jour sans but, puis un pari, puis la source annonce un but.
+    en.applyLiveStates([{ id: "e2", homeScore: 0, awayScore: 0, completed: false }], now - 2000);
+    const late = b.placeBet(userId, [{ eventId: "e2", key: "away", price: b.eventDetail("e2").selections.away }], 50, true);
+    en.applyLiveStates([{ id: "e2", homeScore: 1, awayScore: 0, completed: false }], now - 1000);
+    en.tickEngine(now - 1000);
     d = b.eventDetail("e2");
     expect(d.suspended).toBe(true);
     expect(d.score).toEqual([1, 0]);
@@ -135,10 +137,18 @@ describe("direct piloté par le score", () => {
     expect(d.selections["cs:0-0"]).toBeNull();
     expect(d.detail?.timeline?.at(-1)).toMatchObject({ side: "home", kind: "goal" });
     expect(() => b.placeBet(userId, [{ eventId: "e2", key: "away", price: d.selections.away }], 10, true)).toThrow();
+    // Le pari pris depuis la mise à jour précédente est remboursé, pas celui d'avant.
+    const legResult = (betId: number) =>
+      (db.query("SELECT result FROM bet_legs WHERE bet_id = ?").get(betId) as { result: string }).result;
+    expect(legResult(late.betId)).toBe("void");
+    expect(legResult(early.betId)).toBe("pending");
+    // Un score ne recule pas si une source en retard repasse derrière.
+    en.applyLiveStates([{ id: "e2", homeScore: 0, awayScore: 0, completed: false }], now - 500);
+    expect(b.eventDetail("e2").score).toEqual([1, 0]);
 
     // Après la suspension, le cash out reflète le but.
     db.query("UPDATE events SET suspended_until = NULL WHERE id = 'e2'").run();
-    const mine = b.myBets(userId).bets.find((x) => x.id === bet.betId)!;
+    const mine = b.myBets(userId).bets.find((x) => x.id === early.betId)!;
     expect(mine.cashout).toBeGreaterThan(100);
 
     // Carton rouge transmis par la source : l'équipe réduite à dix voit sa cote monter.
@@ -154,8 +164,24 @@ describe("direct piloté par le score", () => {
     // Fin du match.
     en.applyLiveStates([{ id: "e2", homeScore: 2, awayScore: 0, completed: true }]);
     expect(b.settleBets()).toBeGreaterThan(0);
-    const settled = b.myBets(userId).bets.find((x) => x.id === bet.betId)!;
-    expect(settled.status).toBe("won");
+    const bets = b.myBets(userId).bets;
+    expect(bets.find((x) => x.id === early.betId)!.status).toBe("won");
+    expect(bets.find((x) => x.id === late.betId)!.status).toBe("void");
+  });
+
+  test("minute donnée par la source : l'horloge tourne entre deux mises à jour", () => {
+    const now = Date.now();
+    b.upsertEvents([event("e4", now + 3_600_000)]);
+    db.query("UPDATE events SET starts_at = ? WHERE id = 'e4'").run(now - 80 * 60_000);
+    en.applyLiveStates([{ id: "e4", homeScore: 0, awayScore: 1, completed: false, minute: 60, period: 2, ttl: 20 * 60_000 }], now - 5 * 60_000);
+    en.tickEngine(now);
+    const d = b.eventDetail("e4");
+    expect(d.clock).toBe("≈ 65'");
+    // Mise à jour vieille de 5 minutes, mais la source a annoncé passer moins souvent : toujours ouvert.
+    expect(d.open).toBe(true);
+    en.applyLiveStates([{ id: "e4", homeScore: 0, awayScore: 1, completed: false, minute: 45, paused: true, ttl: 20 * 60_000 }], now);
+    en.tickEngine(now);
+    expect(b.eventDetail("e4").clock).toBe("Mi-temps");
   });
 
   test("sport que le moteur ne sait pas coter en direct : reste fermé", () => {

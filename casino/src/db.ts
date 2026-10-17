@@ -114,6 +114,40 @@ addColumn("events", "suspended_until", "INTEGER");
 addColumn("events", "odds_at", "INTEGER");
 addColumn("events", "deep", "TEXT");
 addColumn("events", "deep_at", "INTEGER");
+// Direct des vrais matchs : durée de validité de la dernière mise à jour de la source.
+addColumn("events", "live_ttl", "INTEGER");
+// Paris en direct : mise à jour de la source sur laquelle la cote était basée (voir engine.ts).
+addColumn("bet_legs", "seen_at", "INTEGER");
+
+db.exec(`
+-- Notre propre classement des équipes (cotes maison avant-match), voir sports/ratings.ts.
+CREATE TABLE IF NOT EXISTS team_ratings (
+  team TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  attack REAL NOT NULL DEFAULT 0,
+  defense REAL NOT NULL DEFAULT 0,
+  games INTEGER NOT NULL DEFAULT 0,
+  league TEXT,
+  updated_at INTEGER NOT NULL
+);
+-- Matchs déjà pris en compte dans le classement.
+CREATE TABLE IF NOT EXISTS rated_matches (
+  id TEXT PRIMARY KEY,
+  played_at INTEGER NOT NULL
+);
+-- Correspondance entre les matchs d'un fournisseur et nos matchs.
+CREATE TABLE IF NOT EXISTS ext_links (
+  provider TEXT NOT NULL,
+  ext_id TEXT NOT NULL,
+  event_id TEXT NOT NULL REFERENCES events(id),
+  PRIMARY KEY (provider, ext_id)
+);
+-- Petits réglages persistants (quota du jour, amorçage déjà fait…).
+CREATE TABLE IF NOT EXISTS kv (
+  k TEXT PRIMARY KEY,
+  v TEXT NOT NULL
+);
+`);
 
 db.exec(`
 -- Tous les pronostics d'un match (clé décrite dans sports/markets.ts).
