@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#070807" />
+  <title>PilotCasino — Paris sportifs et casino</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='31' fill='%23070807'/%3E%3Ccircle cx='32' cy='32' r='27' fill='none' stroke='%23c9a96a' stroke-width='2'/%3E%3Ctext x='32' y='44' text-anchor='middle' font-family='Didot,Georgia,serif' font-size='34' fill='%23e2c88f'%3EP%3C/text%3E%3C/svg%3E" />
+  <link rel="preload" href="/fonts/bodoni-moda-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/sports.css" />
+  <link rel="stylesheet" href="/games.css" />
+  <link rel="stylesheet" href="/games-more.css" />
+</head>
+<body data-page="sports">
+  <!-- ===== Connexion / inscription ===== -->
+  <section id="auth" class="auth hidden">
+    <div class="auth-art">
+      <div class="auth-rosace" id="auth-rosace" aria-hidden="true"></div>
+      <a class="logo"><span class="logo-mark">P</span><span class="logo-name">PilotCasino</span></a>
+      <div>
+        <h1>Le salon de jeu, en jetons.</h1>
+        <p class="lede">Paris sportifs en direct sur six sports, quinze jeux de casino. Tout se joue avec des jetons virtuels, sans argent réel.</p>
+      </div>
+      <ul class="auth-perks" id="auth-perks"></ul>
+    </div>
+    <div class="auth-panel">
+      <form id="auth-form" class="auth-card" novalidate>
+        <div class="seg" role="tablist">
+          <button type="button" data-mode="login" class="active" role="tab">Connexion</button>
+          <button type="button" data-mode="register" role="tab">Inscription</button>
+        </div>
+        <h2 id="auth-title">Bon retour</h2>
+        <p class="sub" id="auth-sub">Connecte-toi pour retrouver ton solde et tes paris.</p>
+        <label class="field"><span>Pseudo</span><input name="username" autocomplete="username" required placeholder="ton_pseudo" /></label>
+        <label class="field"><span>Mot de passe</span><input name="password" type="password" autocomplete="current-password" required placeholder="8 caractères minimum" /></label>
+        <button type="submit" class="btn btn-gold btn-lg btn-block" id="auth-submit">Se connecter</button>
+        <p id="auth-error" class="form-error" role="alert"></p>
+        <p class="fine">Jetons virtuels sans valeur monétaire, aucun dépôt ni retrait. Réservé aux personnes majeures.</p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ===== Application ===== -->
+  <div id="app" class="hidden">
+    <header class="topbar">
+      <a class="logo" href="#/sports"><span class="logo-mark">P</span><span class="logo-name">PilotCasino</span></a>
+      <nav class="mainnav" aria-label="Navigation principale">
+        <a href="#/sports" data-nav="sports">Paris sportifs</a>
+        <a href="#/live" data-nav="live">En direct <span class="nav-count hidden" id="nav-live-count">0</span></a>
+        <a href="#/casino" data-nav="casino">Casino</a>
+      </nav>
+      <div class="topbar-right">
+        <button id="bonus-btn" class="bonus-btn" title="Bonus quotidien"></button>
+        <div class="wallet" title="Ton solde"><span id="wallet-tok"></span><span id="balance">0</span></div>
+        <a href="#/compte" class="avatar" id="avatar" title="Mon compte" data-nav="compte"></a>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" id="sidebar"></aside>
+      <main id="view"></main>
+      <aside class="betslip" id="betslip" aria-label="Ticket de paris">
+        <div class="sheet-handle" id="sheet-close" aria-label="Fermer le ticket"></div>
+        <div class="slip-tabs">
+          <button data-slip-tab="slip" class="active">Ticket <span class="count" id="slip-count">0</span></button>
+          <button data-slip-tab="bets">Mes paris <span class="count" id="open-count">0</span></button>
+        </div>
+        <div id="slip-body"></div>
+      </aside>
+    </div>
+
+    <footer class="footer">
+      <div class="footer-inner">
+        <a class="logo"><span class="logo-mark">P</span><span class="logo-name">PilotCasino</span></a>
+        <p>Jetons virtuels sans valeur monétaire : aucun dépôt, aucun retrait. Le jeu doit rester un plaisir. Si ce n'est plus le cas, Joueurs Info Service répond au 09 74 75 13 13.</p>
+        <span class="badge-18">18+</span>
+      </div>
+    </footer>
+
+    <button class="slip-fab hidden" id="slip-fab"></button>
+    <nav class="bottombar" id="bottombar" aria-label="Navigation"></nav>
+    <div class="scrim" id="scrim"></div>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script src="/js/main.js" type="module"></script>
+</body>
+</html>
