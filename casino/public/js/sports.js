@@ -105,7 +105,9 @@ function oddBtn(ev, key, price, label) {
     ${label ? `<span class="odd-label">${esc(label)}</span>` : ""}<span class="odd-price">${price.toFixed(2)}</span></button>`;
 }
 
-const mainKeys = (ev) => (ev.odds?.draw !== undefined || ["football", "hockey", "rugby", "handball"].includes(ev.sport) ? MAIN : ["home", "away"]);
+// Les vrais matchs de hockey (et autres marchés sans nul chez les bookmakers) se jouent en deux issues.
+const mainKeys = (ev) =>
+  ev.odds?.draw !== undefined || ((ev.virtual || ev.sport !== "hockey") && ["football", "hockey", "rugby", "handball"].includes(ev.sport)) ? MAIN : ["home", "away"];
 const mainOdds = (ev, labels = true) =>
   `<div class="odds-row" style="--cols:${mainKeys(ev).length}">${mainKeys(ev)
     .map((k) => oddBtn(ev, k, ev.odds?.[k], labels ? (k === "draw" ? "N" : k === "home" ? "1" : "2") : ""))
@@ -453,6 +455,7 @@ function paintMatch() {
       </div>
       ${scoreNote(ev) ? `<div class="ft-note">${scoreNote(ev)}</div>` : ""}
       ${ev.suspended ? `<div class="susp-banner">${icon("lock", { size: 15 })}Marchés suspendus quelques secondes</div>` : ""}
+      ${ev.engine ? `<div class="engine-note">${icon("bolt", { size: 14 })}Cotes en direct calculées par PilotCasino à partir du score${String(ev.clock ?? "").startsWith("≈") ? " · minute estimée" : ""}</div>` : ""}
       ${tl.length ? `<ul class="ft-timeline full">${tl.map((t) => `<li><b>${esc(t.t)}</b><span>${esc(eventLabel(ev, t))}</span></li>`).join("")}</ul>` : ""}
     </div>`;
 
@@ -462,7 +465,9 @@ function paintMatch() {
     return;
   }
   if (!ev.open) {
-    el.innerHTML = `<div class="empty">${icon("lock")}<b>Paris fermés pendant ce match</b><span>Les cotes de ce flux ne sont pas mises à jour en direct.</span></div>`;
+    el.innerHTML = ev.engine
+      ? `<div class="empty">${icon("clock")}<b>En attente du score en direct</b><span>Les paris rouvrent dès que le score est de nouveau à jour.</span></div>`
+      : `<div class="empty">${icon("lock")}<b>Paris fermés pendant ce match</b><span>Les cotes de ce flux ne sont pas mises à jour en direct.</span></div>`;
     return;
   }
   // Regroupe les pronostics par marché.

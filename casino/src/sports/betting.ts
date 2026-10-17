@@ -17,8 +17,10 @@ const MAIN = ["home", "draw", "away"];
    ========================================================= */
 /** Réglages du flux réel, fixés au démarrage par sync.ts. */
 export const feedConfig = {
-  /** Paris en direct sur les vrais matchs (cotes en cours de match). */
+  /** Paris en direct sur les vrais matchs avec les cotes en direct des bookmakers. */
   live: false,
+  /** Paris en direct sur les vrais matchs avec le moteur de cotes maison (engine.ts). */
+  engine: false,
   /** Au-delà de cet âge, les cotes en direct d'un vrai match sont considérées périmées. */
   liveMaxAgeMs: 120_000,
   /** Durée de validité des marchés supplémentaires mis en cache. */
@@ -26,7 +28,11 @@ export const feedConfig = {
 };
 
 /** Appelé quand un joueur ouvre la fiche d'un vrai match (chargement des marchés supplémentaires). */
-export const feedHooks: { onEventViewed?: (e: { id: string; feed_key: string | null; live: boolean; deep_at: number | null }) => void } = {};
+export const feedHooks: {
+  onEventViewed?: (e: { id: string; feed_key: string | null; live: boolean; deep_at: number | null }) => void;
+  /** Appelé avant de lire la fiche d'un vrai match (le moteur maison y ajoute ses marchés). */
+  beforeDetail?: (id: string) => void;
+} = {};
 
 const setSelQuery = () =>
   db.query(
@@ -147,10 +153,17 @@ interface EventRow {
   odds_at: number | null;
   feed_key: string | null;
   deep_at: number | null;
+  /** Vrai match coté par le moteur maison. */
+  engine: number;
 }
 
 const EVENT_COLS = `e.id, e.sport, e.league, e.home, e.away, e.starts_at, e.status, e.virtual, e.clock,
-  e.home_score, e.away_score, e.detail, e.suspended_until, e.odds_at, e.feed_key, e.deep_at`;
+  e.home_score, e.away_score, e.detail, e.suspended_until, e.odds_at, e.feed_key, e.deep_at,
+  (e.virtual = 0 AND e.sim IS NOT NULL) AS engine`;
+
+/** Un vrai match commencé est-il ouvert ? Seulement avec des cotes en direct fraîches. */
+const realLiveOpen = (engine: number, oddsAt: number | null, now: number) =>
+  (feedConfig.live || (feedConfig.engine && engine === 1)) && oddsAt !== null && now - oddsAt < feedConfig.liveMaxAgeMs;
 
 /**
  * Un match est-il ouvert aux paris ? Avant le coup d'envoi, ou en direct : toujours pour les
@@ -158,8 +171,7 @@ const EVENT_COLS = `e.id, e.sport, e.league, e.home, e.away, e.starts_at, e.stat
  */
 const isOpen = (e: EventRow, now: number) =>
   (e.status === "scheduled" && e.starts_at > now) ||
-  (e.status === "live" &&
-    (e.virtual === 1 || (feedConfig.live && e.odds_at !== null && now - e.odds_at < feedConfig.liveMaxAgeMs)));
+  (e.status === "live" && (e.virtual === 1 || realLiveOpen(e.engine, e.odds_at, now)));
 
 function present(e: EventRow, now: number, full = false) {
   const live = e.status === "live" || (e.status === "scheduled" && e.starts_at <= now);
@@ -174,6 +186,8 @@ function present(e: EventRow, now: number, full = false) {
     status: e.status,
     virtual: !!e.virtual,
     live,
+    /** Cotes en direct calculées par le moteur maison. */
+    engine: !e.virtual && !!e.engine && live,
     open: isOpen(e, now),
     suspended: (e.suspended_until ?? 0) > now,
     clock: e.clock,
@@ -239,7 +253,7 @@ export function liveEvents() {
     .query(
       `SELECT ${EVENT_COLS} FROM events e
        WHERE e.status = 'live' OR (e.status = 'scheduled' AND e.virtual = 0 AND e.starts_at <= ? AND e.starts_at > ?)
-       ORDER BY e.virtual DESC, e.starts_at LIMIT 120`,
+       ORDER BY (e.virtual = 0 AND e.sim IS NOT NULL) DESC, e.virtual DESC, e.starts_at LIMIT 120`,
     )
     .all(now, now - 3 * 60 * 60_000) as EventRow[];
   return withMainOdds(rows, now);
@@ -256,8 +270,12 @@ export function recentResults() {
 
 export function eventDetail(id: string) {
   const now = Date.now();
-  const e = db.query(`SELECT ${EVENT_COLS} FROM events e WHERE e.id = ?`).get(id) as EventRow | null;
+  let e = db.query(`SELECT ${EVENT_COLS} FROM events e WHERE e.id = ?`).get(id) as EventRow | null;
   if (!e) throw new HttpError(404, "Match introuvable");
+  if (!e.virtual && e.status === "scheduled" && feedHooks.beforeDetail) {
+    feedHooks.beforeDetail(id);
+    e = db.query(`SELECT ${EVENT_COLS} FROM events e WHERE e.id = ?`).get(id) as EventRow;
+  }
   const rows = db.query("SELECT key, price FROM selections WHERE event_id = ?").all(id) as { key: string; price: number | null }[];
   const selections: Record<string, number | null> = {};
   for (const r of rows) selections[r.key] = r.price;
@@ -373,6 +391,7 @@ interface LegState {
   starts_at: number;
   suspended_until: number | null;
   odds_at: number | null;
+  engine: number;
   prob: number | null;
 }
 
@@ -380,7 +399,8 @@ interface LegState {
 function cashoutValue(bet: { id: number; stake: number; potential_win: number }, now: number): number | null {
   const legs = db
     .query(
-      `SELECT l.outcome, l.price, l.result, e.status, e.virtual, e.starts_at, e.suspended_until, e.odds_at, s.prob
+      `SELECT l.outcome, l.price, l.result, e.status, e.virtual, e.starts_at, e.suspended_until, e.odds_at, s.prob,
+         (e.virtual = 0 AND e.sim IS NOT NULL) AS engine
        FROM bet_legs l JOIN events e ON e.id = l.event_id
        LEFT JOIN selections s ON s.event_id = l.event_id AND s.key = l.outcome
        WHERE l.bet_id = ?`,
@@ -393,8 +413,7 @@ function cashoutValue(bet: { id: number; stake: number; potential_win: number },
     else if (l.result === "pending") {
       const open =
         (l.status === "scheduled" && l.starts_at > now) ||
-        (l.status === "live" &&
-          (l.virtual === 1 || (feedConfig.live && l.odds_at !== null && now - l.odds_at < feedConfig.liveMaxAgeMs)));
+        (l.status === "live" && (l.virtual === 1 || realLiveOpen(l.engine, l.odds_at, now)));
       if (!open || l.prob === null || (l.suspended_until ?? 0) > now) return null;
       value *= l.price * l.prob;
     }

@@ -9,6 +9,7 @@ import {
   storeDeepMarkets,
   upsertEvents,
 } from "./betting";
+import { applyLiveStates, engineFeedKeys, enginePrematch, tickEngine } from "./engine";
 import { extraMarketsFor, fetchEventOdds, fetchOdds, fetchResults, fetchScores, listSports, quota, REGIONS } from "./oddsapi";
 import { tickVirtual } from "./sim";
 
@@ -31,6 +32,14 @@ const SCORES_EVERY_MS = Number(env.SCORES_SYNC_MINUTES ?? 60) * 60_000;
 /** Direct sur les vrais matchs (nécessite un abonnement avec assez de crédits). */
 const LIVE = env.ODDS_LIVE === "on";
 const LIVE_EVERY_MS = Math.max(15, Number(env.ODDS_LIVE_SECONDS ?? 60)) * 1000;
+/**
+ * Moteur de cotes maison : pendant les vrais matchs, seuls les scores sont demandés au fournisseur
+ * (1 crédit par compétition), et nos modèles recalculent toutes les cotes. Ignoré si ODDS_LIVE=on.
+ */
+const ENGINE = !LIVE && env.ODDS_LIVE_ENGINE === "on";
+const ENGINE_EVERY_MS = Math.max(15, Number(env.ODDS_LIVE_ENGINE_SECONDS ?? 60)) * 1000;
+/** Recalcul des cotes en direct par le moteur (le temps qui passe fait bouger les cotes). */
+const ENGINE_TICK_MS = 10_000;
 /** Marchés supplémentaires chargés à l'ouverture d'une fiche match. */
 const EXTRA = env.ODDS_EXTRA_MARKETS !== "off";
 const EXTRA_EVERY_MS = Number(env.ODDS_EXTRA_MINUTES ?? 15) * 60_000;
@@ -69,10 +78,14 @@ class Bucket {
   }
 }
 const perMs = MONTHLY_CREDITS / (30 * 86_400_000);
-const shares = LIVE ? { upcoming: 0.45, live: 0.35, extra: 0.2 } : { upcoming: 0.7, live: 0, extra: 0.3 };
+const shares = LIVE
+  ? { upcoming: 0.45, live: 0.35, extra: 0.2 }
+  : ENGINE
+    ? { upcoming: 0.5, live: 0.3, extra: 0.2 }
+    : { upcoming: 0.7, live: 0, extra: 0.3 };
 const buckets = {
   upcoming: new Bucket(perMs * shares.upcoming, MARKETS.length * regions + 2),
-  live: new Bucket(perMs * shares.live, MARKETS.length * regions + 1),
+  live: new Bucket(perMs * shares.live, ENGINE ? 4 : MARKETS.length * regions + 1),
   extra: new Bucket(perMs * shares.extra, 12 * regions),
 };
 
@@ -130,6 +143,21 @@ async function liveStep() {
     lastLive.set(sport, now);
     await refreshOdds(sport, buckets.live);
     applyScores(await metered(buckets.live, 1, () => fetchScores(KEY!, sport)));
+    settle();
+  }
+}
+
+/** Moteur maison : scores des compétitions en cours, puis recalcul immédiat des cotes. */
+async function engineStep() {
+  if (!ENGINE || lowOnCredits()) return;
+  const now = Date.now();
+  for (const sport of engineFeedKeys(now)) {
+    if (now - (lastLive.get(sport) ?? 0) < ENGINE_EVERY_MS) continue;
+    if (!buckets.live.can(1)) return;
+    lastLive.set(sport, now);
+    const scores = await metered(buckets.live, 1, () => fetchScores(KEY!, sport));
+    applyLiveStates(scores);
+    tickEngine();
     settle();
   }
 }
@@ -194,7 +222,13 @@ function every(ms: number, task: () => Promise<void> | void, label: string) {
 export function startSportsSync() {
   if (KEY) {
     feedConfig.live = LIVE;
-    feedConfig.liveMaxAgeMs = Math.max(2 * LIVE_EVERY_MS + 30_000, 90_000);
+    feedConfig.engine = ENGINE;
+    feedConfig.liveMaxAgeMs = Math.max(2 * (ENGINE ? ENGINE_EVERY_MS : LIVE_EVERY_MS) + 30_000, 90_000);
+    if (ENGINE) {
+      // Avant-match : le moteur complète la fiche de chaque vrai match avec tous ses marchés.
+      feedHooks.beforeDetail = (id) => enginePrematch(id);
+      every(ENGINE_TICK_MS, () => void tickEngine(), "moteur de cotes");
+    }
     feedConfig.deepMaxAgeMs = EXTRA_EVERY_MS * 2;
     if (EXTRA)
       feedHooks.onEventViewed = (e) => {
@@ -208,6 +242,7 @@ export function startSportsSync() {
       async () => {
         await refreshSportsList();
         await liveStep();
+        await engineStep();
         await extraStep();
         await upcomingStep();
         await resultsStep();
@@ -216,7 +251,7 @@ export function startSportsSync() {
     );
     console.log(
       `[sports] flux réel : ${ALL_SPORTS ? "toutes les compétitions" : sports.join(", ")} ; marchés ${["h2h", ...MARKETS.filter((m) => m !== "h2h")].join(", ")}` +
-        `${EXTRA ? " + marchés supplémentaires sur la fiche match" : ""} ; direct ${LIVE ? `activé (toutes les ${LIVE_EVERY_MS / 1000} s)` : "désactivé"} ; budget ${MONTHLY_CREDITS.toLocaleString("fr-FR")} crédits/mois`,
+        `${EXTRA ? " + marchés supplémentaires sur la fiche match" : ""} ; direct ${LIVE ? `cotes des bookmakers (toutes les ${LIVE_EVERY_MS / 1000} s)` : ENGINE ? `moteur maison (scores toutes les ${ENGINE_EVERY_MS / 1000} s)` : "désactivé"} ; budget ${MONTHLY_CREDITS.toLocaleString("fr-FR")} crédits/mois`,
     );
   }
   if (virtualOn) {

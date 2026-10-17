@@ -53,17 +53,43 @@ Marchés des vrais matchs :
 Seuls les marchés qui se règlent avec le score final sont proposés : le fournisseur ne donne ni les
 buteurs, ni les corners, ni le score par période, donc ces paris-là restent réservés aux matchs virtuels.
 
+### Moteur de cotes maison (direct des vrais matchs)
+
+`src/sports/engine.ts`, activé par `ODDS_LIVE_ENGINE=on`. Au lieu d'acheter les cotes en direct des
+bookmakers, le site ne demande que le **score** des matchs en cours et calcule lui-même toutes les cotes :
+
+1. **Calage avant le match.** Les cotes des bookmakers (1N2 et total principal) servent à régler
+   le modèle du sport : force de chaque équipe et nombre de buts ou de points attendus.
+2. **Pendant le match.** À chaque score reçu, le modèle repart de l'état réel (score, temps écoulé)
+   et recalcule la probabilité de chaque pronostic ; les cotes bougent aussi avec le temps qui passe.
+   Après un changement de score, les marchés sont suspendus 20 secondes (la source a un peu de retard).
+3. **Sécurité.** Si le score n'a pas été mis à jour depuis 2 min 30 (réglage par défaut), les paris
+   et le cash out se ferment jusqu'à la mise à jour suivante. Seuls les pronostics réglables avec le
+   score final sont proposés.
+
+Sports gérés : football, basket (NBA et autres championnats), hockey (vainqueur prolongation
+comprise, comme chez les bookmakers), handball, rugby, football américain, baseball. Les autres
+sports (tennis, MMA…) restent fermés pendant le match.
+
+La minute affichée est **estimée** depuis l'heure du coup d'envoi (« ≈ 67' »), car le fournisseur
+actuel ne donne que le score. Le moteur sait aussi utiliser la minute exacte et les cartons rouges si
+une source les fournit : `applyLiveStates()` accepte `progress`, `clock` et `red` en plus du score.
+
+Avant le coup d'envoi, le moteur complète aussi la fiche de chaque vrai match (au moment où elle
+est ouverte) avec tous les marchés du modèle, sans toucher aux cotes des bookmakers.
+
 **Budget de crédits.** Le serveur répartit lui-même les crédits du mois (matchs à venir, direct,
 marchés supplémentaires, résultats) et ralentit les mises à jour plutôt que de dépasser le budget ;
 sous 25 crédits restants, il ne demande plus que les résultats. Ordres de grandeur :
 
 | Abonnement | Réglage conseillé |
 |---|---|
-| Gratuit, 500 crédits/mois | 2 ou 3 compétitions, `ODDS_LIVE=off` : paris avant le match seulement |
-| 20 000 crédits/mois | `ODDS_SPORTS=all`, `ODDS_LIVE=off`, ou direct sur une sélection de compétitions |
-| 100 000 crédits/mois | `ODDS_SPORTS=all` et `ODDS_LIVE=on` : direct et cash out sur les vrais matchs, mais le rythme ralentit quand beaucoup de matchs se jouent en même temps |
-| 5 000 000 crédits/mois | `ODDS_SPORTS=all`, `ODDS_LIVE=on`, `ODDS_LIVE_SECONDS=30` : direct fluide sur tout le calendrier |
+| Gratuit, 500 crédits/mois | 2 ou 3 compétitions, `ODDS_LIVE_ENGINE=off` : paris avant le match seulement |
+| 20 000 crédits/mois | `ODDS_SPORTS=all` et moteur maison : quelques heures de direct par jour |
+| 100 000 crédits/mois | `ODDS_SPORTS=all` et moteur maison : direct sur l'essentiel du calendrier (environ 16 heures de compétition par jour) |
+| 5 000 000 crédits/mois | `ODDS_SPORTS=all`, moteur maison toutes les 30 s, ou `ODDS_LIVE=on` pour les cotes des bookmakers |
 
+Avec le moteur maison, chaque compétition en cours coûte 1 crédit par minute (`ODDS_LIVE_ENGINE_SECONDS=60`).
 Avec `ODDS_LIVE=on`, un match réel commencé reste ouvert aux paris et au cash out tant que ses cotes
 sont fraîches (2 min 30 avec le réglage par défaut) ; si le budget ne permet plus de les rafraîchir,
 il est fermé jusqu'au résultat. Sans direct, les vrais matchs ferment au coup d'envoi. Les matchs virtuels restent actifs
